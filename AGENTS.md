@@ -1,5 +1,14 @@
 # Repository Guidelines
 
+## Python Environment
+
+- Python version: 3.11
+- Dependencies: Listed in `pyproject.toml`.
+- Always use `uv` to manage dependencies. 
+  - Add packages to `pyproject.toml` as needed.
+  - Use `uv sync` to install dependencies.
+  - Use `uv run <command>` to run commands with the correct environment.
+
 ## Project Structure & Module Organization
 This repository currently contains documentation only:
 - `docs/PRD.md`: Technical requirements and planned module layout.
