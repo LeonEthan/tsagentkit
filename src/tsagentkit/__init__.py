@@ -9,7 +9,7 @@ Basic usage:
     >>> result = run_forecast(data, spec)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # Import commonly used items from contracts
 from tsagentkit.contracts import (
@@ -37,6 +37,12 @@ from tsagentkit.router import (
     make_plan,
     FallbackLadder,
     execute_with_fallback,
+    # Bucketing (v0.2)
+    DataBucketer,
+    BucketConfig,
+    BucketProfile,
+    BucketStatistics,
+    SeriesBucket,
 )
 from tsagentkit.series import (
     TSDataset,
@@ -44,7 +50,11 @@ from tsagentkit.series import (
     SparsityClass,
     build_dataset,
 )
-from tsagentkit.serving import run_forecast
+from tsagentkit.serving import MonitoringConfig, run_forecast
+
+# v0.2 imports (optional - use directly from submodules)
+# from tsagentkit.features import FeatureFactory, FeatureMatrix, compute_feature_hash
+# from tsagentkit.monitoring import DriftDetector, StabilityMonitor, TriggerEvaluator
 
 __all__ = [
     "__version__",
@@ -70,6 +80,12 @@ __all__ = [
     "make_plan",
     "FallbackLadder",
     "execute_with_fallback",
+    # Router Bucketing (v0.2)
+    "DataBucketer",
+    "BucketConfig",
+    "BucketProfile",
+    "BucketStatistics",
+    "SeriesBucket",
     # Backtest
     "BacktestReport",
     "rolling_backtest",
@@ -78,4 +94,5 @@ __all__ = [
     "mase",
     # Serving
     "run_forecast",
+    "MonitoringConfig",
 ]

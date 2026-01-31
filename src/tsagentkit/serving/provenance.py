@@ -62,6 +62,8 @@ def create_provenance(
     model_config: dict[str, Any] | None = None,
     qa_repairs: list[dict[str, Any]] | None = None,
     fallbacks_triggered: list[dict[str, Any]] | None = None,
+    feature_matrix: Any | None = None,
+    drift_report: Any | None = None,
 ) -> dict[str, Any]:
     """Create a provenance record for a forecasting run.
 
@@ -72,13 +74,15 @@ def create_provenance(
         model_config: Model configuration
         qa_repairs: List of QA repairs applied
         fallbacks_triggered: List of fallback events
+        feature_matrix: Optional FeatureMatrix for feature signature (v0.2)
+        drift_report: Optional DriftReport for drift info (v0.2)
 
     Returns:
         Provenance dictionary with signatures and metadata
     """
     from datetime import datetime, timezone
 
-    return {
+    provenance: dict[str, Any] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "data_signature": compute_data_signature(data),
         "task_signature": task_spec.model_hash(),
@@ -87,6 +91,22 @@ def create_provenance(
         "qa_repairs": qa_repairs or [],
         "fallbacks_triggered": fallbacks_triggered or [],
     }
+
+    # v0.2: Add feature signature if available
+    if feature_matrix is not None:
+        provenance["feature_signature"] = feature_matrix.signature
+        provenance["feature_config_hash"] = feature_matrix.config_hash
+        provenance["n_features"] = len(feature_matrix.feature_cols)
+
+    # v0.2: Add drift info if available
+    if drift_report is not None:
+        provenance["drift_detected"] = drift_report.drift_detected
+        provenance["drift_score"] = drift_report.overall_drift_score
+        provenance["drift_threshold"] = drift_report.threshold_used
+        if drift_report.drift_detected:
+            provenance["drifting_features"] = drift_report.get_drifting_features()
+
+    return provenance
 
 
 def log_event(

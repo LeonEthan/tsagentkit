@@ -7,6 +7,7 @@ the complete forecasting pipeline.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import pandas as pd
@@ -26,12 +27,40 @@ from .packaging import RunArtifact, package_run
 from .provenance import create_provenance, log_event
 
 
+@dataclass
+class MonitoringConfig:
+    """Configuration for monitoring during forecasting.
+
+    Attributes:
+        enabled: Whether monitoring is enabled
+        drift_method: Drift detection method ("psi" or "ks")
+        drift_threshold: Threshold for drift detection
+        check_stability: Whether to compute stability metrics
+        jitter_threshold: Threshold for jitter warnings
+
+    Example:
+        >>> config = MonitoringConfig(
+        ...     enabled=True,
+        ...     drift_method="psi",
+        ...     drift_threshold=0.2,
+        ... )
+    """
+
+    enabled: bool = False
+    drift_method: Literal["psi", "ks"] = "psi"
+    drift_threshold: float | None = None
+    check_stability: bool = False
+    jitter_threshold: float = 0.1
+
+
 def run_forecast(
     data: pd.DataFrame,
     task_spec: TaskSpec,
     mode: Literal["quick", "standard", "strict"] = "standard",
     fit_func: Any | None = None,
     predict_func: Any | None = None,
+    monitoring_config: MonitoringConfig | None = None,
+    reference_data: pd.DataFrame | None = None,
 ) -> RunArtifact:
     """Execute the complete forecasting pipeline.
 
@@ -48,6 +77,8 @@ def run_forecast(
             - "strict": Fail on any QA issue (no auto-repair)
         fit_func: Optional custom model fit function
         predict_func: Optional custom model predict function
+        monitoring_config: Optional monitoring configuration (v0.2)
+        reference_data: Optional reference data for drift detection (v0.2)
 
     Returns:
         RunArtifact with forecast, metrics, and provenance
@@ -190,7 +221,40 @@ def run_forecast(
         )
     )
 
-    # Step 8: Create Provenance
+    # Step 8: Drift Detection (v0.2)
+    drift_report = None
+    if monitoring_config and monitoring_config.enabled and reference_data is not None:
+        step_start = time.time()
+        try:
+            from tsagentkit.monitoring import DriftDetector
+
+            detector = DriftDetector(
+                method=monitoring_config.drift_method,
+                threshold=monitoring_config.drift_threshold,
+            )
+            drift_report = detector.detect(
+                reference_data=reference_data,
+                current_data=data,
+            )
+            events.append(
+                log_event(
+                    step_name="drift_detection",
+                    status="success",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    artifacts_generated=["drift_report"],
+                )
+            )
+        except Exception as e:
+            events.append(
+                log_event(
+                    step_name="drift_detection",
+                    status="failed",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    error_code=type(e).__name__,
+                )
+            )
+
+    # Step 9: Create Provenance
     provenance = create_provenance(
         data=data,
         task_spec=task_spec,
@@ -198,9 +262,10 @@ def run_forecast(
         model_config=plan.config,
         qa_repairs=qa_repairs,
         fallbacks_triggered=fallbacks_triggered,
+        drift_report=drift_report,
     )
 
-    # Step 9: Package
+    # Step 10: Package
     artifact = package_run(
         forecast=forecast_df,
         plan=plan,
