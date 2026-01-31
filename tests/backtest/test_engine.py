@@ -11,6 +11,28 @@ from tsagentkit.router import Plan
 from tsagentkit.series import TSDataset
 
 
+@pytest.fixture
+def sample_dataset() -> TSDataset:
+    """Create a sample dataset."""
+    df = pd.DataFrame({
+        "unique_id": ["A"] * 50 + ["B"] * 50,
+        "ds": list(pd.date_range("2024-01-01", periods=50, freq="D")) * 2,
+        "y": list(range(50)) * 2,
+    })
+    spec = TaskSpec(horizon=7, freq="D")
+    return TSDataset.from_dataframe(df, spec)
+
+
+@pytest.fixture
+def sample_plan() -> Plan:
+    """Create a sample plan."""
+    return Plan(
+        primary_model="Naive",
+        fallback_chain=[],
+        config={"season_length": 7},
+    )
+
+
 class TestValidateTemporalOrdering:
     """Tests for temporal ordering validation."""
 
@@ -110,26 +132,6 @@ class TestCrossValidationSplit:
 class TestRollingBacktest:
     """Tests for rolling_backtest function."""
 
-    @pytest.fixture
-    def sample_dataset(self) -> TSDataset:
-        """Create a sample dataset."""
-        df = pd.DataFrame({
-            "unique_id": ["A"] * 50 + ["B"] * 50,
-            "ds": list(pd.date_range("2024-01-01", periods=50, freq="D")) * 2,
-            "y": list(range(50)) * 2,
-        })
-        spec = TaskSpec(horizon=7, freq="D")
-        return TSDataset.from_dataframe(df, spec)
-
-    @pytest.fixture
-    def sample_plan(self) -> Plan:
-        """Create a sample plan."""
-        return Plan(
-            primary_model="Naive",
-            fallback_chain=[],
-            config={"season_length": 7},
-        )
-
     def test_returns_backtest_report(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
         """Test that rolling_backtest returns a BacktestReport."""
         from tsagentkit.backtest import BacktestReport
@@ -201,6 +203,58 @@ class TestRollingBacktest:
         )
 
         assert "mae" in report.aggregate_metrics
+
+
+class TestRollingBacktestRealWorldData:
+    """Tests using a real-world dataset (AirPassengers)."""
+
+    @staticmethod
+    def _air_passengers_dataframe() -> pd.DataFrame:
+        """Return a real-world monthly passenger dataset (1949-1951)."""
+        values = [
+            112, 118, 132, 129, 121, 135, 148, 148, 136, 119, 104, 118,
+            115, 126, 141, 135, 125, 149, 170, 170, 158, 133, 114, 140,
+            145, 150, 178, 163, 172, 178, 199, 199, 184, 162, 146, 166,
+        ]
+        dates = pd.date_range("1949-01-01", periods=len(values), freq="MS")
+        return pd.DataFrame({
+            "unique_id": ["AirPassengers"] * len(values),
+            "ds": dates,
+            "y": values,
+        })
+
+    def test_backtest_runs_on_air_passengers(self) -> None:
+        """Ensure rolling backtest works on real-world data."""
+        df = self._air_passengers_dataframe()
+        spec = TaskSpec(horizon=3, freq="MS", season_length=12)
+        dataset = TSDataset.from_dataframe(df, spec)
+        plan = Plan(
+            primary_model="Naive",
+            fallback_chain=[],
+            config={"season_length": 12},
+        )
+
+        def fit_func(model, data, config):
+            return {"type": model}
+
+        def predict_func(model, data, horizon):
+            result = data[["unique_id", "ds", "y"]].copy()
+            result["yhat"] = result["y"]
+            return result
+
+        report = rolling_backtest(
+            dataset=dataset,
+            spec=spec,
+            plan=plan,
+            fit_func=fit_func,
+            predict_func=predict_func,
+            n_windows=3,
+        )
+
+        assert report.n_windows == 3
+        assert len(report.window_results) == 3
+        assert report.errors == []
+        assert report.aggregate_metrics["mae"] <= 1e-9
         assert report.aggregate_metrics["mae"] >= 0
 
     def test_expanding_strategy(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:

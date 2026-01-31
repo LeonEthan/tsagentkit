@@ -162,7 +162,7 @@ def _validate_column_types(df: pd.DataFrame) -> list[dict[str, Any]]:
     # ds should be datetime
     if not pd.api.types.is_datetime64_any_dtype(df["ds"]):
         try:
-            df["ds"] = pd.to_datetime(df["ds"])
+            df["ds"] = pd.to_datetime(df["ds"], format="mixed")
         except Exception as e:
             errors.append({
                 "code": EContractInvalidType.error_code,
