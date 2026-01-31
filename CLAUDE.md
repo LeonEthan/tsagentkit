@@ -8,6 +8,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The project is currently in the documentation-only phase. Implementation has not yet begun.
 
+## Python Environment
+
+- Python version: 3.11
+- Dependencies: Listed in `pyproject.toml`.
+- Always use `uv` to manage dependencies. 
+  - Add packages to `pyproject.toml` as needed.
+  - Use `uv sync` to install dependencies.
+  - Use `uv run <command>` to run commands with the correct environment.
+
 ## Planned Architecture
 
 The codebase will follow this workflow pipeline:
