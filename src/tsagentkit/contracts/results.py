@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 
+from tsagentkit.utils import parse_quantile_column
 
 @dataclass(frozen=True)
 class Provenance:
@@ -96,7 +97,7 @@ class ForecastResult:
         Returns:
             List of column names starting with 'q' (quantile columns)
         """
-        return [c for c in self.df.columns if c.startswith("q") and c != "q"]
+        return [c for c in self.df.columns if parse_quantile_column(c) is not None]
 
     def get_series(self, unique_id: str) -> pd.DataFrame:
         """Get forecast for a specific series.
@@ -250,3 +251,45 @@ class RunArtifact:
             "provenance": self.provenance.to_dict() if self.provenance else None,
             "metadata": self.metadata,
         }
+
+    def summary(self) -> str:
+        """Generate a human-readable summary."""
+        model_name = self.forecast.model_name if self.forecast else "N/A"
+        forecast_rows = len(self.forecast.df) if self.forecast else 0
+
+        plan_desc = "N/A"
+        if isinstance(self.plan, dict):
+            primary = self.plan.get("primary_model")
+            fallback = self.plan.get("fallback_chain", [])
+            if primary:
+                chain = "->".join([primary] + list(fallback)) if fallback else primary
+                plan_desc = f"Plan({chain})"
+            else:
+                plan_desc = str(self.plan.get("signature") or self.plan)
+        else:
+            plan_desc = str(self.plan)
+
+        lines = [
+            "Run Artifact Summary",
+            "=" * 40,
+            f"Model: {model_name}",
+            f"Plan: {plan_desc}",
+            f"Forecast rows: {forecast_rows}",
+        ]
+
+        if self.backtest_report:
+            n_windows = self.backtest_report.get("n_windows")
+            if n_windows is not None:
+                lines.append(f"Backtest windows: {n_windows}")
+            metrics = self.backtest_report.get("aggregate_metrics", {})
+            if metrics:
+                lines.append("Aggregate Metrics:")
+                for name, value in sorted(metrics.items()):
+                    lines.append(f"  {name}: {value:.4f}")
+
+        if self.provenance:
+            lines.append("\nProvenance:")
+            lines.append(f"  Data signature: {self.provenance.data_signature}")
+            lines.append(f"  Timestamp: {self.provenance.timestamp}")
+
+        return "\n".join(lines)

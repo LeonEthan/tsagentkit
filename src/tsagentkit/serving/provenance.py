@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import pandas as pd
 
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     pass
 
     from tsagentkit.contracts import TaskSpec
+    from tsagentkit.contracts import Provenance
     from tsagentkit.router import Plan
 
 
@@ -64,7 +66,7 @@ def create_provenance(
     fallbacks_triggered: list[dict[str, Any]] | None = None,
     feature_matrix: Any | None = None,
     drift_report: Any | None = None,
-) -> dict[str, Any]:
+) -> "Provenance":
     """Create a provenance record for a forecasting run.
 
     Args:
@@ -78,35 +80,39 @@ def create_provenance(
         drift_report: Optional DriftReport for drift info (v0.2)
 
     Returns:
-        Provenance dictionary with signatures and metadata
+        Provenance object with signatures and metadata
     """
     from datetime import datetime, timezone
 
-    provenance: dict[str, Any] = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "data_signature": compute_data_signature(data),
-        "task_signature": task_spec.model_hash(),
-        "plan_signature": plan.signature,
-        "model_signature": compute_config_signature(model_config or {}),
-        "qa_repairs": qa_repairs or [],
-        "fallbacks_triggered": fallbacks_triggered or [],
-    }
+    from tsagentkit.contracts import Provenance
+
+    metadata: dict[str, Any] = {}
 
     # v0.2: Add feature signature if available
     if feature_matrix is not None:
-        provenance["feature_signature"] = feature_matrix.signature
-        provenance["feature_config_hash"] = feature_matrix.config_hash
-        provenance["n_features"] = len(feature_matrix.feature_cols)
+        metadata["feature_signature"] = feature_matrix.signature
+        metadata["feature_config_hash"] = feature_matrix.config_hash
+        metadata["n_features"] = len(feature_matrix.feature_cols)
 
     # v0.2: Add drift info if available
     if drift_report is not None:
-        provenance["drift_detected"] = drift_report.drift_detected
-        provenance["drift_score"] = drift_report.overall_drift_score
-        provenance["drift_threshold"] = drift_report.threshold_used
+        metadata["drift_detected"] = drift_report.drift_detected
+        metadata["drift_score"] = drift_report.overall_drift_score
+        metadata["drift_threshold"] = drift_report.threshold_used
         if drift_report.drift_detected:
-            provenance["drifting_features"] = drift_report.get_drifting_features()
+            metadata["drifting_features"] = drift_report.get_drifting_features()
 
-    return provenance
+    return Provenance(
+        run_id=str(uuid4()),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        data_signature=compute_data_signature(data),
+        task_signature=task_spec.model_hash(),
+        plan_signature=plan.signature,
+        model_signature=compute_config_signature(model_config or {}),
+        qa_repairs=qa_repairs or [],
+        fallbacks_triggered=fallbacks_triggered or [],
+        metadata=metadata,
+    )
 
 
 def log_event(

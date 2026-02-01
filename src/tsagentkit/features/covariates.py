@@ -70,6 +70,49 @@ class CovariateConfig:
         return self.known + self.observed
 
 
+def infer_covariate_config(
+    df: pd.DataFrame,
+    policy: str,
+    id_col: str = "unique_id",
+    ds_col: str = "ds",
+    target_col: str = "y",
+) -> CovariateConfig:
+    """Infer covariate configuration based on policy and data."""
+    if policy == "ignore":
+        return CovariateConfig()
+
+    covariate_cols = [
+        c for c in df.columns
+        if c not in {id_col, ds_col, target_col}
+    ]
+
+    if not covariate_cols:
+        return CovariateConfig()
+
+    if policy == "known":
+        return CovariateConfig(known=covariate_cols, observed=[])
+    if policy == "observed":
+        return CovariateConfig(known=[], observed=covariate_cols)
+
+    # Auto policy: infer based on future rows (y is null)
+    future_mask = df[target_col].isna() if target_col in df.columns else None
+    known: list[str] = []
+    observed: list[str] = []
+
+    for col in covariate_cols:
+        if future_mask is not None and future_mask.any():
+            has_future_values = df.loc[future_mask, col].notna().any()
+            if has_future_values:
+                known.append(col)
+            else:
+                observed.append(col)
+        else:
+            # Default to observed if we can't see future values
+            observed.append(col)
+
+    return CovariateConfig(known=known, observed=observed)
+
+
 class CovariateManager:
     """Manage known vs observed covariates with leakage protection.
 

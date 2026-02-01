@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from tsagentkit.contracts import TaskSpec
 from tsagentkit.hierarchy import ReconciliationMethod
 
+from .bucketing import DataBucketer, SeriesBucket
 from .fallback import FallbackLadder
 from .plan import Plan
 
@@ -124,6 +125,15 @@ def _make_auto_plan(
     if task_spec.quantiles:
         config["quantiles"] = task_spec.quantiles
 
+    # Add bucket profile summary (v0.2+)
+    try:
+        bucketer = DataBucketer()
+        bucket_profile = bucketer.create_bucket_profile(dataset, sparsity)
+        bucket_counts = bucket_profile.get_bucket_counts()
+        config["bucket_counts"] = {b.value: bucket_counts.get(b, 0) for b in SeriesBucket}
+    except Exception:
+        config["bucket_counts"] = {}
+
     return Plan(
         primary_model=primary,
         fallback_chain=fallback_chain,
@@ -165,10 +175,10 @@ def _make_hierarchical_plan(
     if available_tsfms:
         primary = f"tsfm-{available_tsfms[0]}"
         fallback_chain = [f"tsfm-{t}" for t in available_tsfms[1:]] + \
-                         ["theta", "seasonal_naive"]
+                         ["Theta", "SeasonalNaive"]
     else:
-        primary = "seasonal_naive"
-        fallback_chain = ["theta", "historic_average"]
+        primary = "SeasonalNaive"
+        fallback_chain = ["Theta", "HistoricAverage"]
 
     config = {
         "hierarchical": True,

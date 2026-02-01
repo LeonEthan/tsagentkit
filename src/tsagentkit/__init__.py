@@ -50,6 +50,7 @@ from tsagentkit.series import (
     SparsityClass,
     build_dataset,
 )
+from tsagentkit.qa import run_qa
 from tsagentkit.serving import MonitoringConfig, run_forecast
 
 # v0.2 imports (optional - use directly from submodules)
@@ -75,6 +76,8 @@ __all__ = [
     "SparsityProfile",
     "SparsityClass",
     "build_dataset",
+    # QA
+    "run_qa",
     # Router
     "Plan",
     "make_plan",

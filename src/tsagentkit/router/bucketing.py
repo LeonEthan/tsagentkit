@@ -279,7 +279,9 @@ class DataBucketer:
             BucketProfile with assignments and statistics
         """
         # Extract DataFrame from TSDataset
-        if hasattr(dataset, "data"):
+        if hasattr(dataset, "df"):
+            df = dataset.df
+        elif hasattr(dataset, "data"):
             df = dataset.data
         else:
             df = dataset

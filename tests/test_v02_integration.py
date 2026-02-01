@@ -308,10 +308,10 @@ class TestProvenanceIntegration:
             feature_matrix=mock_feature_matrix,
         )
 
-        assert "feature_signature" in provenance
-        assert "feature_config_hash" in provenance
-        assert "n_features" in provenance
-        assert provenance["feature_signature"] == mock_feature_matrix.signature
+        assert "feature_signature" in provenance.metadata
+        assert "feature_config_hash" in provenance.metadata
+        assert "n_features" in provenance.metadata
+        assert provenance.metadata["feature_signature"] == mock_feature_matrix.signature
 
     def test_provenance_with_drift(self, mock_drift_report):
         """Test provenance includes drift info."""
@@ -332,11 +332,11 @@ class TestProvenanceIntegration:
             drift_report=mock_drift_report,
         )
 
-        assert "drift_detected" in provenance
-        assert "drift_score" in provenance
-        assert "drift_threshold" in provenance
-        assert "drifting_features" in provenance
-        assert provenance["drift_detected"] is True
+        assert "drift_detected" in provenance.metadata
+        assert "drift_score" in provenance.metadata
+        assert "drift_threshold" in provenance.metadata
+        assert "drifting_features" in provenance.metadata
+        assert provenance.metadata["drift_detected"] is True
 
 
 class TestEndToEndV02:
@@ -410,5 +410,5 @@ class TestEndToEndV02:
             feature_matrix=matrix,
         )
 
-        assert provenance["feature_signature"] == matrix.signature
-        assert provenance["n_features"] == 2  # lag_1 and lag_7
+        assert provenance.metadata["feature_signature"] == matrix.signature
+        assert provenance.metadata["n_features"] == 2  # lag_1 and lag_7

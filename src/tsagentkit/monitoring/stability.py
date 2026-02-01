@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from tsagentkit.monitoring.report import CalibrationReport, StabilityReport
+from tsagentkit.utils import normalize_quantile_columns, quantile_col_name
 
 if TYPE_CHECKING:
     pass
@@ -145,17 +146,15 @@ class StabilityMonitor:
             >>> print(coverage[0.5])  # Should be ~0.5 for well-calibrated model
             0.52
         """
+        forecasts = normalize_quantile_columns(forecasts)
         # Merge actuals with forecasts
         merged = actuals.merge(forecasts, on=["unique_id", "ds"], how="inner")
 
         coverage = {}
         for q in quantiles:
-            col_name = f"q_{q:.2f}"
+            col_name = quantile_col_name(q)
             if col_name not in merged.columns:
-                # Try alternate naming
-                col_name = f"q_{int(q * 100)}"
-                if col_name not in merged.columns:
-                    continue
+                continue
 
             # Compute coverage: proportion of actuals <= quantile prediction
             below_quantile = merged["y"] <= merged[col_name]

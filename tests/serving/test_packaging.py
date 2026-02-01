@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from tsagentkit.contracts import ModelArtifact
+from tsagentkit.contracts import ForecastResult, ModelArtifact, Provenance
 from tsagentkit.router import Plan
 from tsagentkit.serving import RunArtifact, package_run
 
@@ -20,24 +20,39 @@ class TestRunArtifact:
             "yhat": [1.0, 2.0],
         })
         plan = Plan(primary_model="Naive")
+        provenance = Provenance(
+            run_id="test-run",
+            timestamp="2024-01-01T00:00:00Z",
+            data_signature="sig1",
+            task_signature="sig2",
+            plan_signature=plan.signature,
+            model_signature="sig3",
+        )
+        forecast_result = ForecastResult(
+            df=forecast,
+            provenance=provenance,
+            model_name="Naive",
+            horizon=1,
+        )
 
         return RunArtifact(
-            forecast=forecast,
-            plan=plan,
-            model_name="Naive",
+            forecast=forecast_result,
+            plan=plan.to_dict(),
+            model_artifact=None,
+            provenance=provenance,
         )
 
     def test_creation(self, sample_artifact: RunArtifact) -> None:
         """Test creating a RunArtifact."""
-        assert len(sample_artifact.forecast) == 2
-        assert sample_artifact.model_name == "Naive"
+        assert len(sample_artifact.forecast.df) == 2
+        assert sample_artifact.forecast.model_name == "Naive"
 
     def test_to_dict(self, sample_artifact: RunArtifact) -> None:
         """Test conversion to dictionary."""
         d = sample_artifact.to_dict()
 
         assert "forecast" in d
-        assert d["model_name"] == "Naive"
+        assert d["forecast"]["model_name"] == "Naive"
         assert "plan" in d
         assert "provenance" in d
 
@@ -60,15 +75,28 @@ class TestPackageRun:
             "yhat": [1.0],
         })
         plan = Plan(primary_model="Naive")
+        provenance = Provenance(
+            run_id="test-run",
+            timestamp="2024-01-01T00:00:00Z",
+            data_signature="sig1",
+            task_signature="sig2",
+            plan_signature=plan.signature,
+            model_signature="sig3",
+        )
+        forecast_result = ForecastResult(
+            df=forecast,
+            provenance=provenance,
+            model_name="Naive",
+            horizon=1,
+        )
 
         artifact = package_run(
-            forecast=forecast,
+            forecast=forecast_result,
             plan=plan,
-            model_name="Naive",
         )
 
         assert isinstance(artifact, RunArtifact)
-        assert artifact.model_name == "Naive"
+        assert artifact.forecast.model_name == "Naive"
 
     def test_includes_optional_fields(self) -> None:
         """Test that optional fields are included."""
@@ -79,13 +107,25 @@ class TestPackageRun:
         })
         plan = Plan(primary_model="Naive")
         model_artifact = ModelArtifact(model={}, model_name="Naive")
-        provenance = {"timestamp": "2024-01-01"}
+        provenance = Provenance(
+            run_id="test-run",
+            timestamp="2024-01-01T00:00:00Z",
+            data_signature="sig1",
+            task_signature="sig2",
+            plan_signature=plan.signature,
+            model_signature="sig3",
+        )
+        forecast_result = ForecastResult(
+            df=forecast,
+            provenance=provenance,
+            model_name="Naive",
+            horizon=1,
+        )
         metadata = {"mode": "standard"}
 
         artifact = package_run(
-            forecast=forecast,
+            forecast=forecast_result,
             plan=plan,
-            model_name="Naive",
             model_artifact=model_artifact,
             provenance=provenance,
             metadata=metadata,

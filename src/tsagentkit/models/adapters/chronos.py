@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from .base import TSFMAdapter
+from tsagentkit.utils import quantile_col_name
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import ForecastResult, ModelArtifact
@@ -283,7 +284,7 @@ class ChronosAdapter(TSFMAdapter):
                 }
                 # Add quantile columns
                 for q in quantiles or []:
-                    row[f"q{int(q * 100)}"] = float(quantile_values[q][i, h])
+                    row[quantile_col_name(q)] = float(quantile_values[q][i, h])
 
                 result_rows.append(row)
 

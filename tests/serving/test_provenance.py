@@ -86,8 +86,8 @@ class TestComputeConfigSignature:
 class TestCreateProvenance:
     """Tests for create_provenance function."""
 
-    def test_creates_provenance_dict(self) -> None:
-        """Test that provenance dict is created."""
+    def test_creates_provenance(self) -> None:
+        """Test that provenance object is created."""
         df = pd.DataFrame({
             "unique_id": ["A"],
             "ds": pd.to_datetime(["2024-01-01"]),
@@ -98,13 +98,13 @@ class TestCreateProvenance:
 
         provenance = create_provenance(df, spec, plan)
 
-        assert "timestamp" in provenance
-        assert "data_signature" in provenance
-        assert "task_signature" in provenance
-        assert "plan_signature" in provenance
-        assert "model_signature" in provenance
-        assert "qa_repairs" in provenance
-        assert "fallbacks_triggered" in provenance
+        assert provenance.timestamp is not None
+        assert provenance.data_signature is not None
+        assert provenance.task_signature is not None
+        assert provenance.plan_signature is not None
+        assert provenance.model_signature is not None
+        assert provenance.qa_repairs == []
+        assert provenance.fallbacks_triggered == []
 
     def test_includes_repairs_and_fallbacks(self) -> None:
         """Test that repairs and fallbacks are included."""
@@ -119,10 +119,16 @@ class TestCreateProvenance:
         repairs = [{"type": "interpolate"}]
         fallbacks = [{"from": "A", "to": "B"}]
 
-        provenance = create_provenance(df, spec, plan, qa_repairs=repairs, fallbacks_triggered=fallbacks)
+        provenance = create_provenance(
+            df,
+            spec,
+            plan,
+            qa_repairs=repairs,
+            fallbacks_triggered=fallbacks,
+        )
 
-        assert provenance["qa_repairs"] == repairs
-        assert provenance["fallbacks_triggered"] == fallbacks
+        assert provenance.qa_repairs == repairs
+        assert provenance.fallbacks_triggered == fallbacks
 
 
 class TestLogEvent:

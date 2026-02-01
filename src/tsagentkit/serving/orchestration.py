@@ -8,23 +8,29 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
 
 from tsagentkit.backtest import rolling_backtest
 from tsagentkit.contracts import (
-    EModelFitFailed,
+    ECovariateLeakage,
+    ForecastResult,
+    EQACriticalIssue,
     TaskSpec,
     ValidationReport,
     validate_contract,
 )
-from tsagentkit.qa import QAReport
+from tsagentkit.qa import QAReport, run_qa
 from tsagentkit.router import FallbackLadder, execute_with_fallback, make_plan
 from tsagentkit.series import TSDataset
+from tsagentkit.utils import normalize_quantile_columns
 
-from .packaging import RunArtifact, package_run
+from .packaging import package_run
 from .provenance import create_provenance, log_event
+
+if TYPE_CHECKING:
+    from tsagentkit.contracts import RunArtifact
 
 
 @dataclass
@@ -61,7 +67,8 @@ def run_forecast(
     predict_func: Any | None = None,
     monitoring_config: MonitoringConfig | None = None,
     reference_data: pd.DataFrame | None = None,
-) -> RunArtifact:
+    repair_strategy: dict[str, Any] | None = None,
+) -> "RunArtifact":
     """Execute the complete forecasting pipeline.
 
     This is the main entry point for tsagentkit. It orchestrates the
@@ -79,6 +86,7 @@ def run_forecast(
         predict_func: Optional custom model predict function
         monitoring_config: Optional monitoring configuration (v0.2)
         reference_data: Optional reference data for drift detection (v0.2)
+        repair_strategy: Optional QA repair configuration (overrides TaskSpec)
 
     Returns:
         RunArtifact with forecast, metrics, and provenance
@@ -95,6 +103,7 @@ def run_forecast(
     start_time = time.time()
 
     # Step 1: Validate
+    data = data.copy()
     step_start = time.time()
     validation = _step_validate(data)
     events.append(
@@ -111,7 +120,17 @@ def run_forecast(
 
     # Step 2: QA
     step_start = time.time()
-    qa_report = _step_qa(data, task_spec, mode)
+    effective_repair_strategy = (
+        repair_strategy if repair_strategy is not None else task_spec.repair_strategy
+    )
+    qa_report = _step_qa(
+        data,
+        task_spec,
+        mode,
+        apply_repairs=mode != "strict",
+        repair_strategy=effective_repair_strategy,
+    )
+    qa_repairs = qa_report.repairs
     events.append(
         log_event(
             step_name="qa",
@@ -145,16 +164,45 @@ def run_forecast(
 
     # Step 5: Backtest (if standard or strict mode)
     backtest_report = None
-    if mode in ("standard", "strict") and fit_func and predict_func:
+    if mode in ("standard", "strict"):
         step_start = time.time()
         try:
+            from tsagentkit.models import fit as default_fit
+            from tsagentkit.models import predict as default_predict
+
+            if fit_func is None:
+                fit_func = default_fit
+            if predict_func is None:
+                predict_func = default_predict
+
+            # Wrap default functions for backtest signature
+            if fit_func is default_fit and predict_func is default_predict:
+                def bt_fit(model_name: str, train_df: pd.DataFrame, config: dict[str, Any]) -> Any:
+                    train_ds = TSDataset.from_dataframe(
+                        train_df, task_spec, validate=False
+                    )
+                    return fit_func(model_name, train_ds, config)
+
+                def bt_predict(model: Any, test_df: pd.DataFrame, horizon: int) -> pd.DataFrame:
+                    test_ds = TSDataset.from_dataframe(
+                        test_df, task_spec, validate=False, compute_sparsity=False
+                    )
+                    return predict_func(model, test_ds, horizon)
+
+                backtest_fit = bt_fit
+                backtest_predict = bt_predict
+            else:
+                backtest_fit = fit_func
+                backtest_predict = predict_func
+
             backtest_report = rolling_backtest(
                 dataset=dataset,
                 spec=task_spec,
                 plan=plan,
-                fit_func=fit_func,
-                predict_func=predict_func,
+                fit_func=backtest_fit,
+                predict_func=backtest_predict,
                 n_windows=3,
+                step_size=task_spec.rolling_step,
             )
             events.append(
                 log_event(
@@ -267,10 +315,15 @@ def run_forecast(
     )
 
     # Step 10: Package
-    artifact = package_run(
-        forecast=forecast_df,
-        plan=plan,
+    forecast_result = ForecastResult(
+        df=forecast_df,
+        provenance=provenance,
         model_name=model_name,
+        horizon=task_spec.horizon,
+    )
+    artifact = package_run(
+        forecast=forecast_result,
+        plan=plan,
         backtest_report=backtest_report,
         qa_report=qa_report,
         model_artifact=model_artifact,
@@ -294,32 +347,28 @@ def _step_qa(
     data: pd.DataFrame,
     task_spec: TaskSpec,
     mode: Literal["quick", "standard", "strict"],
+    apply_repairs: bool = False,
+    repair_strategy: dict[str, Any] | None = None,
 ) -> QAReport:
     """Execute QA step.
 
     For v0.1, this is a minimal implementation.
     """
-    # v0.1: Minimal QA - just check for basic issues
-    issues = []
-    repairs = []
-
-    # Check for missing values
-    missing_count = data["y"].isna().sum()
-    if missing_count > 0:
-        issues.append(
-            {
-                "type": "missing_values",
-                "column": "y",
-                "count": int(missing_count),
-                "severity": "warning" if mode != "strict" else "critical",
-            }
-        )
-
-    return QAReport(
-        issues=issues,
-        repairs=repairs,
-        leakage_detected=False,
+    report = run_qa(
+        data,
+        task_spec,
+        mode,
+        apply_repairs=apply_repairs,
+        repair_strategy=repair_strategy,
     )
+
+    if mode == "strict":
+        if report.leakage_detected:
+            raise ECovariateLeakage("Covariate leakage detected")
+        if report.has_critical_issues():
+            raise EQACriticalIssue("Critical QA issues detected")
+
+    return report
 
 
 def _step_fit(
@@ -358,6 +407,8 @@ def _step_predict(
         predict_func = default_predict
 
     forecast = predict_func(model, dataset, horizon)
+    if isinstance(forecast, ForecastResult):
+        forecast = forecast.df
 
     # Apply reconciliation if hierarchical
     if plan and dataset.is_hierarchical() and dataset.hierarchy:
@@ -379,6 +430,10 @@ def _step_predict(
             structure=dataset.hierarchy,
             method=method,
         )
+
+    forecast = normalize_quantile_columns(forecast)
+    if {"unique_id", "ds"}.issubset(forecast.columns):
+        forecast = forecast.sort_values(["unique_id", "ds"]).reset_index(drop=True)
 
     return forecast
 

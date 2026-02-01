@@ -313,6 +313,18 @@ def reconcile_forecasts(
     Returns:
         Reconciled forecasts DataFrame
     """
+    # Prefer hierarchicalforecast if available (fallback to internal on error)
+    hf_result = _try_hierarchicalforecast(
+        base_forecasts=base_forecasts,
+        structure=structure,
+        method=method,
+        fitted_values=fitted_values,
+        residuals=residuals,
+        **kwargs,
+    )
+    if hf_result is not None:
+        return hf_result
+
     reconciler = Reconciler(method, structure)
 
     # Convert DataFrame to matrix format
@@ -368,3 +380,74 @@ def reconcile_forecasts(
     reconciled_df["reconciliation_method"] = method.value
 
     return reconciled_df
+
+
+def _try_hierarchicalforecast(
+    base_forecasts: pd.DataFrame,
+    structure: HierarchyStructure,
+    method: ReconciliationMethod,
+    fitted_values: pd.DataFrame | None = None,
+    residuals: pd.DataFrame | None = None,
+    **kwargs,
+) -> pd.DataFrame | None:
+    """Attempt reconciliation using hierarchicalforecast if available."""
+    try:
+        from hierarchicalforecast.core import HierarchicalReconciliation
+        from hierarchicalforecast.methods import BottomUp, MiddleOut, MinTrace, TopDown
+    except Exception:
+        return None
+
+    try:
+        tags = {
+            f"level_{level}": structure.get_nodes_at_level(level)
+            for level in range(structure.get_num_levels())
+        }
+
+        reconcilers = []
+        if method == ReconciliationMethod.BOTTOM_UP:
+            reconcilers = [BottomUp()]
+        elif method == ReconciliationMethod.TOP_DOWN:
+            reconcilers = [TopDown()]
+        elif method == ReconciliationMethod.MIDDLE_OUT:
+            middle_level = kwargs.get("middle_level", 1)
+            reconcilers = [MiddleOut(middle_level=middle_level)]
+        elif method == ReconciliationMethod.OLS:
+            reconcilers = [MinTrace(method="ols")]
+        elif method == ReconciliationMethod.WLS:
+            reconcilers = [MinTrace(method="wls")]
+        elif method == ReconciliationMethod.MIN_TRACE:
+            reconcilers = [MinTrace(method="mint_shrink")]
+        else:
+            return None
+
+        hrec = HierarchicalReconciliation(reconcilers=reconcilers)
+
+        s_matrix = pd.DataFrame(
+            structure.s_matrix,
+            index=structure.all_nodes,
+            columns=structure.bottom_nodes,
+        )
+
+        y_insample = None
+        if fitted_values is not None:
+            y_insample = fitted_values.rename(columns={"yhat": "y"})
+
+        y_hat_df = base_forecasts.copy()
+
+        reconciled = hrec.reconcile(
+            Y_hat_df=y_hat_df,
+            S=s_matrix,
+            tags=tags,
+            y_insample=y_insample,
+        )
+
+        # Extract the reconciled forecast column
+        value_cols = [c for c in reconciled.columns if c not in {"unique_id", "ds"}]
+        if not value_cols:
+            return None
+        point_col = value_cols[0]
+        reconciled = reconciled.rename(columns={point_col: "yhat"})
+        reconciled["reconciliation_method"] = method.value
+        return reconciled[["unique_id", "ds", "yhat", "reconciliation_method"]]
+    except Exception:
+        return None

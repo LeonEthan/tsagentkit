@@ -11,33 +11,58 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 from tsagentkit.contracts import ModelArtifact
+from tsagentkit.models.baselines import fit_baseline, is_baseline_model, predict_baseline
+from tsagentkit.utils import normalize_quantile_columns
 
 # Import adapters submodules
 from tsagentkit.models import adapters
 
 if TYPE_CHECKING:
     from tsagentkit.series import TSDataset
+    from tsagentkit.models.adapters import TSFMAdapter
+
+
+def _is_tsfm_model(model_name: str) -> bool:
+    return model_name.lower().startswith("tsfm-")
+
+
+def _build_adapter_config(model_name: str, config: dict[str, Any]) -> "adapters.AdapterConfig":
+    adapter_name = model_name.split("tsfm-", 1)[-1]
+    return adapters.AdapterConfig(
+        model_name=adapter_name,
+        model_size=config.get("model_size", "base"),
+        device=config.get("device"),
+        cache_dir=config.get("cache_dir"),
+        batch_size=config.get("batch_size", 32),
+        prediction_batch_size=config.get("prediction_batch_size", 100),
+        quantile_method=config.get("quantile_method", "sample"),
+        num_samples=config.get("num_samples", 100),
+        max_context_length=config.get("max_context_length"),
+    )
 
 
 def fit(model_name: str, dataset: TSDataset, config: dict[str, Any]) -> ModelArtifact:
-    """Fit a model.
+    """Fit a model with baseline or TSFM dispatch."""
+    if _is_tsfm_model(model_name):
+        adapter_name = model_name.split("tsfm-", 1)[-1]
+        adapter_config = _build_adapter_config(model_name, config)
+        adapter = adapters.AdapterRegistry.create(adapter_name, adapter_config)
+        adapter.fit(
+            dataset=dataset,
+            prediction_length=config.get("horizon", dataset.task_spec.horizon),
+            quantiles=config.get("quantiles"),
+        )
+        return ModelArtifact(
+            model=adapter,
+            model_name=model_name,
+            config=config,
+            metadata={"adapter": adapter_name},
+        )
 
-    This is a stub implementation for v0.1.
-    In a full implementation, this would dispatch to model-specific fit functions.
+    if is_baseline_model(model_name):
+        return fit_baseline(model_name, dataset, config)
 
-    Args:
-        model_name: Name of the model to fit
-        dataset: TSDataset with training data
-        config: Model configuration
-
-    Returns:
-        ModelArtifact with fitted model
-    """
-    return ModelArtifact(
-        model={"name": model_name, "config": config},
-        model_name=model_name,
-        config=config,
-    )
+    raise ValueError(f"Unknown model name: {model_name}")
 
 
 def predict(
@@ -45,40 +70,25 @@ def predict(
     dataset: TSDataset,
     horizon: int,
 ) -> pd.DataFrame:
-    """Generate predictions.
+    """Generate predictions for baseline or TSFM models."""
+    if isinstance(model.model, adapters.TSFMAdapter):
+        result = model.model.predict(
+            dataset=dataset,
+            horizon=horizon,
+            quantiles=model.config.get("quantiles"),
+        )
+        return normalize_quantile_columns(result.df)
 
-    This is a stub implementation for v0.1.
-    In a full implementation, this would dispatch to model-specific predict functions.
+    if is_baseline_model(model.model_name):
+        forecast_df = predict_baseline(
+            model_artifact=model,
+            dataset=dataset,
+            horizon=horizon,
+            quantiles=model.config.get("quantiles"),
+        )
+        return normalize_quantile_columns(forecast_df)
 
-    Args:
-        model: Fitted model artifact
-        dataset: TSDataset with historical data
-        horizon: Forecast horizon
-
-    Returns:
-        DataFrame with predictions
-    """
-    # Generate simple naive forecast for stub
-    unique_ids = dataset.df["unique_id"].unique()
-    last_dates = dataset.df.groupby("unique_id")["ds"].max()
-
-    predictions = []
-    for uid in unique_ids:
-        last_date = last_dates[uid]
-        last_value = dataset.df[
-            (dataset.df["unique_id"] == uid) & (dataset.df["ds"] == last_date)
-        ]["y"].values[0]
-
-        for h in range(1, horizon + 1):
-            predictions.append(
-                {
-                    "unique_id": uid,
-                    "ds": pd.date_range(start=last_date, periods=h + 1, freq="D")[-1],
-                    "yhat": last_value,
-                }
-            )
-
-    return pd.DataFrame(predictions)
+    raise ValueError(f"Unknown model type for prediction: {model.model_name}")
 
 
 __all__ = ["fit", "predict", "adapters"]

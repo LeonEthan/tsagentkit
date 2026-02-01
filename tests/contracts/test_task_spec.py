@@ -32,6 +32,12 @@ class TestTaskSpecCreation:
             spec = TaskSpec(horizon=7, freq="D", covariate_policy=policy)  # type: ignore
             assert spec.covariate_policy == policy
 
+    def test_spec_with_repair_strategy(self) -> None:
+        """Test creating spec with repair strategy."""
+        strategy = {"interpolate_missing": False, "winsorize_outliers": True}
+        spec = TaskSpec(horizon=7, freq="D", repair_strategy=strategy)
+        assert spec.repair_strategy == strategy
+
 
 class TestTaskSpecValidation:
     """Tests for TaskSpec validation."""
@@ -143,9 +149,11 @@ class TestTaskSpecSignatures:
         spec1 = TaskSpec(horizon=7, freq="D")
         spec2 = TaskSpec(horizon=7, freq="D")
         spec3 = TaskSpec(horizon=14, freq="D")
+        spec4 = TaskSpec(horizon=7, freq="D", repair_strategy={"interpolate_missing": False})
 
         assert spec1.model_hash() == spec2.model_hash()
         assert spec1.model_hash() != spec3.model_hash()
+        assert spec1.model_hash() != spec4.model_hash()
 
     def test_hash_is_hex(self) -> None:
         """Test hash is hexadecimal string."""

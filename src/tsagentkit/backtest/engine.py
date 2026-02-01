@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from tsagentkit.contracts import ESplitRandomForbidden
+from tsagentkit.utils import normalize_quantile_columns, parse_quantile_column
 
 from .metrics import compute_all_metrics
 from .report import BacktestReport, SeriesMetrics, WindowResult
@@ -136,6 +137,7 @@ def rolling_backtest(
                     dataset.hierarchy,
                     plan.config.get("reconciliation_method", "bottom_up"),
                 )
+            predictions = normalize_quantile_columns(predictions)
 
             # Compute metrics per series
             for uid in test_df["unique_id"].unique():
@@ -148,6 +150,20 @@ def rolling_backtest(
                 y_true = test_series["y"].values
                 y_pred = pred_series["yhat"].values
 
+                # Collect quantile forecasts if present
+                y_quantiles: dict[float, np.ndarray] | None = None
+                quantile_cols = [
+                    c for c in pred_series.columns
+                    if parse_quantile_column(c) is not None
+                ]
+                if quantile_cols:
+                    y_quantiles = {}
+                    for col in quantile_cols:
+                        q_val = parse_quantile_column(col)
+                        if q_val is None:
+                            continue
+                        y_quantiles[q_val] = pred_series[col].values
+
                 # Get training data for MASE
                 train_series = train_df[train_df["unique_id"] == uid]
                 y_train = train_series["y"].values if len(train_series) > 0 else None
@@ -158,6 +174,7 @@ def rolling_backtest(
                     y_pred=y_pred,
                     y_train=y_train,
                     season_length=season_length,
+                    y_quantiles=y_quantiles,
                 )
 
                 # Aggregate per series

@@ -1,6 +1,17 @@
 # tsagentkit Recipes
 
-> Runnable examples for common forecasting scenarios.
+## What
+Runnable, end-to-end examples for common forecasting scenarios.
+
+## When
+Use these as templates when building scripts or demos.
+
+## Inputs
+- `data`: pandas DataFrame with `unique_id`, `ds`, `y`
+- `task_spec`: `TaskSpec`
+
+## Workflow
+- Pick a recipe, generate or load data, define `TaskSpec`, call `run_forecast`.
 
 ## Recipe 1: Retail Daily Sales
 

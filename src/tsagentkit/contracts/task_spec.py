@@ -23,6 +23,7 @@ class TaskSpec(BaseModel):
         rolling_step: Step size for rolling backtest windows
         quantiles: List of quantiles to forecast (optional)
         covariate_policy: How to handle covariates ('ignore', 'known', 'auto')
+        repair_strategy: QA repair strategy configuration (optional)
         season_length: Seasonal period (auto-detected if None)
         valid_from: Start date for validation period (optional)
         valid_until: End date for validation period (optional)
@@ -69,6 +70,13 @@ class TaskSpec(BaseModel):
                     "'known' (all covariates known in advance), "
                     "'observed' (covariates observed up to forecast time), "
                     "'auto' (infer from data)",
+    )
+
+    # QA repair strategy
+    repair_strategy: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional QA repair configuration (e.g., interpolate_missing, "
+                    "winsorize_outliers, missing_method)",
     )
 
     # Seasonality

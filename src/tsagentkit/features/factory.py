@@ -70,7 +70,9 @@ class FeatureFactory:
             ValueError: If required columns are missing
         """
         # Extract DataFrame from TSDataset
-        if hasattr(dataset, "data"):
+        if hasattr(dataset, "df"):
+            df = dataset.df.copy()
+        elif hasattr(dataset, "data"):
             df = dataset.data.copy()
         else:
             df = dataset.copy()

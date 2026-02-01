@@ -37,8 +37,8 @@ class TestRunForecast:
         )
 
         assert result is not None
-        assert len(result.forecast) > 0
-        assert result.model_name is not None
+        assert len(result.forecast.df) > 0
+        assert result.forecast.model_name is not None
         assert result.metadata["mode"] == "quick"
 
     def test_standard_mode(self, sample_data: pd.DataFrame, sample_spec: TaskSpec) -> None:
@@ -68,9 +68,10 @@ class TestRunForecast:
             predict_func=predict,
         )
 
-        assert "timestamp" in result.provenance
-        assert "data_signature" in result.provenance
-        assert "task_signature" in result.provenance
+        assert result.provenance is not None
+        assert result.provenance.timestamp is not None
+        assert result.provenance.data_signature is not None
+        assert result.provenance.task_signature is not None
 
     def test_invalid_data_raises(self, sample_spec: TaskSpec) -> None:
         """Test that invalid data raises error."""
@@ -85,6 +86,25 @@ class TestRunForecast:
             run_forecast(
                 data=invalid_data,
                 task_spec=sample_spec,
+            )
+
+    def test_strict_mode_leakage_raises(self) -> None:
+        """Strict mode should raise on covariate leakage."""
+        df = pd.DataFrame({
+            "unique_id": ["A", "A", "A"],
+            "ds": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
+            "y": [1.0, 2.0, None],
+            "promo": [0, 1, 1],
+        })
+        spec = TaskSpec(horizon=1, freq="D", covariate_policy="observed")
+
+        from tsagentkit.contracts import ECovariateLeakage
+
+        with pytest.raises(ECovariateLeakage):
+            run_forecast(
+                data=df,
+                task_spec=spec,
+                mode="strict",
             )
 
     def test_logs_events(self, sample_data: pd.DataFrame, sample_spec: TaskSpec) -> None:
@@ -108,3 +128,29 @@ class TestRunForecast:
         assert "make_plan" in event_names
         assert "fit" in event_names
         assert "predict" in event_names
+
+    def test_repair_strategy_from_task_spec(self) -> None:
+        """Repairs should use TaskSpec repair_strategy when provided."""
+        df = pd.DataFrame({
+            "unique_id": ["A", "A", "A"],
+            "ds": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
+            "y": [1.0, None, 3.0],
+        })
+        spec = TaskSpec(
+            horizon=1,
+            freq="D",
+            repair_strategy={"interpolate_missing": True, "missing_method": "linear"},
+        )
+
+        from tsagentkit.models import fit, predict
+
+        result = run_forecast(
+            data=df,
+            task_spec=spec,
+            mode="quick",
+            fit_func=fit,
+            predict_func=predict,
+        )
+
+        assert result.qa_report is not None
+        assert any(r["type"] == "missing_values" for r in result.qa_report.get("repairs", []))
