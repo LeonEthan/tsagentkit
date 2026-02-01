@@ -152,28 +152,29 @@ class TSFMModelCache:
 
     def _load_model(self, model_name: str, **kwargs) -> TSFMAdapter:
         """Load a TSFM model via the adapter registry."""
-        from tsagentkit.models.adapters import AdapterRegistry
+        from tsagentkit.models.adapters import AdapterConfig, AdapterRegistry
 
-        adapter_class = AdapterRegistry.get_adapter(model_name)
-        if adapter_class is None:
+        try:
+            adapter_class = AdapterRegistry.get(model_name)
+        except ValueError as exc:
             from tsagentkit.contracts import EAdapterNotAvailable
 
             raise EAdapterNotAvailable(
                 f"TSFM adapter '{model_name}' not found. "
                 f"Ensure the required package is installed.",
-                adapter_name=model_name,
-            )
+                context={"adapter_name": model_name, "error": str(exc)},
+            ) from exc
 
         try:
-            return adapter_class(**kwargs)
-        except Exception as e:
+            config = AdapterConfig(model_name=model_name, **kwargs)
+            return adapter_class(config)
+        except Exception as exc:
             from tsagentkit.contracts import EModelLoadFailed
 
             raise EModelLoadFailed(
-                f"Failed to load TSFM model '{model_name}': {e}",
-                model_name=model_name,
-                original_error=str(e),
-            ) from e
+                f"Failed to load TSFM model '{model_name}': {exc}",
+                context={"adapter_name": model_name, "error": str(exc)},
+            ) from exc
 
     def _get_timestamp(self) -> float:
         """Get current timestamp."""

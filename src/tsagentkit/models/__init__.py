@@ -6,11 +6,9 @@ adapters for various forecasting backends.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
-import pandas as pd
-
-from tsagentkit.contracts import ModelArtifact
+from tsagentkit.contracts import ModelArtifact, ForecastResult, Provenance
 from tsagentkit.models.baselines import fit_baseline, is_baseline_model, predict_baseline
 from tsagentkit.utils import normalize_quantile_columns
 
@@ -20,6 +18,8 @@ from tsagentkit.models import adapters
 if TYPE_CHECKING:
     from tsagentkit.series import TSDataset
     from tsagentkit.models.adapters import TSFMAdapter
+    from tsagentkit.router import Plan
+    from tsagentkit.contracts import TaskSpec
 
 
 def _is_tsfm_model(model_name: str) -> bool:
@@ -41,8 +41,8 @@ def _build_adapter_config(model_name: str, config: dict[str, Any]) -> "adapters.
     )
 
 
-def fit(model_name: str, dataset: TSDataset, config: dict[str, Any]) -> ModelArtifact:
-    """Fit a model with baseline or TSFM dispatch."""
+def _fit_model_name(model_name: str, dataset: "TSDataset", config: dict[str, Any]) -> ModelArtifact:
+    """Fit a model by name with baseline or TSFM dispatch."""
     if _is_tsfm_model(model_name):
         adapter_name = model_name.split("tsfm-", 1)[-1]
         adapter_config = _build_adapter_config(model_name, config)
@@ -65,30 +65,78 @@ def fit(model_name: str, dataset: TSDataset, config: dict[str, Any]) -> ModelArt
     raise ValueError(f"Unknown model name: {model_name}")
 
 
+def fit(
+    dataset: "TSDataset",
+    plan: "Plan",
+    on_fallback: Callable[[str, str, Exception], None] | None = None,
+) -> ModelArtifact:
+    """Fit a model using the plan's fallback ladder."""
+    from tsagentkit.router import execute_with_fallback
+
+    artifact, _ = execute_with_fallback(
+        fit_func=_fit_model_name,
+        dataset=dataset,
+        plan=plan,
+        on_fallback=on_fallback,
+    )
+    return artifact
+
+
+def _basic_provenance(
+    dataset: "TSDataset",
+    spec: "TaskSpec",
+    artifact: ModelArtifact,
+) -> Provenance:
+    from datetime import datetime, timezone
+
+    from tsagentkit.serving.provenance import compute_data_signature
+
+    return Provenance(
+        run_id=f"model_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        data_signature=compute_data_signature(dataset.df),
+        task_signature=spec.model_hash(),
+        plan_signature=artifact.signature,
+        model_signature=artifact.signature,
+        metadata={"provenance_incomplete": True},
+    )
+
+
 def predict(
-    model: ModelArtifact,
-    dataset: TSDataset,
-    horizon: int,
-) -> pd.DataFrame:
+    dataset: "TSDataset",
+    artifact: ModelArtifact,
+    spec: "TaskSpec",
+) -> ForecastResult:
     """Generate predictions for baseline or TSFM models."""
-    if isinstance(model.model, adapters.TSFMAdapter):
-        result = model.model.predict(
+    if isinstance(artifact.model, adapters.TSFMAdapter):
+        result = artifact.model.predict(
             dataset=dataset,
-            horizon=horizon,
-            quantiles=model.config.get("quantiles"),
+            horizon=spec.horizon,
+            quantiles=artifact.config.get("quantiles"),
         )
-        return normalize_quantile_columns(result.df)
+        return ForecastResult(
+            df=normalize_quantile_columns(result.df),
+            provenance=result.provenance,
+            model_name=artifact.model_name,
+            horizon=spec.horizon,
+        )
 
-    if is_baseline_model(model.model_name):
+    if is_baseline_model(artifact.model_name):
         forecast_df = predict_baseline(
-            model_artifact=model,
+            model_artifact=artifact,
             dataset=dataset,
-            horizon=horizon,
-            quantiles=model.config.get("quantiles"),
+            horizon=spec.horizon,
+            quantiles=artifact.config.get("quantiles"),
         )
-        return normalize_quantile_columns(forecast_df)
+        provenance = _basic_provenance(dataset, spec, artifact)
+        return ForecastResult(
+            df=normalize_quantile_columns(forecast_df),
+            provenance=provenance,
+            model_name=artifact.model_name,
+            horizon=spec.horizon,
+        )
 
-    raise ValueError(f"Unknown model type for prediction: {model.model_name}")
+    raise ValueError(f"Unknown model type for prediction: {artifact.model_name}")
 
 
 __all__ = ["fit", "predict", "adapters"]

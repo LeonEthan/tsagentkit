@@ -11,7 +11,7 @@ tsagentkit's temporal integrity and leakage prevention rules.
 ## Inputs
 - `data`: pandas DataFrame with `unique_id`, `ds`, `y`
 - `task_spec`: `TaskSpec` (horizon, freq, optional quantiles/covariate policy/repair_strategy)
-- Optional: custom `fit_func`, `predict_func`, `monitoring_config`
+- Optional: custom `fit_func` (fit(dataset, plan)), `predict_func` (predict(dataset, artifact, spec)), `monitoring_config`
 
 ## Workflow
 1. `validate_contract` to enforce schema and ordering.

@@ -6,13 +6,13 @@ temporal integrity (no random splits allowed).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import numpy as np
 import pandas as pd
 
 from tsagentkit.contracts import ESplitRandomForbidden
-from tsagentkit.utils import normalize_quantile_columns, parse_quantile_column
+from tsagentkit.utils import drop_future_rows, normalize_quantile_columns, parse_quantile_column
 
 from .metrics import compute_all_metrics
 from .report import BacktestReport, SeriesMetrics, WindowResult
@@ -28,8 +28,8 @@ def rolling_backtest(
     dataset: TSDataset,
     spec: TaskSpec,
     plan: Plan,
-    fit_func: Callable,
-    predict_func: Callable,
+    fit_func: Callable[[TSDataset, Plan], Any] | None = None,
+    predict_func: Callable[[TSDataset, Any, TaskSpec], Any] | None = None,
     n_windows: int = 5,
     window_strategy: Literal["expanding", "sliding"] = "expanding",
     min_train_size: int | None = None,
@@ -48,8 +48,9 @@ def rolling_backtest(
         dataset: TSDataset with time series data
         spec: Task specification
         plan: Execution plan with model configuration
-        fit_func: Function to fit model: fit_func(model_name, train_data, config)
-        predict_func: Function to predict: predict_func(model, test_data, horizon)
+        fit_func: Function to fit model: fit_func(train_dataset, plan) (defaults to models.fit)
+        predict_func: Function to predict: predict_func(train_dataset, model_artifact, spec)
+            (defaults to models.predict)
         n_windows: Number of backtest windows (default: 5)
         window_strategy: "expanding" or "sliding" (default: "expanding")
         min_train_size: Minimum training observations per series
@@ -63,8 +64,19 @@ def rolling_backtest(
         ESplitRandomForbidden: If random splitting is detected
         EBacktestInsufficientData: If not enough data for requested windows
     """
+    # Resolve default model functions
+    if fit_func is None or predict_func is None:
+        from tsagentkit.models import fit as default_fit
+        from tsagentkit.models import predict as default_predict
+
+        fit_func = default_fit if fit_func is None else fit_func
+        predict_func = default_predict if predict_func is None else predict_func
+
+    # Drop future rows (y is null beyond last observed per series) before validation
+    df, _ = drop_future_rows(dataset.df)
+
     # Validate temporal ordering (guardrail)
-    _validate_temporal_ordering(dataset.df)
+    _validate_temporal_ordering(df)
 
     # Set defaults
     horizon = spec.horizon
@@ -76,7 +88,6 @@ def rolling_backtest(
         min_train_size = max(season_length * 2, 10)
 
     # Get date range
-    df = dataset.df
     all_dates = pd.to_datetime(df["ds"].unique())
     all_dates = sorted(all_dates)
 
@@ -124,11 +135,28 @@ def rolling_backtest(
                 )
                 continue
 
-            # Fit model
-            model = fit_func(plan.primary_model, train_df, plan.config)
+            from tsagentkit.series import TSDataset
 
-            # Predict
-            predictions = predict_func(model, test_df, horizon)
+            train_ds = TSDataset.from_dataframe(train_df, spec, validate=False)
+            if dataset.is_hierarchical() and dataset.hierarchy:
+                train_ds = train_ds.with_hierarchy(dataset.hierarchy)
+
+            # Fit model (with fallback handled by fit_func)
+            model = fit_func(train_ds, plan)
+
+            # Predict using training context
+            predictions = predict_func(train_ds, model, spec)
+            if isinstance(predictions, dict):
+                raise ValueError("predict_func must return DataFrame or ForecastResult")
+            if hasattr(predictions, "df"):
+                predictions = predictions.df
+
+            # Align predictions to test dates only
+            predictions = predictions.merge(
+                test_df[["unique_id", "ds"]],
+                on=["unique_id", "ds"],
+                how="inner",
+            )
 
             # Apply reconciliation if hierarchical
             if reconcile and dataset.is_hierarchical() and dataset.hierarchy:

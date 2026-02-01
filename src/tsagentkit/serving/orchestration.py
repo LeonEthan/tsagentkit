@@ -22,15 +22,16 @@ from tsagentkit.contracts import (
     validate_contract,
 )
 from tsagentkit.qa import QAReport, run_qa
-from tsagentkit.router import FallbackLadder, execute_with_fallback, make_plan
+from tsagentkit.router import make_plan
 from tsagentkit.series import TSDataset
-from tsagentkit.utils import normalize_quantile_columns
+from tsagentkit.utils import drop_future_rows, normalize_quantile_columns
 
 from .packaging import package_run
 from .provenance import create_provenance, log_event
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import RunArtifact
+    from tsagentkit.hierarchy import HierarchyStructure
 
 
 @dataclass
@@ -68,6 +69,7 @@ def run_forecast(
     monitoring_config: MonitoringConfig | None = None,
     reference_data: pd.DataFrame | None = None,
     repair_strategy: dict[str, Any] | None = None,
+    hierarchy: "HierarchyStructure" | None = None,
 ) -> "RunArtifact":
     """Execute the complete forecasting pipeline.
 
@@ -82,11 +84,12 @@ def run_forecast(
             - "quick": Skip backtest, fit on all data
             - "standard": Full pipeline with backtest (default)
             - "strict": Fail on any QA issue (no auto-repair)
-        fit_func: Optional custom model fit function
-        predict_func: Optional custom model predict function
+        fit_func: Optional custom model fit function (fit(dataset, plan))
+        predict_func: Optional custom model predict function (predict(dataset, artifact, spec))
         monitoring_config: Optional monitoring configuration (v0.2)
         reference_data: Optional reference data for drift detection (v0.2)
         repair_strategy: Optional QA repair configuration (overrides TaskSpec)
+        hierarchy: Optional hierarchy structure for reconciliation
 
     Returns:
         RunArtifact with forecast, metrics, and provenance
@@ -123,25 +126,52 @@ def run_forecast(
     effective_repair_strategy = (
         repair_strategy if repair_strategy is not None else task_spec.repair_strategy
     )
-    qa_report = _step_qa(
-        data,
-        task_spec,
-        mode,
-        apply_repairs=mode != "strict",
-        repair_strategy=effective_repair_strategy,
-    )
-    qa_repairs = qa_report.repairs
-    events.append(
-        log_event(
-            step_name="qa",
-            status="success",
-            duration_ms=(time.time() - step_start) * 1000,
+    try:
+        qa_report = _step_qa(
+            data,
+            task_spec,
+            mode,
+            apply_repairs=mode != "strict",
+            repair_strategy=effective_repair_strategy,
         )
-    )
+        qa_repairs = qa_report.repairs
+        events.append(
+            log_event(
+                step_name="qa",
+                status="success",
+                duration_ms=(time.time() - step_start) * 1000,
+            )
+        )
+    except Exception as e:
+        events.append(
+            log_event(
+                step_name="qa",
+                status="failed",
+                duration_ms=(time.time() - step_start) * 1000,
+                error_code=type(e).__name__,
+            )
+        )
+        raise
+
+    # Step 2b: Drop future rows (y is null beyond last observed per series)
+    step_start = time.time()
+    data, drop_info = drop_future_rows(data)
+    if drop_info:
+        qa_repairs.append(drop_info)
+        events.append(
+            log_event(
+                step_name="drop_future_rows",
+                status="success",
+                duration_ms=(time.time() - step_start) * 1000,
+                artifacts_generated=["clean_data"],
+            )
+        )
 
     # Step 3: Build Dataset
     step_start = time.time()
     dataset = TSDataset.from_dataframe(data, task_spec, validate=False)
+    if hierarchy is not None:
+        dataset = dataset.with_hierarchy(hierarchy)
     events.append(
         log_event(
             step_name="build_dataset",
@@ -175,32 +205,12 @@ def run_forecast(
             if predict_func is None:
                 predict_func = default_predict
 
-            # Wrap default functions for backtest signature
-            if fit_func is default_fit and predict_func is default_predict:
-                def bt_fit(model_name: str, train_df: pd.DataFrame, config: dict[str, Any]) -> Any:
-                    train_ds = TSDataset.from_dataframe(
-                        train_df, task_spec, validate=False
-                    )
-                    return fit_func(model_name, train_ds, config)
-
-                def bt_predict(model: Any, test_df: pd.DataFrame, horizon: int) -> pd.DataFrame:
-                    test_ds = TSDataset.from_dataframe(
-                        test_df, task_spec, validate=False, compute_sparsity=False
-                    )
-                    return predict_func(model, test_ds, horizon)
-
-                backtest_fit = bt_fit
-                backtest_predict = bt_predict
-            else:
-                backtest_fit = fit_func
-                backtest_predict = predict_func
-
             backtest_report = rolling_backtest(
                 dataset=dataset,
                 spec=task_spec,
                 plan=plan,
-                fit_func=backtest_fit,
-                predict_func=backtest_predict,
+                fit_func=fit_func,
+                predict_func=predict_func,
                 n_windows=3,
                 step_size=task_spec.rolling_step,
             )
@@ -236,7 +246,7 @@ def run_forecast(
             }
         )
 
-    model_artifact, model_name = _step_fit(
+    model_artifact = _step_fit(
         dataset=dataset,
         plan=plan,
         fit_func=fit_func,
@@ -255,9 +265,9 @@ def run_forecast(
     # Step 7: Predict
     step_start = time.time()
     forecast_df = _step_predict(
-        model=model_artifact,
+        artifact=model_artifact,
         dataset=dataset,
-        horizon=task_spec.horizon,
+        task_spec=task_spec,
         predict_func=predict_func,
         plan=plan,
     )
@@ -318,7 +328,7 @@ def run_forecast(
     forecast_result = ForecastResult(
         df=forecast_df,
         provenance=provenance,
-        model_name=model_name,
+        model_name=model_artifact.model_name,
         horizon=task_spec.horizon,
     )
     artifact = package_run(
@@ -376,26 +386,22 @@ def _step_fit(
     plan: Any,
     fit_func: Any | None,
     on_fallback: Any | None = None,
-) -> tuple[Any, str]:
+) -> Any:
     """Execute fit step with fallback."""
+    from tsagentkit.models import fit as default_fit
+
     if fit_func is None:
         # Use default fit function
-        from tsagentkit.models import fit as default_fit
-
         fit_func = default_fit
-
-    return execute_with_fallback(
-        fit_func=fit_func,
-        dataset=dataset,
-        plan=plan,
-        on_fallback=on_fallback,
-    )
+    if fit_func is default_fit:
+        return fit_func(dataset, plan, on_fallback=on_fallback)
+    return fit_func(dataset, plan)
 
 
 def _step_predict(
-    model: Any,
+    artifact: Any,
     dataset: TSDataset,
-    horizon: int,
+    task_spec: TaskSpec,
     predict_func: Any | None,
     plan: Any | None = None,
 ) -> pd.DataFrame:
@@ -406,7 +412,7 @@ def _step_predict(
 
         predict_func = default_predict
 
-    forecast = predict_func(model, dataset, horizon)
+    forecast = predict_func(dataset, artifact, task_spec)
     if isinstance(forecast, ForecastResult):
         forecast = forecast.df
 

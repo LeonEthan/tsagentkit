@@ -108,12 +108,6 @@ Not a bug, but might confuse users testing with simple data.
 
 ## Files Created
 
-- `tests/test_recipe1_retail.py`
-- `tests/test_recipe2_industrial.py`
-- `tests/test_recipe3_intermittent.py`
-- `tests/test_recipe4_custom.py`
-- `tests/test_recipe5_backtest.py`
-- `tests/test_recipe6_errors.py`
 
 ## Next Steps
 

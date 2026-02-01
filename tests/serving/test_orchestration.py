@@ -88,8 +88,8 @@ class TestRunForecast:
                 task_spec=sample_spec,
             )
 
-    def test_strict_mode_leakage_raises(self) -> None:
-        """Strict mode should raise on covariate leakage."""
+    def test_leakage_raises_in_any_mode(self) -> None:
+        """Any mode should raise on observed covariate leakage."""
         df = pd.DataFrame({
             "unique_id": ["A", "A", "A"],
             "ds": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
@@ -100,12 +100,13 @@ class TestRunForecast:
 
         from tsagentkit.contracts import ECovariateLeakage
 
-        with pytest.raises(ECovariateLeakage):
-            run_forecast(
-                data=df,
-                task_spec=spec,
-                mode="strict",
-            )
+        for mode in ("quick", "standard", "strict"):
+            with pytest.raises(ECovariateLeakage):
+                run_forecast(
+                    data=df,
+                    task_spec=spec,
+                    mode=mode,
+                )
 
     def test_logs_events(self, sample_data: pd.DataFrame, sample_spec: TaskSpec) -> None:
         """Test that events are logged."""

@@ -185,6 +185,7 @@ def run_qa(
                         "error": str(exc),
                     }
                 )
+                raise
 
     if apply_repairs:
         repairs = _apply_repairs(

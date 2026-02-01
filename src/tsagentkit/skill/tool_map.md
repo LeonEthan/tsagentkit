@@ -9,7 +9,7 @@ Use this to choose the correct module or function when building workflows.
 ## Inputs
 - `data`: pandas DataFrame with `unique_id`, `ds`, `y`
 - `task_spec`: `TaskSpec`
-- Optional: `fit_func`, `predict_func`, `monitoring_config`
+- Optional: `fit_func` (fit(dataset, plan)), `predict_func` (predict(dataset, artifact, spec)), `monitoring_config`
 
 ## Workflow
 - Validate schema and ordering: `validate_contract`

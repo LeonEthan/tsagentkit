@@ -222,12 +222,12 @@ class FeatureFactory:
             DataFrame with added rolling columns
         """
         agg_map = {
-            "mean": lambda x: x.rolling(window=window, min_periods=1).mean(),
-            "std": lambda x: x.rolling(window=window, min_periods=1).std(),
-            "min": lambda x: x.rolling(window=window, min_periods=1).min(),
-            "max": lambda x: x.rolling(window=window, min_periods=1).max(),
-            "sum": lambda x: x.rolling(window=window, min_periods=1).sum(),
-            "median": lambda x: x.rolling(window=window, min_periods=1).median(),
+            "mean": lambda x: x.shift(1).rolling(window=window, min_periods=1).mean(),
+            "std": lambda x: x.shift(1).rolling(window=window, min_periods=1).std(),
+            "min": lambda x: x.shift(1).rolling(window=window, min_periods=1).min(),
+            "max": lambda x: x.shift(1).rolling(window=window, min_periods=1).max(),
+            "sum": lambda x: x.shift(1).rolling(window=window, min_periods=1).sum(),
+            "median": lambda x: x.shift(1).rolling(window=window, min_periods=1).median(),
         }
 
         for window, aggs in windows.items():

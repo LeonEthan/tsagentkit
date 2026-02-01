@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from tsagentkit import TaskSpec
 from tsagentkit.qa import run_qa
@@ -19,10 +20,10 @@ def test_observed_covariate_leakage_detected() -> None:
     )
     spec = TaskSpec(horizon=1, freq="D", covariate_policy="observed")
 
-    report = run_qa(df, spec, mode="standard")
+    from tsagentkit.contracts import ECovariateLeakage
 
-    assert report.leakage_detected is True
-    assert any(issue["type"] == "covariate_leakage" for issue in report.issues)
+    with pytest.raises(ECovariateLeakage):
+        run_qa(df, spec, mode="standard")
 
 
 def test_known_covariates_do_not_trigger_leakage() -> None:

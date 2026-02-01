@@ -216,7 +216,7 @@ class NaiveModel:
             self.last_values[uid] = series["y"].iloc[-self.season_length:].values
         return self
 
-    def predict(self, horizon: int) -> pd.DataFrame:
+    def predict(self, horizon: int, last_dates: dict[str, pd.Timestamp]) -> pd.DataFrame:
         """Generate naive forecast."""
         predictions = []
         for uid, values in self.last_values.items():
@@ -225,42 +225,31 @@ class NaiveModel:
                 idx = (h - 1) % len(values)
                 predictions.append({
                     "unique_id": uid,
+                    "ds": last_dates[uid] + pd.Timedelta(days=h),
                     "yhat": values[idx],
                 })
         return pd.DataFrame(predictions)
 
 # Custom fit function
-def custom_fit(model_name: str, data: pd.DataFrame, config: dict):
+def custom_fit(dataset: TSDataset, plan):
     """Fit custom model."""
-    season_length = config.get("season_length", 1)
+    season_length = plan.config.get("season_length", 1)
     model = NaiveModel(season_length=season_length)
-    model.fit(data)
+    model.fit(dataset.df)
 
     return ModelArtifact(
         model=model,
-        model_name=model_name,
-        config=config,
+        model_name="CustomNaive",
+        config=plan.config,
     )
 
 # Custom predict function
-def custom_predict(model: ModelArtifact, data: pd.DataFrame, horizon: int):
+def custom_predict(dataset: TSDataset, model: ModelArtifact, spec: TaskSpec):
     """Generate predictions."""
     naive_model = model.model
-    preds = naive_model.predict(horizon)
-
-    # Add dates
-    last_dates = data.groupby("unique_id")["ds"].max()
-    result_rows = []
-    for _, row in preds.iterrows():
-        uid = row["unique_id"]
-        for h in range(1, horizon + 1):
-            result_rows.append({
-                "unique_id": uid,
-                "ds": last_dates[uid] + pd.Timedelta(days=h),
-                "yhat": row["yhat"],
-            })
-
-    return pd.DataFrame(result_rows)
+    horizon = spec.horizon
+    last_dates = dataset.df.groupby("unique_id")["ds"].max().to_dict()
+    return naive_model.predict(horizon, last_dates)
 
 # Generate data
 df = pd.DataFrame({

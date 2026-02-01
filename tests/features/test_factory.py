@@ -152,7 +152,7 @@ class TestCreateRollingFeatures:
         # Check that rolling mean is calculated
         series_a = result[result["unique_id"] == "A"]
         # Values should be increasing (1, 2, 3...)
-        assert series_a["y_rolling_mean_7"].iloc[6] == pytest.approx(4.0)  # Mean of 1-7
+        assert series_a["y_rolling_mean_7"].iloc[6] == pytest.approx(3.5)  # Mean of 1-6
 
     def test_rolling_std(self, sample_df):
         """Test creating rolling std feature."""
@@ -325,8 +325,8 @@ class TestPointInTimeSafety:
         result = factory.create_features(sample_tsdataset)
 
         series_a = result.data[result.data["unique_id"] == "A"]
-        # At index 2 (3rd point), rolling_mean_3 should use values 0, 1, 2
-        expected = series_a["y"].iloc[0:3].mean()
+        # At index 2 (3rd point), rolling_mean_3 should use past values only
+        expected = series_a["y"].iloc[0:2].mean()
         assert series_a["y_rolling_mean_3"].iloc[2] == pytest.approx(expected)
 
     def test_observed_covariates_lagged_prevents_leakage(self, sample_tsdataset):

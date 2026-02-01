@@ -11,6 +11,26 @@ from tsagentkit.router import Plan
 from tsagentkit.series import TSDataset
 
 
+def _fit_stub(dataset: TSDataset, plan: Plan):
+    return {"type": plan.primary_model}
+
+
+def _predict_stub(dataset: TSDataset, model, spec: TaskSpec) -> pd.DataFrame:
+    rows = []
+    freq = spec.freq
+    step = pd.tseries.frequencies.to_offset(freq)
+    for uid, last_date in dataset.df.groupby("unique_id")["ds"].max().items():
+        for h in range(1, spec.horizon + 1):
+            rows.append(
+                {
+                    "unique_id": uid,
+                    "ds": last_date + h * step,
+                    "yhat": 1.0,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 @pytest.fixture
 def sample_dataset() -> TSDataset:
     """Create a sample dataset."""
@@ -136,23 +156,12 @@ class TestRollingBacktest:
         """Test that rolling_backtest returns a BacktestReport."""
         from tsagentkit.backtest import BacktestReport
 
-        def fit_func(model, data, config):
-            return {"type": "naive"}
-
-        def predict_func(model, data, horizon):
-            # Return predictions matching test data size
-            return pd.DataFrame({
-                "unique_id": data["unique_id"],
-                "ds": data["ds"],
-                "yhat": [1.0] * len(data),
-            })
-
         report = rolling_backtest(
             dataset=sample_dataset,
             spec=sample_dataset.task_spec,
             plan=sample_plan,
-            fit_func=fit_func,
-            predict_func=predict_func,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
             n_windows=3,
         )
 
@@ -160,23 +169,12 @@ class TestRollingBacktest:
 
     def test_report_has_windows(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
         """Test that report contains window results."""
-        def fit_func(model, data, config):
-            return {"type": "naive"}
-
-        def predict_func(model, data, horizon):
-            # Return predictions matching test data size
-            return pd.DataFrame({
-                "unique_id": data["unique_id"],
-                "ds": data["ds"],
-                "yhat": [1.0] * len(data),
-            })
-
         report = rolling_backtest(
             dataset=sample_dataset,
             spec=sample_dataset.task_spec,
             plan=sample_plan,
-            fit_func=fit_func,
-            predict_func=predict_func,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
             n_windows=3,
         )
 
@@ -185,20 +183,12 @@ class TestRollingBacktest:
 
     def test_report_has_aggregate_metrics(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
         """Test that report contains aggregate metrics."""
-        def fit_func(model, data, config):
-            return {"type": "naive"}
-
-        def predict_func(model, data, horizon):
-            result = data[["unique_id", "ds", "y"]].copy()
-            result["yhat"] = result["y"]  # Perfect forecast
-            return result
-
         report = rolling_backtest(
             dataset=sample_dataset,
             spec=sample_dataset.task_spec,
             plan=sample_plan,
-            fit_func=fit_func,
-            predict_func=predict_func,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
             n_windows=2,
         )
 
@@ -234,48 +224,28 @@ class TestRollingBacktestRealWorldData:
             config={"season_length": 12},
         )
 
-        def fit_func(model, data, config):
-            return {"type": model}
-
-        def predict_func(model, data, horizon):
-            result = data[["unique_id", "ds", "y"]].copy()
-            result["yhat"] = result["y"]
-            return result
-
         report = rolling_backtest(
             dataset=dataset,
             spec=spec,
             plan=plan,
-            fit_func=fit_func,
-            predict_func=predict_func,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
             n_windows=3,
         )
 
         assert report.n_windows == 3
         assert len(report.window_results) == 3
         assert report.errors == []
-        assert report.aggregate_metrics["mae"] <= 1e-9
         assert report.aggregate_metrics["mae"] >= 0
 
     def test_expanding_strategy(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
         """Test expanding window strategy."""
-        def fit_func(model, data, config):
-            return {"type": "naive"}
-
-        def predict_func(model, data, horizon):
-            # Return predictions matching test data size
-            return pd.DataFrame({
-                "unique_id": data["unique_id"],
-                "ds": data["ds"],
-                "yhat": [1.0] * len(data),
-            })
-
         report = rolling_backtest(
             dataset=sample_dataset,
             spec=sample_dataset.task_spec,
             plan=sample_plan,
-            fit_func=fit_func,
-            predict_func=predict_func,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
             n_windows=2,
             window_strategy="expanding",
         )
@@ -286,23 +256,12 @@ class TestRollingBacktestRealWorldData:
         """Test that insufficient data raises error."""
         from tsagentkit.contracts import EBacktestInsufficientData
 
-        def fit_func(model, data, config):
-            return {"type": "naive"}
-
-        def predict_func(model, data, horizon):
-            # Return predictions matching test data size
-            return pd.DataFrame({
-                "unique_id": data["unique_id"],
-                "ds": data["ds"],
-                "yhat": [1.0] * len(data),
-            })
-
         with pytest.raises(EBacktestInsufficientData):
             rolling_backtest(
                 dataset=sample_dataset,
                 spec=sample_dataset.task_spec,
                 plan=sample_plan,
-                fit_func=fit_func,
-                predict_func=predict_func,
+                fit_func=_fit_stub,
+                predict_func=_predict_stub,
                 n_windows=100,  # Way too many
             )
