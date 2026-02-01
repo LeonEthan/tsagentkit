@@ -96,6 +96,22 @@ class EModelPredictFailed(TSAgentKitError):
     error_code = "E_MODEL_PREDICT_FAILED"
 
 
+class EModelLoadFailed(TSAgentKitError):
+    """Model loading failed.
+
+    Typically occurs when TSFM adapter cannot load the underlying model.
+    """
+    error_code = "E_MODEL_LOAD_FAILED"
+
+
+class EAdapterNotAvailable(TSAgentKitError):
+    """TSFM adapter not available.
+
+    The required package for the TSFM adapter is not installed.
+    """
+    error_code = "E_ADAPTER_NOT_AVAILABLE"
+
+
 class EFallbackExhausted(TSAgentKitError):
     """All models in the fallback ladder failed."""
     error_code = "E_FALLBACK_EXHAUSTED"
@@ -148,6 +164,8 @@ ERROR_REGISTRY: dict[str, type[TSAgentKitError]] = {
     "E_COVARIATE_LEAKAGE": ECovariateLeakage,
     "E_MODEL_FIT_FAILED": EModelFitFailed,
     "E_MODEL_PREDICT_FAILED": EModelPredictFailed,
+    "E_MODEL_LOAD_FAILED": EModelLoadFailed,
+    "E_ADAPTER_NOT_AVAILABLE": EAdapterNotAvailable,
     "E_FALLBACK_EXHAUSTED": EFallbackExhausted,
     "E_QA_CRITICAL_ISSUE": EQACriticalIssue,
     "E_QA_LEAKAGE_DETECTED": EQALeakageDetected,

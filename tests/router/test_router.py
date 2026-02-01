@@ -68,10 +68,11 @@ class TestMakePlan:
         assert plan.strategy == "baseline_only"
         assert plan.primary_model == "SeasonalNaive"
 
-    def test_tsfm_strategy_falls_back_to_baseline(self, regular_dataset: TSDataset) -> None:
-        """Test that tsfm_first falls back to baseline in v0.1."""
+    def test_tsfm_strategy_falls_back_to_auto(self, regular_dataset: TSDataset) -> None:
+        """Test that tsfm_first falls back to auto when no TSFMs available."""
         plan = make_plan(regular_dataset, regular_dataset.task_spec, strategy="tsfm_first")
-        assert plan.strategy == "baseline_only"  # v0.1: TSFM not yet implemented
+        # When no TSFMs are available, falls back to auto strategy
+        assert plan.strategy == "auto"
 
     def test_plan_config_includes_season_length(self, regular_dataset: TSDataset) -> None:
         """Test that plan config includes season length."""
