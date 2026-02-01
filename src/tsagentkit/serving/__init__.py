@@ -7,7 +7,14 @@ from tsagentkit.contracts import RunArtifact
 
 from .orchestration import MonitoringConfig, run_forecast
 from .packaging import package_run
-from .provenance import compute_config_signature, compute_data_signature, create_provenance
+from .provenance import (
+    StructuredLogger,
+    compute_config_signature,
+    compute_data_signature,
+    create_provenance,
+    format_event_json,
+    log_event,
+)
 from .tsfm_cache import TSFMModelCache, clear_tsfm_cache, get_tsfm_model
 
 __all__ = [
@@ -21,6 +28,10 @@ __all__ = [
     "compute_data_signature",
     "compute_config_signature",
     "create_provenance",
+    # Structured Logging
+    "log_event",
+    "format_event_json",
+    "StructuredLogger",
     # TSFM Cache
     "TSFMModelCache",
     "get_tsfm_model",

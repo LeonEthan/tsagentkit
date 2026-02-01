@@ -53,11 +53,6 @@ class EContractDuplicateKey(TSAgentKitError):
     error_code = "E_CONTRACT_DUPLICATE_KEY"
 
 
-class EContractUnsorted(TSAgentKitError):
-    """Data is not sorted by (unique_id, ds)."""
-    error_code = "E_CONTRACT_UNSORTED"
-
-
 class EContractInvalidFrequency(TSAgentKitError):
     """Could not infer or invalid frequency."""
     error_code = "E_CONTRACT_INVALID_FREQUENCY"
@@ -69,6 +64,17 @@ class ESplitRandomForbidden(TSAgentKitError):
     """Random train/test splits are strictly forbidden.
 
     Time series data must use temporal splits only.
+    """
+    error_code = "E_SPLIT_RANDOM_FORBIDDEN"
+
+
+class EContractUnsorted(ESplitRandomForbidden):
+    """Data is not sorted by (unique_id, ds).
+
+    .. deprecated::
+        Use `ESplitRandomForbidden` instead. Both errors indicate the same
+        issue: temporal ordering violations that require sorting data by
+        (unique_id, ds).
     """
     error_code = "E_SPLIT_RANDOM_FORBIDDEN"
 
@@ -158,9 +164,11 @@ ERROR_REGISTRY: dict[str, type[TSAgentKitError]] = {
     "E_CONTRACT_MISSING_COLUMN": EContractMissingColumn,
     "E_CONTRACT_INVALID_TYPE": EContractInvalidType,
     "E_CONTRACT_DUPLICATE_KEY": EContractDuplicateKey,
-    "E_CONTRACT_UNSORTED": EContractUnsorted,
     "E_CONTRACT_INVALID_FREQUENCY": EContractInvalidFrequency,
     "E_SPLIT_RANDOM_FORBIDDEN": ESplitRandomForbidden,
+    # E_CONTRACT_UNSORTED is consolidated into E_SPLIT_RANDOM_FORBIDDEN
+    # Both indicate temporal ordering violations requiring sorting by (unique_id, ds)
+    "E_CONTRACT_UNSORTED": EContractUnsorted,  # Deprecated alias
     "E_COVARIATE_LEAKAGE": ECovariateLeakage,
     "E_MODEL_FIT_FAILED": EModelFitFailed,
     "E_MODEL_PREDICT_FAILED": EModelPredictFailed,

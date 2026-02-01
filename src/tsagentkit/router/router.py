@@ -106,8 +106,8 @@ def _make_auto_plan(
         fallback_chain = [f"tsfm-{t}" for t in available_tsfms[1:]] + \
                          FallbackLadder.STANDARD_LADDER
     elif has_intermittent:
-        primary = "SeasonalNaive"
-        fallback_chain = FallbackLadder.INTERMITTENT_LADDER[1:]
+        primary = "Croston"
+        fallback_chain = [m for m in FallbackLadder.INTERMITTENT_LADDER if m != "Croston"]
     elif has_cold_start:
         primary = "HistoricAverage"
         fallback_chain = FallbackLadder.COLD_START_LADDER[1:]
@@ -210,7 +210,7 @@ def _make_baseline_plan(
     season_length = task_spec.season_length or 1
 
     if has_intermittent:
-        primary = "SeasonalNaive"
+        primary = "Croston"
         fallback_chain = ["HistoricAverage", "Naive"]
     elif has_cold_start:
         primary = "HistoricAverage"
@@ -311,7 +311,7 @@ def get_model_for_series(
     classification = sparsity.get_classification(unique_id)
 
     if classification.value == "intermittent":
-        return "SeasonalNaive"
+        return "Croston"
     elif classification.value == "cold_start":
         return "HistoricAverage"
     elif classification.value == "sparse":

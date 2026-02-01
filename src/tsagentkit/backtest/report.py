@@ -73,6 +73,52 @@ class SeriesMetrics:
 
 
 @dataclass(frozen=True)
+class SegmentMetrics:
+    """Metrics aggregated by segment (e.g., sparsity class).
+
+    Attributes:
+        segment_name: Name of the segment (e.g., "intermittent", "regular")
+        series_ids: List of series IDs in this segment
+        metrics: Dictionary of metric name to value
+        n_series: Number of series in this segment
+    """
+
+    segment_name: str
+    series_ids: list[str] = field(default_factory=list)
+    metrics: dict[str, float] = field(default_factory=dict)
+    n_series: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "segment_name": self.segment_name,
+            "series_ids": self.series_ids,
+            "metrics": self.metrics,
+            "n_series": self.n_series,
+        }
+
+
+@dataclass(frozen=True)
+class TemporalMetrics:
+    """Metrics aggregated by temporal dimension.
+
+    Attributes:
+        dimension: Temporal dimension (e.g., "hour", "dayofweek")
+        metrics_by_value: Dictionary mapping dimension value to metrics
+    """
+
+    dimension: str
+    metrics_by_value: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "dimension": self.dimension,
+            "metrics_by_value": self.metrics_by_value,
+        }
+
+
+@dataclass(frozen=True)
 class BacktestReport:
     """Complete backtest results.
 
@@ -85,6 +131,8 @@ class BacktestReport:
         window_results: List of results per window
         aggregate_metrics: Metrics aggregated across all windows
         series_metrics: Metrics aggregated by series
+        segment_metrics: Metrics aggregated by segment (sparsity class)
+        temporal_metrics: Metrics aggregated by temporal dimension
         errors: List of errors encountered during backtest
         metadata: Additional backtest metadata
     """
@@ -94,6 +142,8 @@ class BacktestReport:
     window_results: list[WindowResult] = field(default_factory=list)
     aggregate_metrics: dict[str, float] = field(default_factory=dict)
     series_metrics: dict[str, SeriesMetrics] = field(default_factory=dict)
+    segment_metrics: dict[str, SegmentMetrics] = field(default_factory=dict)
+    temporal_metrics: dict[str, TemporalMetrics] = field(default_factory=dict)
     errors: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -168,6 +218,52 @@ class BacktestReport:
 
         return worst_id
 
+    def get_segment_metric(self, segment_name: str, metric_name: str) -> float:
+        """Get a metric for a specific segment.
+
+        Args:
+            segment_name: Segment name (e.g., "intermittent", "regular")
+            metric_name: Name of the metric
+
+        Returns:
+            Metric value or NaN if not found
+        """
+        if segment_name not in self.segment_metrics:
+            return float("nan")
+        return self.segment_metrics[segment_name].metrics.get(metric_name, float("nan"))
+
+    def get_temporal_metric(self, dimension: str, value: str, metric_name: str) -> float:
+        """Get a metric for a specific temporal dimension value.
+
+        Args:
+            dimension: Temporal dimension ("hour", "dayofweek", etc.)
+            value: Dimension value (e.g., "0" for Sunday, "14" for 2pm)
+            metric_name: Name of the metric
+
+        Returns:
+            Metric value or NaN if not found
+        """
+        if dimension not in self.temporal_metrics:
+            return float("nan")
+        dim_metrics = self.temporal_metrics[dimension]
+        if value not in dim_metrics.metrics_by_value:
+            return float("nan")
+        return dim_metrics.metrics_by_value[value].get(metric_name, float("nan"))
+
+    def compare_segments(self, metric_name: str = "wape") -> dict[str, float]:
+        """Compare a metric across all segments.
+
+        Args:
+            metric_name: Metric to compare
+
+        Returns:
+            Dictionary mapping segment name to metric value
+        """
+        return {
+            name: sm.metrics.get(metric_name, float("nan"))
+            for name, sm in self.segment_metrics.items()
+        }
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
@@ -176,6 +272,12 @@ class BacktestReport:
             "aggregate_metrics": self.aggregate_metrics,
             "series_metrics": {
                 k: v.to_dict() for k, v in self.series_metrics.items()
+            },
+            "segment_metrics": {
+                k: v.to_dict() for k, v in self.segment_metrics.items()
+            },
+            "temporal_metrics": {
+                k: v.to_dict() for k, v in self.temporal_metrics.items()
             },
             "window_results": [w.to_dict() for w in self.window_results],
             "errors": self.errors,
@@ -197,6 +299,21 @@ class BacktestReport:
         lines.append("\nAggregate Metrics:")
         for name, value in sorted(self.aggregate_metrics.items()):
             lines.append(f"  {name}: {value:.4f}")
+
+        # Segment metrics
+        if self.segment_metrics:
+            lines.append("\nSegment Metrics:")
+            for name, sm in sorted(self.segment_metrics.items()):
+                metrics_str = ", ".join(
+                    f"{k}={v:.4f}" for k, v in sorted(sm.metrics.items())[:2]
+                )
+                lines.append(f"  {name} ({sm.n_series} series): {metrics_str}")
+
+        # Temporal metrics
+        if self.temporal_metrics:
+            lines.append("\nTemporal Metrics:")
+            for dim, tm in sorted(self.temporal_metrics.items()):
+                lines.append(f"  {dim}: {len(tm.metrics_by_value)} unique values")
 
         # Best/worst series
         best = self.get_best_series("wape")

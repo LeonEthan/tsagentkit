@@ -1,14 +1,18 @@
 """Tests for serving/provenance.py."""
 
+import json
+
 import pandas as pd
 import pytest
 
 from tsagentkit import TaskSpec
 from tsagentkit.router import Plan
 from tsagentkit.serving.provenance import (
+    StructuredLogger,
     compute_config_signature,
     compute_data_signature,
     create_provenance,
+    format_event_json,
     log_event,
 )
 
@@ -170,3 +174,147 @@ class TestLogEvent:
         )
 
         assert event["artifacts_generated"] == ["model", "report"]
+
+    def test_includes_timestamp(self) -> None:
+        """Test that timestamp is included."""
+        event = log_event(
+            step_name="validate",
+            status="success",
+            duration_ms=100.0,
+        )
+
+        assert "timestamp" in event
+        assert isinstance(event["timestamp"], str)
+
+    def test_includes_context(self) -> None:
+        """Test that context is included."""
+        event = log_event(
+            step_name="qa",
+            status="success",
+            duration_ms=150.0,
+            context={"issues_found": 3, "repairs_applied": 2},
+        )
+
+        assert event["context"]["issues_found"] == 3
+        assert event["context"]["repairs_applied"] == 2
+
+
+class TestFormatEventJson:
+    """Tests for format_event_json function."""
+
+    def test_formats_event_as_json(self) -> None:
+        """Test that event is formatted as JSON."""
+        event = log_event(
+            step_name="validate",
+            status="success",
+            duration_ms=100.0,
+        )
+
+        json_str = format_event_json(event)
+
+        # Should be valid JSON
+        parsed = json.loads(json_str)
+        assert parsed["step_name"] == "validate"
+
+    def test_json_is_deterministic(self) -> None:
+        """Test that JSON output is deterministic."""
+        event = log_event(
+            step_name="validate",
+            status="success",
+            duration_ms=100.0,
+        )
+
+        json_str1 = format_event_json(event)
+        json_str2 = format_event_json(event)
+
+        assert json_str1 == json_str2
+
+
+class TestStructuredLogger:
+    """Tests for StructuredLogger class."""
+
+    def test_basic_logging(self) -> None:
+        """Test basic logging functionality."""
+        logger = StructuredLogger()
+
+        event = logger.log("step1", "success", 100.0)
+
+        assert event["step_name"] == "step1"
+        assert len(logger.events) == 1
+
+    def test_start_end_pattern(self) -> None:
+        """Test start/end pattern."""
+        logger = StructuredLogger()
+
+        logger.start_step("fit")
+        import time
+
+        time.sleep(0.01)  # Small delay
+        event = logger.end_step("fit", status="success")
+
+        assert event["step_name"] == "fit"
+        assert event["duration_ms"] > 0
+
+    def test_multiple_events(self) -> None:
+        """Test multiple events."""
+        logger = StructuredLogger()
+
+        logger.log("validate", "success", 50.0)
+        logger.log("qa", "success", 100.0)
+        logger.log("fit", "success", 500.0)
+
+        assert len(logger.events) == 3
+
+        summary = logger.get_summary()
+        assert summary["total_events"] == 3
+        assert summary["success_count"] == 3
+        assert summary["failed_count"] == 0
+        assert summary["total_duration_ms"] == 650.0
+
+    def test_to_json_export(self) -> None:
+        """Test JSON export."""
+        logger = StructuredLogger()
+
+        logger.log("validate", "success", 50.0)
+        logger.log("fit", "failed", 100.0, error_code="E_ERROR")
+
+        json_str = logger.to_json()
+        parsed = json.loads(json_str)
+
+        assert len(parsed) == 2
+        assert parsed[0]["step_name"] == "validate"
+        assert parsed[1]["error_code"] == "E_ERROR"
+
+    def test_to_dict_export(self) -> None:
+        """Test dict export returns copy."""
+        logger = StructuredLogger()
+
+        logger.log("validate", "success", 50.0)
+
+        events = logger.to_dict()
+        assert len(events) == 1
+
+        # Should be a copy
+        events.append({})
+        assert len(logger.events) == 1
+
+    def test_failure_counting(self) -> None:
+        """Test failure counting in summary."""
+        logger = StructuredLogger()
+
+        logger.log("step1", "success", 50.0)
+        logger.log("step2", "failed", 100.0)
+        logger.log("step3", "failed", 200.0, error_code="E_ERROR")
+
+        summary = logger.get_summary()
+        assert summary["success_count"] == 1
+        assert summary["failed_count"] == 2
+
+    def test_end_without_start(self) -> None:
+        """Test ending step that was never started."""
+        logger = StructuredLogger()
+
+        event = logger.end_step("unknown", status="success")
+
+        # Should create event with 0 duration
+        assert event["duration_ms"] == 0.0

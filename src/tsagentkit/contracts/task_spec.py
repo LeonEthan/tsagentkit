@@ -28,6 +28,7 @@ class TaskSpec(BaseModel):
         valid_from: Start date for validation period (optional)
         valid_until: End date for validation period (optional)
         metadata: Additional user-defined metadata
+        seed: Random seed for reproducibility (optional)
 
     Examples:
         >>> spec = TaskSpec(horizon=7, freq="D")
@@ -100,6 +101,12 @@ class TaskSpec(BaseModel):
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Additional user-defined metadata (must be JSON-serializable)",
+    )
+
+    # Reproducibility
+    seed: int | None = Field(
+        default=None,
+        description="Random seed for reproducibility (applies to stochastic operations)",
     )
 
     @model_validator(mode="before")
@@ -194,7 +201,39 @@ class TaskSpec(BaseModel):
             parts.append(f"q=[{q_str}]")
         if self.season_length:
             parts.append(f"s={self.season_length}")
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
         return f"TaskSpec({','.join(parts)})"
+
+    def set_random_seed(self) -> None:
+        """Set random seed for reproducibility.
+
+        This method sets the random seed for numpy, random, and other
+        stochastic libraries to ensure reproducible results.
+
+        Example:
+            >>> spec = TaskSpec(horizon=7, freq="D", seed=42)
+            >>> spec.set_random_seed()  # Sets all random seeds
+        """
+        if self.seed is None:
+            return
+
+        import random
+
+        import numpy as np
+
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+
+        # Try to set torch seed if available
+        try:
+            import torch
+
+            torch.manual_seed(self.seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(self.seed)
+        except ImportError:
+            pass
 
     model_config = ConfigDict(
         frozen=True,  # Makes the model hashable and immutable

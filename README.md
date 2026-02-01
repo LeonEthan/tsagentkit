@@ -14,6 +14,52 @@ A robust execution engine for AI agents performing time-series forecasting. Prov
 - **Provenance Tracking**: Complete audit trail with signatures for reproducibility
 - **Monitoring**: Drift detection and automated retrain triggers
 
+## v1.0 Feature Matrix
+
+| Category | Feature | Status | Notes |
+|----------|---------|--------|-------|
+| **Core** | Input validation | ✅ | `validate_contract()` with schema checking |
+| | Task specification | ✅ | `TaskSpec` with horizon, freq, quantiles |
+| | Random seed support | ✅ | `TaskSpec(seed=42)` for reproducibility |
+| **QA** | Data quality checks | ✅ | `run_qa()` with multiple modes |
+| | Leakage detection | ✅ | Future covariate leakage protection |
+| | Auto-repair | ✅ | Repair strategies for common issues |
+| **Series** | TSDataset | ✅ | Immutable dataset with validation |
+| | Sparsity detection | ✅ | Regular, intermittent, cold-start, sparse |
+| | Time alignment | ✅ | Resampling and temporal operations |
+| **Routing** | Auto model selection | ✅ | Based on data characteristics |
+| | Fallback ladder | ✅ | TSFM → Baselines → Naive |
+| | Intermittent handling | ✅ | Croston method for sparse demand |
+| | Bucketing (v0.2) | ✅ | Data bucketing for complex routing |
+| **Models** | Baseline models | ✅ | SeasonalNaive, ETS, Theta, HistoricAverage, etc. |
+| | Chronos adapter | ✅ | Amazon TSFM support |
+| | Moirai adapter | ✅ | Salesforce TSFM support |
+| | TimesFM adapter | ✅ | Google TSFM support |
+| | Model caching | ✅ | `TSFMModelCache` for efficient loading |
+| **Backtest** | Rolling windows | ✅ | Expanding and sliding strategies |
+| | Temporal integrity | ✅ | Strict ordering validation |
+| | Segment diagnostics | ✅ | Metrics by sparsity class |
+| | Temporal diagnostics | ✅ | Hour/day error patterns |
+| **Hierarchical** | Structure definition | ✅ | `HierarchyStructure` with S-matrix |
+| | 6 reconciliation methods | ✅ | Bottom-up, top-down, OLS, WLS, MinT, etc. |
+| | Auto reconciliation | ✅ | In `run_forecast()` pipeline |
+| | Coherence validation | ✅ | `is_coherent()` checks |
+| **Serving** | `run_forecast()` | ✅ | Complete pipeline orchestration |
+| | Mode support | ✅ | quick, standard, strict |
+| | Feature engineering | ✅ | Optional `FeatureConfig` integration |
+| | Structured logging | ✅ | JSON event logging with `StructuredLogger` |
+| **Monitoring** | Drift detection | ✅ | PSI and Kolmogorov-Smirnov methods |
+| | Stability monitoring | ✅ | Prediction jitter detection |
+| | Retrain triggers | ✅ | Automated trigger evaluation |
+| **Provenance** | Data signatures | ✅ | SHA-256 based data hashing |
+| | Config signatures | ✅ | Deterministic config hashing |
+| | Full traceability | ✅ | Complete audit trail in `Provenance` |
+| **Skill** | Agent documentation | ✅ | `skill/README.md` with module guide |
+| | Tool map | ✅ | Complete API reference |
+| | Recipes | ✅ | 8 runnable end-to-end examples |
+| **Errors** | Structured errors | ✅ | All errors with codes and context |
+| | Guardrails | ✅ | `E_SPLIT_RANDOM_FORBIDDEN`, `ECovariateLeakage` |
+
 ## Installation
 
 ```bash

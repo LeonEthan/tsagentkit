@@ -54,8 +54,8 @@ class TestMakePlan:
     def test_auto_strategy_intermittent(self, intermittent_dataset: TSDataset) -> None:
         """Test auto strategy for intermittent series."""
         plan = make_plan(intermittent_dataset, intermittent_dataset.task_spec, strategy="auto")
-        # Should use seasonal naive for intermittent in v0.1
-        assert plan.primary_model == "SeasonalNaive"
+        # Should use Croston for intermittent demand
+        assert plan.primary_model == "Croston"
 
     def test_auto_strategy_cold_start(self, cold_start_dataset: TSDataset) -> None:
         """Test auto strategy for cold-start series."""
@@ -127,7 +127,7 @@ class TestGetModelForSeries:
     def test_intermittent_series(self, sparsity_profile: SparsityProfile) -> None:
         """Test model selection for intermittent series."""
         model = get_model_for_series("intermittent", sparsity_profile)
-        assert model == "SeasonalNaive"
+        assert model == "Croston"
 
     def test_cold_start_series(self, sparsity_profile: SparsityProfile) -> None:
         """Test model selection for cold-start series."""

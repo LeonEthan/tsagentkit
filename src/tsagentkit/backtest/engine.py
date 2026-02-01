@@ -15,7 +15,13 @@ from tsagentkit.contracts import ESplitRandomForbidden
 from tsagentkit.utils import drop_future_rows, normalize_quantile_columns, parse_quantile_column
 
 from .metrics import compute_all_metrics
-from .report import BacktestReport, SeriesMetrics, WindowResult
+from .report import (
+    BacktestReport,
+    SegmentMetrics,
+    SeriesMetrics,
+    TemporalMetrics,
+    WindowResult,
+)
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import TaskSpec
@@ -247,12 +253,20 @@ def rolling_backtest(
             num_windows=len(metrics_list),
         )
 
+    # Compute segment metrics (by sparsity class) if sparsity profile available
+    segment_metrics = _compute_segment_metrics(series_metrics, dataset)
+
+    # Compute temporal metrics if datetime information available
+    temporal_metrics = _compute_temporal_metrics(series_metrics_agg, df)
+
     return BacktestReport(
         n_windows=len(window_results),
         strategy=window_strategy,
         window_results=window_results,
         aggregate_metrics=aggregate_metrics,
         series_metrics=series_metrics,
+        segment_metrics=segment_metrics,
+        temporal_metrics=temporal_metrics,
         errors=errors,
         metadata={
             "horizon": horizon,
@@ -473,3 +487,124 @@ def _reconcile_forecast(
     )
 
     return reconciled
+
+
+def _compute_segment_metrics(
+    series_metrics: dict[str, SeriesMetrics],
+    dataset: "TSDataset",
+) -> dict[str, SegmentMetrics]:
+    """Compute segment metrics grouped by sparsity class.
+
+    Args:
+        series_metrics: Dictionary of series_id to SeriesMetrics
+        dataset: TSDataset with sparsity profile
+
+    Returns:
+        Dictionary of segment_name to SegmentMetrics
+    """
+    from collections import defaultdict
+
+    segment_series: dict[str, list[str]] = defaultdict(list)
+    segment_metrics: dict[str, list[dict[str, float]]] = defaultdict(list)
+
+    # Group series by sparsity class
+    if dataset.sparsity_profile:
+        for uid in series_metrics.keys():
+            classification = dataset.sparsity_profile.get_classification(uid)
+            segment_name = classification.value
+            segment_series[segment_name].append(uid)
+            segment_metrics[segment_name].append(series_metrics[uid].metrics)
+    else:
+        # No sparsity profile, put all in "unknown" segment
+        for uid, sm in series_metrics.items():
+            segment_series["unknown"].append(uid)
+            segment_metrics["unknown"].append(sm.metrics)
+
+    # Aggregate metrics per segment
+    result: dict[str, SegmentMetrics] = {}
+    for segment_name, series_ids in segment_series.items():
+        metrics_list = segment_metrics[segment_name]
+        if not metrics_list:
+            continue
+
+        # Compute mean for each metric
+        aggregated: dict[str, float] = {}
+        metric_names = metrics_list[0].keys()
+        for metric_name in metric_names:
+            values = [m[metric_name] for m in metrics_list if not np.isnan(m.get(metric_name, np.nan))]
+            if values:
+                aggregated[metric_name] = float(np.mean(values))
+
+        result[segment_name] = SegmentMetrics(
+            segment_name=segment_name,
+            series_ids=series_ids,
+            metrics=aggregated,
+            n_series=len(series_ids),
+        )
+
+    return result
+
+
+def _compute_temporal_metrics(
+    series_metrics_agg: dict[str, list[dict[str, float]]],
+    df: pd.DataFrame,
+) -> dict[str, TemporalMetrics]:
+    """Compute temporal metrics grouped by time dimensions.
+
+    Args:
+        series_metrics_agg: Dict mapping series_id to list of window metrics
+        df: Original DataFrame with datetime information
+
+    Returns:
+        Dictionary of dimension to TemporalMetrics
+    """
+    result: dict[str, TemporalMetrics] = {}
+
+    # Parse dates
+    df = df.copy()
+    df["ds"] = pd.to_datetime(df["ds"])
+
+    # Compute hour-of-day metrics
+    df["hour"] = df["ds"].dt.hour
+    hour_metrics: dict[str, dict[str, float]] = {}
+    for hour in sorted(df["hour"].unique()):
+        hour_str = str(hour)
+        # Get series present in this hour
+        hour_series = df[df["hour"] == hour]["unique_id"].unique()
+        if len(hour_series) > 0:
+            # Average metrics for series in this hour
+            values = []
+            for uid in hour_series:
+                if uid in series_metrics_agg and series_metrics_agg[uid]:
+                    avg_wape = np.mean([m.get("wape", np.nan) for m in series_metrics_agg[uid]])
+                    if not np.isnan(avg_wape):
+                        values.append(avg_wape)
+            if values:
+                hour_metrics[hour_str] = {"wape": float(np.mean(values))}
+
+    if hour_metrics:
+        result["hour"] = TemporalMetrics(dimension="hour", metrics_by_value=hour_metrics)
+
+    # Compute day-of-week metrics
+    df["dayofweek"] = df["ds"].dt.dayofweek
+    dow_metrics: dict[str, dict[str, float]] = {}
+    dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    for dow in sorted(df["dayofweek"].unique()):
+        dow_str = dow_names[dow]
+        # Get series present on this day of week
+        dow_series = df[df["dayofweek"] == dow]["unique_id"].unique()
+        if len(dow_series) > 0:
+            # Average metrics for series on this day
+            values = []
+            for uid in dow_series:
+                if uid in series_metrics_agg and series_metrics_agg[uid]:
+                    avg_wape = np.mean([m.get("wape", np.nan) for m in series_metrics_agg[uid]])
+                    if not np.isnan(avg_wape):
+                        values.append(avg_wape)
+            if values:
+                dow_metrics[dow_str] = {"wape": float(np.mean(values))}
+
+    if dow_metrics:
+        result["dayofweek"] = TemporalMetrics(dimension="dayofweek", metrics_by_value=dow_metrics)
+
+    return result

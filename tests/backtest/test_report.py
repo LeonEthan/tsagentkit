@@ -2,7 +2,13 @@
 
 import pytest
 
-from tsagentkit.backtest.report import BacktestReport, SeriesMetrics, WindowResult
+from tsagentkit.backtest.report import (
+    BacktestReport,
+    SegmentMetrics,
+    SeriesMetrics,
+    TemporalMetrics,
+    WindowResult,
+)
 
 
 class TestWindowResult:
@@ -125,3 +131,121 @@ class TestBacktestReport:
         assert "3 windows" in summary
         assert "expanding" in summary
         assert "wape" in summary
+
+
+class TestSegmentMetrics:
+    """Tests for SegmentMetrics dataclass."""
+
+    def test_creation(self) -> None:
+        """Test creating SegmentMetrics."""
+        sm = SegmentMetrics(
+            segment_name="intermittent",
+            series_ids=["A", "B"],
+            metrics={"wape": 0.15, "smape": 0.18},
+            n_series=2,
+        )
+        assert sm.segment_name == "intermittent"
+        assert sm.n_series == 2
+        assert "A" in sm.series_ids
+
+    def test_to_dict(self) -> None:
+        """Test conversion to dictionary."""
+        sm = SegmentMetrics(
+            segment_name="regular",
+            series_ids=["C"],
+            metrics={"wape": 0.1},
+            n_series=1,
+        )
+        d = sm.to_dict()
+        assert d["segment_name"] == "regular"
+        assert d["n_series"] == 1
+
+
+class TestTemporalMetrics:
+    """Tests for TemporalMetrics dataclass."""
+
+    def test_creation(self) -> None:
+        """Test creating TemporalMetrics."""
+        tm = TemporalMetrics(
+            dimension="hour",
+            metrics_by_value={
+                "0": {"wape": 0.12},
+                "12": {"wape": 0.15},
+            },
+        )
+        assert tm.dimension == "hour"
+        assert "0" in tm.metrics_by_value
+
+    def test_to_dict(self) -> None:
+        """Test conversion to dictionary."""
+        tm = TemporalMetrics(
+            dimension="dayofweek",
+            metrics_by_value={"Mon": {"wape": 0.1}},
+        )
+        d = tm.to_dict()
+        assert d["dimension"] == "dayofweek"
+
+
+class TestBacktestReportSegmentAndTemporal:
+    """Tests for BacktestReport segment and temporal features."""
+
+    @pytest.fixture
+    def sample_report_with_segments(self) -> BacktestReport:
+        """Create a BacktestReport with segment and temporal metrics."""
+        return BacktestReport(
+            n_windows=3,
+            strategy="expanding",
+            window_results=[],
+            aggregate_metrics={"wape": 0.1},
+            series_metrics={
+                "A": SeriesMetrics(series_id="A", metrics={"wape": 0.08}),
+                "B": SeriesMetrics(series_id="B", metrics={"wape": 0.12}),
+            },
+            segment_metrics={
+                "regular": SegmentMetrics(
+                    segment_name="regular",
+                    series_ids=["A"],
+                    metrics={"wape": 0.08},
+                    n_series=1,
+                ),
+                "intermittent": SegmentMetrics(
+                    segment_name="intermittent",
+                    series_ids=["B"],
+                    metrics={"wape": 0.12},
+                    n_series=1,
+                ),
+            },
+            temporal_metrics={
+                "hour": TemporalMetrics(
+                    dimension="hour",
+                    metrics_by_value={"0": {"wape": 0.1}, "12": {"wape": 0.15}},
+                ),
+            },
+        )
+
+    def test_get_segment_metric(self, sample_report_with_segments: BacktestReport) -> None:
+        """Test getting a metric for a segment."""
+        assert sample_report_with_segments.get_segment_metric("regular", "wape") == 0.08
+        assert sample_report_with_segments.get_segment_metric("intermittent", "wape") == 0.12
+
+    def test_get_segment_metric_not_found(self, sample_report_with_segments: BacktestReport) -> None:
+        """Test getting a metric for a non-existent segment."""
+        assert sample_report_with_segments.get_segment_metric("unknown", "wape") != sample_report_with_segments.get_segment_metric("unknown", "wape")  # NaN
+
+    def test_get_temporal_metric(self, sample_report_with_segments: BacktestReport) -> None:
+        """Test getting a temporal metric."""
+        assert sample_report_with_segments.get_temporal_metric("hour", "0", "wape") == 0.1
+        assert sample_report_with_segments.get_temporal_metric("hour", "12", "wape") == 0.15
+
+    def test_compare_segments(self, sample_report_with_segments: BacktestReport) -> None:
+        """Test comparing metrics across segments."""
+        comparison = sample_report_with_segments.compare_segments("wape")
+        assert comparison["regular"] == 0.08
+        assert comparison["intermittent"] == 0.12
+
+    def test_summary_with_segments(self, sample_report_with_segments: BacktestReport) -> None:
+        """Test summary includes segment information."""
+        summary = sample_report_with_segments.summary()
+        assert "regular" in summary
+        assert "intermittent" in summary
+        assert "hour" in summary

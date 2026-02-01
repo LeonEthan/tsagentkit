@@ -9,7 +9,7 @@ Basic usage:
     >>> result = run_forecast(data, spec)
 """
 
-__version__ = "0.2.0"
+__version__ = "1.0.0"
 
 # Import commonly used items from contracts
 from tsagentkit.contracts import (
@@ -52,6 +52,13 @@ from tsagentkit.series import (
 )
 from tsagentkit.qa import run_qa
 from tsagentkit.serving import MonitoringConfig, run_forecast
+
+# Structured logging (v1.0)
+from tsagentkit.serving.provenance import (
+    StructuredLogger,
+    format_event_json,
+    log_event,
+)
 
 # v0.2 imports (optional - use directly from submodules)
 # from tsagentkit.features import FeatureFactory, FeatureMatrix, compute_feature_hash
@@ -98,4 +105,8 @@ __all__ = [
     # Serving
     "run_forecast",
     "MonitoringConfig",
+    # Structured Logging (v1.0)
+    "log_event",
+    "format_event_json",
+    "StructuredLogger",
 ]

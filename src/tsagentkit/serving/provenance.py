@@ -121,8 +121,18 @@ def log_event(
     duration_ms: float,
     error_code: str | None = None,
     artifacts_generated: list[str] | None = None,
+    context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Log a structured event.
+
+    Creates an event dictionary with all required fields per PRD section 6.2:
+    - step_name: Pipeline step name
+    - status: Execution status
+    - duration_ms: Execution duration
+    - error_code: Error code if applicable
+    - artifacts_generated: List of generated artifacts
+    - timestamp: ISO 8601 timestamp
+    - context: Additional context
 
     Args:
         step_name: Name of the pipeline step
@@ -130,14 +140,177 @@ def log_event(
         duration_ms: Duration in milliseconds
         error_code: Error code if failed
         artifacts_generated: List of artifact names generated
+        context: Additional context dictionary
 
     Returns:
-        Event dictionary
+        Event dictionary with all structured logging fields
     """
-    return {
+    from datetime import datetime, timezone
+
+    event = {
         "step_name": step_name,
         "status": status,
-        "duration_ms": duration_ms,
+        "duration_ms": round(duration_ms, 3),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "error_code": error_code,
         "artifacts_generated": artifacts_generated or [],
     }
+
+    if context:
+        event["context"] = context
+
+    return event
+
+
+def format_event_json(event: dict[str, Any]) -> str:
+    """Format an event as JSON string for structured logging.
+
+    Args:
+        event: Event dictionary from log_event()
+
+    Returns:
+        JSON string representation
+    """
+    return json.dumps(event, sort_keys=True, separators=(",", ":"))
+
+
+class StructuredLogger:
+    """Structured logger for tsagentkit pipeline events.
+
+    Provides consistent JSON-formatted logging with all required fields
+    per PRD section 6.2 (Observability & Error Codes).
+
+    Example:
+        >>> logger = StructuredLogger()
+        >>> logger.start_step("fit")
+        >>> # ... do work ...
+        >>> event = logger.end_step("fit", status="success")
+        >>> print(logger.to_json())
+
+    Attributes:
+        events: List of logged events
+    """
+
+    def __init__(self) -> None:
+        """Initialize the structured logger."""
+        self.events: list[dict[str, Any]] = []
+        self._start_times: dict[str, float] = {}
+
+    def start_step(self, step_name: str) -> None:
+        """Record the start time for a step.
+
+        Args:
+            step_name: Name of the step
+        """
+        import time
+
+        self._start_times[step_name] = time.time()
+
+    def end_step(
+        self,
+        step_name: str,
+        status: str = "success",
+        error_code: str | None = None,
+        artifacts_generated: list[str] | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """End a step and log the event.
+
+        Args:
+            step_name: Name of the step
+            status: Execution status
+            error_code: Error code if failed
+            artifacts_generated: List of artifacts generated
+            context: Additional context
+
+        Returns:
+            The logged event
+        """
+        import time
+
+        start_time = self._start_times.get(step_name)
+        if start_time is not None:
+            duration_ms = (time.time() - start_time) * 1000
+            del self._start_times[step_name]
+        else:
+            duration_ms = 0.0
+
+        event = log_event(
+            step_name=step_name,
+            status=status,
+            duration_ms=duration_ms,
+            error_code=error_code,
+            artifacts_generated=artifacts_generated,
+            context=context,
+        )
+
+        self.events.append(event)
+        return event
+
+    def log(
+        self,
+        step_name: str,
+        status: str,
+        duration_ms: float,
+        error_code: str | None = None,
+        artifacts_generated: list[str] | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Log an event directly.
+
+        Args:
+            step_name: Name of the step
+            status: Execution status
+            duration_ms: Duration in milliseconds
+            error_code: Error code if failed
+            artifacts_generated: List of artifacts generated
+            context: Additional context
+
+        Returns:
+            The logged event
+        """
+        event = log_event(
+            step_name=step_name,
+            status=status,
+            duration_ms=duration_ms,
+            error_code=error_code,
+            artifacts_generated=artifacts_generated,
+            context=context,
+        )
+
+        self.events.append(event)
+        return event
+
+    def to_json(self) -> str:
+        """Export all events as JSON.
+
+        Returns:
+            JSON array string
+        """
+        return json.dumps(self.events, sort_keys=True, separators=(",", ":"))
+
+    def to_dict(self) -> list[dict[str, Any]]:
+        """Export all events as list of dictionaries.
+
+        Returns:
+            List of event dictionaries
+        """
+        return self.events.copy()
+
+    def get_summary(self) -> dict[str, Any]:
+        """Get summary statistics of logged events.
+
+        Returns:
+            Summary dictionary with counts and timing
+        """
+        total_duration = sum(e.get("duration_ms", 0) for e in self.events)
+        success_count = sum(1 for e in self.events if e.get("status") == "success")
+        failed_count = sum(1 for e in self.events if e.get("status") == "failed")
+
+        return {
+            "total_events": len(self.events),
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "total_duration_ms": round(total_duration, 3),
+            "steps": [e.get("step_name") for e in self.events],
+        }

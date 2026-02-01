@@ -181,3 +181,78 @@ class TestTaskSpecSignatures:
         spec = TaskSpec(horizon=7, freq="D")
         sig = spec.to_signature()
         assert "s=7" in sig
+
+    def test_signature_with_seed(self) -> None:
+        """Test signature includes seed."""
+        spec = TaskSpec(horizon=7, freq="D", seed=42)
+        sig = spec.to_signature()
+        assert "seed=42" in sig
+
+
+class TestTaskSpecSeed:
+    """Tests for seed/reproducibility functionality."""
+
+    def test_seed_field(self) -> None:
+        """Test seed field is stored."""
+        spec = TaskSpec(horizon=7, freq="D", seed=42)
+        assert spec.seed == 42
+
+    def test_seed_none_default(self) -> None:
+        """Test seed defaults to None."""
+        spec = TaskSpec(horizon=7, freq="D")
+        assert spec.seed is None
+
+    def test_set_random_seed_numpy(self) -> None:
+        """Test set_random_seed affects numpy."""
+        import numpy as np
+
+        spec = TaskSpec(horizon=7, freq="D", seed=42)
+        spec.set_random_seed()
+
+        r1 = np.random.rand(5)
+
+        spec2 = TaskSpec(horizon=7, freq="D", seed=42)
+        spec2.set_random_seed()
+
+        r2 = np.random.rand(5)
+
+        # Same seed should produce same random numbers
+        assert np.allclose(r1, r2)
+
+    def test_set_random_seed_python(self) -> None:
+        """Test set_random_seed affects Python random."""
+        import random
+
+        spec = TaskSpec(horizon=7, freq="D", seed=42)
+        spec.set_random_seed()
+
+        r1 = random.random()
+
+        spec2 = TaskSpec(horizon=7, freq="D", seed=42)
+        spec2.set_random_seed()
+
+        r2 = random.random()
+
+        # Same seed should produce same random numbers
+        assert r1 == r2
+
+    def test_set_random_seed_no_seed(self) -> None:
+        """Test set_random_seed does nothing when seed is None."""
+        spec = TaskSpec(horizon=7, freq="D", seed=None)
+        # Should not raise
+        spec.set_random_seed()
+
+    def test_different_seeds_different_results(self) -> None:
+        """Test different seeds produce different results."""
+        import numpy as np
+
+        spec1 = TaskSpec(horizon=7, freq="D", seed=42)
+        spec1.set_random_seed()
+        r1 = np.random.rand(5)
+
+        spec2 = TaskSpec(horizon=7, freq="D", seed=123)
+        spec2.set_random_seed()
+        r2 = np.random.rand(5)
+
+        # Different seeds should produce different random numbers
+        assert not np.allclose(r1, r2)

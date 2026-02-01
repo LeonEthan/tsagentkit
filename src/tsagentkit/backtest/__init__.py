@@ -14,7 +14,13 @@ from .metrics import (
     smape,
     wape,
 )
-from .report import BacktestReport, SeriesMetrics, WindowResult
+from .report import (
+    BacktestReport,
+    SegmentMetrics,
+    SeriesMetrics,
+    TemporalMetrics,
+    WindowResult,
+)
 
 __all__ = [
     # Engine
@@ -24,6 +30,8 @@ __all__ = [
     "BacktestReport",
     "WindowResult",
     "SeriesMetrics",
+    "SegmentMetrics",
+    "TemporalMetrics",
     # Metrics
     "wape",
     "smape",

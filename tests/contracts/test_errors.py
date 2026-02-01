@@ -43,7 +43,6 @@ class TestSpecificErrors:
             (EContractMissingColumn, "E_CONTRACT_MISSING_COLUMN"),
             (EContractInvalidType, "E_CONTRACT_INVALID_TYPE"),
             (EContractDuplicateKey, "E_CONTRACT_DUPLICATE_KEY"),
-            (EContractUnsorted, "E_CONTRACT_UNSORTED"),
             (EContractInvalidFrequency, "E_CONTRACT_INVALID_FREQUENCY"),
             (ESplitRandomForbidden, "E_SPLIT_RANDOM_FORBIDDEN"),
             (ECovariateLeakage, "E_COVARIATE_LEAKAGE"),
@@ -56,6 +55,20 @@ class TestSpecificErrors:
             err = err_class("Test message")
             assert err.error_code == expected_code
             assert expected_code in str(err)
+
+    def test_econtract_unsorted_consolidated(self) -> None:
+        """Test that EContractUnsorted is consolidated into E_SPLIT_RANDOM_FORBIDDEN.
+
+        EContractUnsorted now inherits from ESplitRandomForbidden and uses
+        the same error code, as both indicate temporal ordering violations.
+        """
+        # EContractUnsorted now uses E_SPLIT_RANDOM_FORBIDDEN
+        assert EContractUnsorted.error_code == "E_SPLIT_RANDOM_FORBIDDEN"
+
+        # EContractUnsorted inherits from ESplitRandomForbidden
+        err = EContractUnsorted("Data not sorted")
+        assert isinstance(err, ESplitRandomForbidden)
+        assert err.error_code == "E_SPLIT_RANDOM_FORBIDDEN"
 
     def test_inheritance(self) -> None:
         """Test that all errors inherit from TSAgentKitError."""

@@ -31,6 +31,7 @@ from .provenance import create_provenance, log_event
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import RunArtifact
+    from tsagentkit.features import FeatureConfig, FeatureMatrix
     from tsagentkit.hierarchy import HierarchyStructure
 
 
@@ -70,6 +71,7 @@ def run_forecast(
     reference_data: pd.DataFrame | None = None,
     repair_strategy: dict[str, Any] | None = None,
     hierarchy: "HierarchyStructure" | None = None,
+    feature_config: "FeatureConfig" | None = None,
 ) -> "RunArtifact":
     """Execute the complete forecasting pipeline.
 
@@ -90,6 +92,7 @@ def run_forecast(
         reference_data: Optional reference data for drift detection (v0.2)
         repair_strategy: Optional QA repair configuration (overrides TaskSpec)
         hierarchy: Optional hierarchy structure for reconciliation
+        feature_config: Optional feature configuration for feature engineering (v1.0)
 
     Returns:
         RunArtifact with forecast, metrics, and provenance
@@ -179,6 +182,39 @@ def run_forecast(
             duration_ms=(time.time() - step_start) * 1000,
         )
     )
+
+    # Step 3b: Feature Engineering (v1.0)
+    feature_matrix: FeatureMatrix | None = None
+    if feature_config is not None:
+        step_start = time.time()
+        try:
+            from tsagentkit.features import FeatureFactory
+
+            factory = FeatureFactory(feature_config)
+            feature_matrix = factory.create_features(dataset)
+            events.append(
+                log_event(
+                    step_name="feature_engineering",
+                    status="success",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    artifacts_generated=["feature_matrix"],
+                    context={
+                        "n_features": len(feature_matrix.feature_cols),
+                        "feature_hash": feature_matrix.config_hash,
+                    },
+                )
+            )
+        except Exception as e:
+            events.append(
+                log_event(
+                    step_name="feature_engineering",
+                    status="failed",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    error_code=type(e).__name__,
+                )
+            )
+            if mode == "strict":
+                raise
 
     # Step 4: Make Plan
     step_start = time.time()
@@ -321,6 +357,7 @@ def run_forecast(
         model_config=plan.config,
         qa_repairs=qa_repairs,
         fallbacks_triggered=fallbacks_triggered,
+        feature_matrix=feature_matrix,
         drift_report=drift_report,
     )
 
