@@ -18,6 +18,7 @@ from .report import BacktestReport, SeriesMetrics, WindowResult
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import TaskSpec
+    from tsagentkit.hierarchy import HierarchyStructure, ReconciliationMethod
     from tsagentkit.router import Plan
     from tsagentkit.series import TSDataset
 
@@ -32,11 +33,15 @@ def rolling_backtest(
     window_strategy: Literal["expanding", "sliding"] = "expanding",
     min_train_size: int | None = None,
     step_size: int | None = None,
+    reconcile: bool = True,
 ) -> BacktestReport:
     """Execute rolling window backtest.
 
     Performs temporal cross-validation using expanding or sliding windows.
     Random splits are strictly forbidden.
+
+    For hierarchical datasets, applies forecast reconciliation to ensure
+    coherence across the hierarchy (enabled by default).
 
     Args:
         dataset: TSDataset with time series data
@@ -48,6 +53,7 @@ def rolling_backtest(
         window_strategy: "expanding" or "sliding" (default: "expanding")
         min_train_size: Minimum training observations per series
         step_size: Step size between windows (default: spec.horizon)
+        reconcile: Whether to reconcile forecasts for hierarchical data (default: True)
 
     Returns:
         BacktestReport with results from all windows
@@ -122,6 +128,14 @@ def rolling_backtest(
 
             # Predict
             predictions = predict_func(model, test_df, horizon)
+
+            # Apply reconciliation if hierarchical
+            if reconcile and dataset.is_hierarchical() and dataset.hierarchy:
+                predictions = _reconcile_forecast(
+                    predictions,
+                    dataset.hierarchy,
+                    plan.config.get("reconciliation_method", "bottom_up"),
+                )
 
             # Compute metrics per series
             for uid in test_df["unique_id"].unique():
@@ -375,3 +389,42 @@ def cross_validation_split(
         splits.append((train_df, test_df))
 
     return splits
+
+
+def _reconcile_forecast(
+    forecast_df: pd.DataFrame,
+    hierarchy: HierarchyStructure,
+    method: str | ReconciliationMethod,
+) -> pd.DataFrame:
+    """Reconcile forecast to ensure hierarchy coherence.
+
+    Args:
+        forecast_df: Forecast DataFrame with columns [unique_id, ds, yhat]
+        hierarchy: Hierarchy structure
+        method: Reconciliation method name or enum
+
+    Returns:
+        Reconciled forecast DataFrame
+    """
+    from tsagentkit.hierarchy import Reconciler, ReconciliationMethod, reconcile_forecasts
+
+    # Convert method string to enum if needed
+    if isinstance(method, str):
+        method_map = {
+            "bottom_up": ReconciliationMethod.BOTTOM_UP,
+            "top_down": ReconciliationMethod.TOP_DOWN,
+            "middle_out": ReconciliationMethod.MIDDLE_OUT,
+            "ols": ReconciliationMethod.OLS,
+            "wls": ReconciliationMethod.WLS,
+            "min_trace": ReconciliationMethod.MIN_TRACE,
+        }
+        method = method_map.get(method, ReconciliationMethod.BOTTOM_UP)
+
+    # Apply reconciliation
+    reconciled = reconcile_forecasts(
+        base_forecasts=forecast_df,
+        structure=hierarchy,
+        method=method,
+    )
+
+    return reconciled

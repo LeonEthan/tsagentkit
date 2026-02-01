@@ -1,7 +1,7 @@
-"""Models module stub for tsagentkit.
+"""Models module for tsagentkit.
 
-This is a minimal stub for v0.1. Full model implementations would
-include adapters for statsforecast, etc.
+Provides model fitting, prediction, and TSFM (Time-Series Foundation Model)
+adapters for various forecasting backends.
 """
 
 from __future__ import annotations
@@ -11,6 +11,9 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 from tsagentkit.contracts import ModelArtifact
+
+# Import adapters submodules
+from tsagentkit.models import adapters
 
 if TYPE_CHECKING:
     from tsagentkit.series import TSDataset
@@ -78,4 +81,4 @@ def predict(
     return pd.DataFrame(predictions)
 
 
-__all__ = ["fit", "predict"]
+__all__ = ["fit", "predict", "adapters"]

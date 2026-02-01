@@ -211,6 +211,7 @@ def run_forecast(
         dataset=dataset,
         horizon=task_spec.horizon,
         predict_func=predict_func,
+        plan=plan,
     )
     events.append(
         log_event(
@@ -347,6 +348,7 @@ def _step_predict(
     dataset: TSDataset,
     horizon: int,
     predict_func: Any | None,
+    plan: Any | None = None,
 ) -> pd.DataFrame:
     """Execute predict step."""
     if predict_func is None:
@@ -355,7 +357,30 @@ def _step_predict(
 
         predict_func = default_predict
 
-    return predict_func(model, dataset, horizon)
+    forecast = predict_func(model, dataset, horizon)
+
+    # Apply reconciliation if hierarchical
+    if plan and dataset.is_hierarchical() and dataset.hierarchy:
+        from tsagentkit.hierarchy import reconcile_forecasts, ReconciliationMethod
+
+        method_str = plan.config.get("reconciliation_method", "bottom_up")
+        method_map = {
+            "bottom_up": ReconciliationMethod.BOTTOM_UP,
+            "top_down": ReconciliationMethod.TOP_DOWN,
+            "middle_out": ReconciliationMethod.MIDDLE_OUT,
+            "ols": ReconciliationMethod.OLS,
+            "wls": ReconciliationMethod.WLS,
+            "min_trace": ReconciliationMethod.MIN_TRACE,
+        }
+        method = method_map.get(method_str, ReconciliationMethod.BOTTOM_UP)
+
+        forecast = reconcile_forecasts(
+            base_forecasts=forecast,
+            structure=dataset.hierarchy,
+            method=method,
+        )
+
+    return forecast
 
 
 def _get_error_code(validation: ValidationReport) -> str | None:

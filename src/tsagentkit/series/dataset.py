@@ -6,7 +6,7 @@ guaranteed schema and temporal integrity.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -17,7 +17,7 @@ from tsagentkit.contracts.results import ValidationReport
 from .sparsity import SparsityProfile, compute_sparsity_profile
 
 if TYPE_CHECKING:
-    pass
+    from tsagentkit.hierarchy import HierarchyStructure
 
 
 @dataclass(frozen=True)
@@ -49,6 +49,7 @@ class TSDataset:
     task_spec: TaskSpec
     sparsity_profile: SparsityProfile | None = field(default=None)
     metadata: dict[str, Any] = field(default_factory=dict)
+    hierarchy: HierarchyStructure | None = field(default=None)
 
     def __post_init__(self) -> None:
         """Validate the dataset after creation."""
@@ -262,7 +263,92 @@ class TSDataset:
             "task_spec": self.task_spec.model_dump(),
             "sparsity_profile": self.sparsity_profile.series_profiles if self.sparsity_profile else None,
             "metadata": self.metadata,
+            "hierarchy": self.hierarchy is not None,
         }
+
+    def with_hierarchy(self, hierarchy: HierarchyStructure) -> "TSDataset":
+        """Return new TSDataset with hierarchy attached.
+
+        Args:
+            hierarchy: Hierarchy structure to attach
+
+        Returns:
+            New TSDataset instance with hierarchy
+        """
+        return replace(self, hierarchy=hierarchy)
+
+    def is_hierarchical(self) -> bool:
+        """Check if dataset has hierarchy.
+
+        Returns:
+            True if hierarchy is attached
+        """
+        return self.hierarchy is not None
+
+    def get_level_series(self, level: int) -> list[str]:
+        """Get all series IDs at a specific hierarchy level.
+
+        Args:
+            level: Hierarchy level (0 = root)
+
+        Returns:
+            List of series IDs at that level
+        """
+        if not self.hierarchy:
+            return self.series_ids
+
+        return [
+            node for node in self.hierarchy.all_nodes
+            if self.hierarchy.get_level(node) == level
+        ]
+
+    def aggregate_to_level(self, target_level: int) -> "TSDataset":
+        """Aggregate bottom-level data to target hierarchy level.
+
+        Args:
+            target_level: Target hierarchy level
+
+        Returns:
+            New TSDataset with aggregated data
+        """
+        if not self.hierarchy:
+            raise ValueError("Dataset does not have hierarchy")
+
+        target_nodes = self.hierarchy.get_nodes_at_level(target_level)
+
+        # Aggregate data for target nodes
+        aggregated_rows = []
+        for node in target_nodes:
+            # Find all bottom nodes that contribute to this node
+            bottom_contributors = []
+            for bottom_node in self.hierarchy.bottom_nodes:
+                bottom_idx = self.hierarchy.all_nodes.index(bottom_node)
+                node_idx = self.hierarchy.all_nodes.index(node)
+                if self.hierarchy.s_matrix[node_idx, bottom_idx] == 1:
+                    bottom_contributors.append(bottom_node)
+
+            # Get data for contributors
+            node_data = self.df[self.df["unique_id"].isin(bottom_contributors)]
+
+            # Aggregate by date
+            if not node_data.empty:
+                aggregated = node_data.groupby("ds")["y"].sum().reset_index()
+                aggregated["unique_id"] = node
+                aggregated_rows.append(aggregated)
+
+        if not aggregated_rows:
+            raise ValueError(f"No data found for level {target_level}")
+
+        new_df = pd.concat(aggregated_rows, ignore_index=True)
+
+        # Reorder columns to match expected format
+        new_df = new_df[["unique_id", "ds", "y"]]
+
+        return replace(
+            self,
+            df=new_df,
+            sparsity_profile=None,  # Need to recompute
+        )
 
 
 def build_dataset(

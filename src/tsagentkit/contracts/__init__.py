@@ -5,6 +5,7 @@ for the forecasting pipeline.
 """
 
 from .errors import (
+    EAdapterNotAvailable,
     EBacktestInsufficientData,
     EBacktestInvalidWindow,
     EContractDuplicateKey,
@@ -15,6 +16,7 @@ from .errors import (
     ECovariateLeakage,
     EFallbackExhausted,
     EModelFitFailed,
+    EModelLoadFailed,
     EModelPredictFailed,
     EQACriticalIssue,
     EQALeakageDetected,
@@ -46,6 +48,8 @@ __all__ = [
     "ECovariateLeakage",
     "EModelFitFailed",
     "EModelPredictFailed",
+    "EModelLoadFailed",
+    "EAdapterNotAvailable",
     "EFallbackExhausted",
     "EQACriticalIssue",
     "EQALeakageDetected",
