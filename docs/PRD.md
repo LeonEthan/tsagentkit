@@ -1,24 +1,31 @@
-# tsagentkit Technical Requirements Document (PRD)
+# tsagentkit Product Requirements Document (PRD)
 
-> **Document Goal**: Define the technical baseline, architecture, and verification standards for `tsagentkit`.
-> **Target Audience**: LLM/Agents (as developers), System Architects, Data Engineers.
+> **Document Goal**: Define the technical baseline, architecture, and verification standards for `tsagentkit` — a **pure time-series forecasting toolbox** designed to be **called by external LLM/Agents**, but containing **no LLM logic itself**.
+>
+> **Target Audience**: Coding agents (tool callers), System Architects, Data/ML Engineers  
+> **Last Updated**: 2026-02-02 (Asia/Tokyo)
+
+---
 
 ## 1. Project Overview
 
-**tsagentkit** is a Python library designed to be the robust execution engine for **external coding agents** performing time-series forecasting tasks. It provides a strict, production-grade workflow skeleton rather than just a collection of models.
+**tsagentkit** is a Python library that standardizes **data contracts, covariate handling, backtesting, evaluation, anomaly detection, and run packaging** for time-series forecasting.  
+It is intended to be the **execution engine** for external coding agents: agents decide *what* to do; `tsagentkit` guarantees *how* it is done (correctly, reproducibly, and auditable).
 
 ### 1.1 Core Objectives
-*   **G1. Enforced Workflow**: Enforce `validate -> QA -> series -> route -> backtest -> fit -> predict -> package` pipeline.
-*   **G2. Agent-Friendly**: Provide `skill/` documentation to guide agents to write correct code.
-*   **G3. Reliability**: "TSFM-first" strategy with deterministic **Fallback Ladders**.
-*   **G4. Provenance**: Full traceability (data/feature/model signatures, plan IDs).
-*   **G5. Guardrails**: Strict prevention of data leakage (time-travel) and invalid splits.
+
+1. **Agent-friendly, deterministic workflow**: one canonical pipeline with explicit artifacts at each step.
+2. **Production-grade guardrails**: temporal integrity, point-in-time correctness, leakage prevention, and explicit error codes.
+3. **Model-agnostic tooling**: adapters for models, not model selection intelligence.
+4. **First-class covariates**: explicit support for `static`, `past/observed`, and `future-known` covariates with strict coverage/leakage checks.
+5. **First-class anomaly detection**: anomaly scoring based on forecasts and calibrated uncertainty.
+6. **Reproducible, auditable outputs**: standardized run artifacts and provenance fields.
 
 ### 1.2 Non-Goals
-*   **N1**: No ETL / Data Warehouse management.
-*   **N2**: No built-in decision optimization (inventory/scheduling).
-*   **N3**: No hard dependency on a single model library (framework agnostic).
-*   **N4**: Not a self-improving agent (it is a toolkit *for* agents).
+
+* Any built-in LLM reasoning, tool selection, natural-language explanation, or autonomous decision making.
+* Data acquisition (APIs, scraping), feature discovery via LLM, or human-in-the-loop labeling workflows.
+* A full training platform (distributed training, experiment management beyond run artifacts).
 
 ---
 
@@ -26,138 +33,357 @@
 
 ### 2.1 Module Structure
 
-| Module | Responsibility | Key Output |
-| :--- | :--- | :--- |
-| `contracts/` | Data validation, task specifications, error models. | `ValidationReport`, `TaskSpec` |
-| `qa/` | Data quality checks, leakage detection, repair strategies. | `QAReport` |
-| `series/` | Time alignment, resampling, sparsity identification. | `TSDataset`, `SparsityProfile` |
-| `features/` | Feature engineering, covariate alignment, version hashing. | `FeatureMatrix`, `signatures` |
-| `router/` | Model selection logic, fallback strategies, bucketing. | `Plan` |
-| `models/` | Unified adapter interface, baseline implementations. | `ModelArtifact`, `ForecastResult` |
-| `backtest/` | Rolling window backtesting, metrics calculation. | `BacktestReport` |
-| `serving/` | Batch inference orchestration, artifact packaging. | `RunArtifact` |
-| `monitoring/` | Drift detection, coverage analysis, retrain triggers. | `DriftReport` |
-| `skill/` | Documentation & recipes specifically for AI Agents. | `README.md`, `recipes.md` |
+| Module | Responsibility | Primary Artifacts |
+|---|---|---|
+| `contracts/` | Input/output schema validation, canonical column names, dtype rules. | `ValidationReport`, `SchemaSpec` |
+| `qa/` | Data quality checks + **PIT-safe** repairs (optional). | `QAReport`, `RepairReport` |
+| `time/` | Frequency inference/validation, regular grids, future index building. | `TimeIndex`, `FreqSpec` |
+| `covariates/` | Covariate typing (`static/past/future`), alignment, coverage/leakage checks, imputation. | `CovariateSpec`, `CovariateBundle`, `AlignedDataset` |
+| `features/` | Deterministic feature blocks (lags/rolling/calendar), version hashing. | `FeatureSpec`, `FeatureMatrix`, `signatures` |
+| `router/` | Deterministic bucketing & plan composition (no LLM). | `PlanSpec`, `RouteDecision` |
+| `models/` | Model protocol + adapters, fit/predict orchestration hooks. | `ModelArtifact`, `ForecastFrame` |
+| `backtest/` | Rolling-origin CV, fold management, out-of-sample prediction assembly. | `CVFrame`, `BacktestReport` |
+| `eval/` | Metrics (point + quantile), summaries, leaderboards. | `MetricFrame`, `ScoreSummary` |
+| `calibration/` | Forecast uncertainty calibration (e.g., conformal). | `CalibratorArtifact` |
+| `anomaly/` | Anomaly detection using (calibrated) forecast uncertainty. | `AnomalyReport`, `AnomalyFrame` |
+| `serving/` | Packaging for inference-time usage; IO normalization. | `RunArtifact`, `InferenceBundle` |
+| `monitoring/` | Coverage/drift checks, artifact validation at serving time. | `MonitoringReport` |
+| `skill/` | Agent-facing docs/specs for tool usage (no execution). | Markdown specs |
+
+> **Note**: `calibration/` is separated from `anomaly/` so anomaly detection can be **calibrated** using CV residuals; models are not required to produce well-calibrated intervals.
 
 ### 2.2 Agent Interaction Flow
-1.  **Read**: Agent reads `skill/README.md` & `skill/tool_map.md`.
-2.  **Code**: Agent generates script using `tsagentkit` modules.
-3.  **Execute**: Script runs with mandatory **Guardrails**.
-4.  **Fail/Succeed**:
-    *   *Violation*: Returns strict Error Code (e.g., `E_SPLIT_RANDOM_FORBIDDEN`).
-    *   *Success*: Returns `RunArtifact` with full provenance.
+
+The library enforces a strict pipeline:
+
+1. **validate**: validate input contract + schema inference
+2. **qa**: quality checks + optional PIT-safe repairs
+3. **time/covariates**: infer/validate `freq`, align covariates, build future index
+4. **features**: generate deterministic features (optional)
+5. **router**: deterministic plan creation (model candidates, hyperparams, covariate usage)
+6. **backtest**: rolling-origin evaluation to choose plan variants (rule-based)
+7. **fit**: fit chosen plan
+8. **predict**: produce forecast (point + intervals/quantiles)
+9. **calibrate** (optional but recommended): calibrate intervals/quantiles using backtest residuals
+10. **detect anomalies** (optional): detect anomalies from (calibrated) uncertainty and actuals
+11. **package**: produce a `RunArtifact` with provenance, configs, and outputs
 
 ---
 
 ## 3. Functional Requirements (FR)
 
 ### 3.1 Contracts (`contracts/`)
-*   **FR-1 Data Validation**:
-    *   **Input**: DataFrame/Arrow.
-    *   **Checks**: `unique_id` (str), `ds` (datetime), `y` (num), duplicates, frequency.
-    *   **Output**: `ValidationReport`.
-*   **FR-2 Task Specification (`TaskSpec`)**:
-    *   **Fields**: `horizon`, `freq`, `rolling_step`, `quantiles`, `covariate_policy` (`ignore|known|observed|auto`), `repair_strategy` (optional), `season_length` (optional).
-    *   **Constraint**: Must be JSON-serializable and hashable.
-*   **FR-3 Forecast Result**:
-    *   **Fields**: `unique_id`, `ds`, `yhat`, `quantiles` (optional).
-    *   **Meta**: `provenance` (signatures, plan_id, run_id).
+
+**FR-1 Canonical Panel Contract**
+* Minimum required columns: `unique_id`, `ds`, `y`
+* `ds` must be datetime-like; `unique_id` string-like; `y` numeric
+* Duplicates on (`unique_id`, `ds`) are rejected unless explicitly aggregated via `task_spec.aggregation`
+
+**FR-2 Forecast Output Contract**
+* Standard output columns (long format):
+  * `unique_id`, `ds`, `model`, `yhat`
+  * Optional: interval columns via `level=[...]` (`yhat_lo_95`, `yhat_hi_95`, ...)
+  * Optional: quantiles via `quantiles=[...]` (`q_10`, `q_50`, ...)
+* CV outputs must include `cutoff`
+
+**FR-3 SchemaSpec**
+* A `SchemaSpec` object can be produced and serialized for reuse, including:
+  * column roles, dtypes, and covariate typing if provided by user/agent
+
+---
 
 ### 3.2 Data QA (`qa/`)
-*   **FR-4 Quality Checks**: Missing values, gaps, outliers, zero-density.
-*   **FR-5 Repair Strategy**: Configurable (interpolate, winsorize, etc.). All repairs logged to provenance.
-*   **FR-6 Leakage Detection**:
-    *   **Rule**: Future covariates must be known at prediction time.
-    *   **Action**: Reject or drop invalid covariates.
 
-### 3.3 Series (`series/`)
-*   **FR-7 Alignment**: Timezone unification, resampling (sum/mean/last).
-*   **FR-8 Sparsity Profile**: Identify intermittent/cold-start series for the Router.
-*   **FR-9 Hierarchy (Optional)**: Support reconciliation inputs.
+**FR-4 Data Quality Checks**
+* Missingness, outliers, monotonicity of `ds`, minimum history length checks
+* Per-series summaries: length, gaps, sparsity, seasonality hints
 
-### 3.4 Features (`features/`)
-*   **FR-10 Feature Factory**: Lags, rolling stats, calendar features (Point-in-Time safe).
-*   **FR-11 Covariate Policy (AutoGluon-style)**:
-    *   **Types**:
-        *   **Known covariates**: values are available for the full forecast horizon (e.g., calendars, planned promotions).
-        *   **Observed covariates** (aka **past covariates**): values are only known up to the forecast start (e.g., realized weather, related series).
-    *   **Layout**: Both known and observed covariates are represented as additional columns in the input data.
-    *   **Inference**:
-        *   `covariate_policy="known"`: treat all extra columns as known covariates.
-        *   `covariate_policy="observed"`: treat all extra columns as observed/past covariates.
-        *   `covariate_policy="auto"`: infer known covariates by presence of values in the forecast horizon; remaining columns are observed.
-    *   **Guardrail**: Observed/past covariates must not be available beyond forecast start; reject on leakage.
-*   **FR-12 Versioning**: Compute `feature_config_hash` for traceability.
+**FR-5 PIT-safe Repairs (Optional)**
+* Repairs must be **causal** (no peeking into the future relative to any cutoff)
+* Supported repair strategies:
+  * `ffill` / `bfill` **with explicit directionality** (default: causal `ffill`)
+  * `winsorize` (by rolling historical quantiles, left-closed windows)
+  * `median_filter` (rolling median, left-closed windows)
+* Disallowed by default: global interpolation/smoothing that uses future points
+* Repair must emit a `RepairReport` detailing:
+  * what changed, where, and which strategy was used
 
-### 3.5 Router (`router/`)
-*   **FR-13 TSFM-first Routing**: Map `TSDataset` + `SparsityProfile` -> `Plan`.
-*   **FR-14 Bucketing**: Strategy for Head vs. Tail / Short vs. Long history.
-*   **FR-15 Fallback Ladder**:
-    *   **Chain**: TSFM -> Lightweight (opt) -> Tree/Baseline -> Naive.
-    *   **Requirement**: Automatic degradation on failure.
+---
 
-### 3.6 Models (`models/`)
-*   **FR-16 Interface**:
-    *   `fit(dataset, plan) -> ModelArtifact`
-    *   `predict(dataset, artifact, horizon) -> ForecastResult`
-*   **FR-17 Built-in Baselines**: Seasonal Naive, Moving Average, ETS (at least one required).
-*   **FR-17b TSFM Loading**: TSFM adapters are **lazy-loaded**; model weights are only loaded on first use (optionally cached).
+### 3.3 Time & Index (`time/`)
 
-### 3.7 Backtest (`backtest/`)
-*   **FR-18 Rolling Engine**: Expanding/Sliding window. **NO Random Splits**.
-*   **FR-19 Metrics**: WAPE, SMAPE, MASE, Pinball Loss (if quantiles).
-*   **FR-20 Diagnostics**: Structured error reports by segment/time.
+**FR-6 Frequency Handling**
+* `freq` can be explicit in `TaskSpec` or inferred per-series with a global reconciliation
+* `make_regular_grid()` can expand to a regular index with explicit fill policies
 
-### 3.8 Serving (`serving/`)
-*   **FR-21 Batch Inference**: Reproducible, sorted output.
-*   **FR-22 Artifacts**: Comprehensive bundle (forecast, plan, metrics, qa, provenance).
+**FR-7 Future Index Generation**
+* `make_future_index(panel, h, freq)` generates future `ds` per `unique_id`
+* Ensures compatibility with covariate coverage validation
 
-### 3.9 Monitoring (`monitoring/`)
-*   **FR-23 Drift**: PSI/KS test on input distributions.
-*   **FR-24 Stability**: Prediction jitter, quantile coverage.
-*   **FR-25 Triggers**: Rules for retraining (drift threshold or schedule).
+---
 
-### 3.10 Skills (`skill/`)
-*   **FR-26 Agent Docs**: Standardized "What/When/Inputs/Workflow" format.
-*   **FR-27 Recipes**: Runnable end-to-end examples (Retail Daily, Industrial Hourly).
+### 3.4 Covariates (`covariates/`)
+
+**FR-8 Covariate Typing**
+Covariates are categorized as:
+* `static`: constant per `unique_id`
+* `past` (aka observed): only available up to forecast start
+* `future`: known for the full horizon (e.g., calendar, planned promotions)
+
+**FR-9 Input Modes**
+* **Single-table mode**: covariate columns exist in the panel DataFrame; future rows may have `y=NaN`
+* **Bundle mode**: `CovariateBundle` with:
+  * `static_x`: (`unique_id`, ...)
+  * `past_x`: (`unique_id`, `ds`, ...)
+  * `future_x`: (`unique_id`, `ds`, ...) covering *all* future steps
+* `align_covariates()` returns `AlignedDataset` with unified views.
+
+**FR-10 Coverage & Leakage Guardrails**
+* `future` covariates must cover every (`unique_id`, future `ds`) in the horizon; otherwise raise `E_COVARIATE_INCOMPLETE_KNOWN`
+* `past` covariates must be null/absent after the forecast start; otherwise raise `E_COVARIATE_LEAKAGE`
+* `static` covariates must have exactly one row per `unique_id`; otherwise raise `E_COVARIATE_STATIC_INVALID`
+
+**FR-11 Covariate Policy**
+`covariate_policy` (`ignore|known|observed|auto|spec`) determines how columns are typed:
+* `ignore`: ignore all extra columns
+* `known`: treat all extra columns as `future`
+* `observed`: treat all extra columns as `past`
+* `auto`: infer `future` if values are present for the full horizon; else `past`
+  * **strict behavior**: if a column is inferred as `future` but has missing values in the future index, raise `E_COVARIATE_INCOMPLETE_KNOWN`
+* `spec`: use an explicit `CovariateSpec` (recommended for production)
+
+---
+
+### 3.5 Features (`features/`)
+
+**FR-12 Deterministic Feature Blocks**
+* Feature blocks must be composable and deterministic:
+  * lags, rolling stats, calendar features, simple transforms
+* Feature generation must be PIT-safe relative to each fold cutoff
+* Each `FeatureMatrix` must have a version hash based on:
+  * code version, parameters, and input schema signatures
+
+---
+
+### 3.6 Router (`router/`)
+
+**FR-13 PlanSpec**
+A `PlanSpec` is a deterministic, serializable object describing:
+* candidate models (ordered)
+* covariate usage rules (`use_static`, `use_past`, `use_future`)
+* feature spec reference (optional)
+* training window policy (min history, truncation)
+* prediction format (point/interval/quantiles, desired levels)
+* fallback policy (see FR-15)
+
+**FR-14 Bucketing Rules (Deterministic)**
+A series is bucketed using transparent thresholds (defaults can be overridden):
+* `short_history`: length < `min_train_size`
+* `sparse`: missing ratio > `max_missing_ratio`
+* `intermittent`: intermittency score > `max_intermittency`
+* `seasonal_candidate`: seasonality detected with confidence > `min_seasonality_conf`
+The router produces a `RouteDecision` containing:
+* bucket tags
+* selected PlanSpec template
+* reasons and computed statistics
+
+
+**Router Default Thresholds (Recommended Defaults)**  
+These defaults are intended to be **safe, conservative**, and **overrideable** via `RouterConfig`. They must be applied deterministically.
+
+| Parameter | Default | Applies to | Meaning | Notes |
+|---|---:|---|---|---|
+| `min_train_size` | 56 | all | Minimum historical points required for non-baseline plans | If `freq` is daily, ~8 weeks. |
+| `max_missing_ratio` | 0.15 | all | Max fraction of missing timestamps after regularization | Computed on a regular grid per-series. |
+| `max_intermittency_adi` | 1.32 | intermittent | Average demand interval (ADI) threshold | Common intermittent-demand heuristic. |
+| `max_intermittency_cv2` | 0.49 | intermittent | Squared coefficient of variation threshold | Used with ADI in Syntetos–Boylan style classification. |
+| `min_seasonality_conf` | 0.70 | seasonal_candidate | Minimum confidence to treat as seasonal | Based on your seasonality detector output. |
+| `max_series_count_for_tsfm` | 20000 | routing | Max number of series to route into heavy models | Guardrail for cost/latency. |
+| `max_points_per_series_for_tsfm` | 5000 | routing | Cap per-series history used by heavy models | Truncate oldest history deterministically. |
+
+
+**FR-15 Fallback Ladder**
+Fallback is deterministic and driven by error classes:
+* If **fit fails** (`E_MODEL_FIT_FAIL`, `E_OOM`): try next model candidate
+* If **predict fails** (`E_MODEL_PREDICT_FAIL`): try next model candidate
+* If **covariate rules fail**: drop to covariate-free plan (if allowed) else abort
+The ladder must end with a baseline (`SeasonalNaive` or `Naive`) unless `task_spec.allow_baseline=False`.
+
+> Router does not learn; it only applies rules.
+
+---
+
+### 3.7 Models (`models/`)
+
+**FR-16 Model Protocol**
+Every model adapter implements:
+* `fit(train: AlignedDataset, plan: PlanSpec) -> ModelArtifact`
+* `predict(context: AlignedDataset, artifact: ModelArtifact, plan: PlanSpec) -> ForecastFrame`
+
+**FR-17 Built-in Baselines (Core)**
+Core package must include:
+* `NaiveLastValue`
+* `SeasonalNaive` (requires `season_length` or inferred `freq`/seasonality)
+
+**FR-18 Optional Adapters (Extras)**
+Adapters in extras may include classical stats/ML/deep/TSFM models. They must not change core contracts.
+
+---
+
+### 3.8 Backtest (`backtest/`)
+
+**FR-19 Rolling-Origin Cross Validation**
+* Uses `RollingOriginSplitter(h, n_windows, step, min_train_size)`
+* Produces a `CVFrame` with `cutoff`, `y`, and forecast outputs
+* Must be PIT-safe for features and repairs
+
+**FR-20 BacktestReport**
+Includes:
+* per-fold metrics
+* per-series metrics
+* errors encountered per model candidate
+* decision summary (which plan won and why)
+
+---
+
+### 3.9 Evaluation (`eval/`)
+
+**FR-21 Metrics**
+Point metrics: `MAE`, `RMSE`, `sMAPE`, `MASE`  
+Quantile metrics: `PinballLoss`, `WQL`
+
+**FR-22 Summaries**
+* Aggregations by: `model`, `unique_id`, `cutoff`, and overall
+* Score tables are stable-schema for downstream tooling
+
+---
+
+### 3.10 Calibration (`calibration/`)
+
+**FR-23 Interval/Quantile Calibration**
+* Calibration uses **OOS residuals** from `CVFrame`
+* Minimum supported method: `conformal` (global or per-series)
+* Output is a `CalibratorArtifact` that can be applied to `ForecastFrame`:
+  * widen/narrow intervals or adjust quantiles
+
+---
+
+### 3.11 Anomaly Detection (`anomaly/`)
+
+**FR-24 Anomaly Detector API**
+* `detect_anomalies()` consumes:
+  * `ForecastFrame` (ideally calibrated) + actuals `y` if available
+* Outputs:
+  * `anomaly` (bool), `anomaly_score` (float), `threshold`, `method`, and supporting columns (`lo/hi` or quantiles)
+
+**FR-25 Supported Methods (Core)**
+* `interval_breach`: anomaly if `y` outside `[lo, hi]` at chosen `level`
+* `normalized_margin`: score based on distance outside interval, normalized by interval width
+
+**FR-26 Calibration Requirement**
+* If forecast intervals/quantiles are present but uncalibrated, `detect_anomalies()` should:
+  * either require `calibrator` in strict mode, or
+  * emit a warning + proceed in standard mode
+This is to control false positive rates.
+
+---
+
+### 3.12 Serving (`serving/`)
+
+**FR-27 Inference Bundle**
+Serving input must allow:
+* last-known history window
+* future-known covariates for horizon
+* static covariates
+
+**FR-28 RunArtifact Packaging**
+`RunArtifact` must include:
+* `task_spec`, `plan_spec`, versions, hashes
+* `validation_report`, `qa_report`
+* `backtest_report` (if any)
+* `model_artifact` metadata
+* `forecast_result`
+* optional `calibration_artifact`
+* optional `anomaly_report`
+
+---
+
+### 3.13 Monitoring (`monitoring/`)
+
+**FR-29 Runtime Checks**
+* coverage checks (interval hit rate over time)
+* drift indicators (simple stats; no heavy ML)
+* alert conditions based on anomaly rate thresholds (optional)
+
+---
+
+### 3.14 Skills (`skill/`)
+
+**FR-30 Agent Guidance Specs**
+Provide machine-readable and human-readable docs:
+* expected inputs/outputs
+* canonical workflows
+* error code remediation steps
+No execution code here.
 
 ---
 
 ## 4. Constraints & Guardrails
 
 ### 4.1 Temporal Integrity
-*   **Strict Sequence**: Training and Backtesting must strictly follow time order.
-*   **Ban Random Split**: Detection of random shuffling triggers `E_SPLIT_RANDOM_FORBIDDEN`.
+* No random splits; only time-based splits allowed.
+* Backtesting must be rolling-origin with explicit `cutoff`.
+* All operations must preserve chronological ordering per `unique_id`.
 
-### 4.2 Point-in-Time Correctness
-*   **Covariates**: `observed` covariates cannot be used for future horizons.
-*   **Features**: Lag creation must not peek into the future.
+### 4.2 Point-in-Time Correctness (PIT)
+* **Covariates**:
+  * `past` cannot exist beyond forecast start
+  * `future` must be fully known for horizon
+* **Features**:
+  * lags/rolling computed using left-closed windows (historical only)
+* **Repairs**:
+  * all repairs must be causal; no global interpolation by default
 
 ### 4.3 Provenance & Reproducibility
-*   **Run ID**: Unique identifier per execution.
-*   **Signatures**: Mandatory hashing of Data, Feature Config, Model Config, and Plan.
-*   **Audit Trail**: Every repair, fallback, or drop action must be recorded.
+Each run must produce:
+* `run_id`, `plan_id`
+* library version + git commit (if available)
+* hashes of:
+  * input schema signature
+  * feature spec signature
+  * plan signature
+* deterministic seeds (where applicable)
 
 ---
 
 ## 5. API Specification (Minimal Surface)
 
 ```python
-# Core Workflow
-def validate_contract(data: Any) -> ValidationReport: ...
-def run_qa(data: Any, task_spec: TaskSpec) -> QAReport: ...
-def build_dataset(data: Any, task_spec: TaskSpec) -> TSDataset: ...
-def make_plan(dataset: TSDataset, task_spec: TaskSpec, qa: QAReport) -> Plan: ...
-def rolling_backtest(dataset: TSDataset, spec: TaskSpec, plan: Plan) -> BacktestReport: ...
-def fit(dataset: TSDataset, plan: Plan) -> ModelArtifact: ...
-def predict(dataset: TSDataset, artifact: ModelArtifact, spec: TaskSpec) -> ForecastResult: ...
-def package_run(...) -> RunArtifact: ...
+# Contracts & QA
+def validate_contract(data) -> ValidationReport: ...
+def run_qa(data, task_spec) -> QAReport: ...
+
+# Time/Covariates
+def make_future_index(panel, h, freq=None): ...
+def align_covariates(panel, task_spec, covariates=None) -> AlignedDataset: ...
+
+# Planning / Backtest / Fit / Predict
+def make_plan(dataset: AlignedDataset, task_spec, qa: QAReport) -> PlanSpec: ...
+def rolling_backtest(dataset: AlignedDataset, spec: TaskSpec, plan: PlanSpec) -> BacktestReport: ...
+def fit(dataset: AlignedDataset, plan: PlanSpec) -> ModelArtifact: ...
+def predict(dataset: AlignedDataset, artifact: ModelArtifact, spec: TaskSpec) -> ForecastFrame: ...
+
+# Calibration + Anomaly
+def fit_calibrator(cv: CVFrame, method="conformal", **kwargs) -> CalibratorArtifact: ...
+def apply_calibrator(forecast: ForecastFrame, calib: CalibratorArtifact) -> ForecastFrame: ...
+def detect_anomalies(forecast_with_y, method="interval_breach", **kwargs) -> AnomalyReport: ...
 
 # Unified Entry Point (Agent Friendly)
 def run_forecast(
-    data: Any, 
-    task_spec: TaskSpec, 
-    mode: Literal['quick', 'standard', 'strict'] = 'standard'
+    data,
+    task_spec,
+    covariates=None,
+    mode: str = "standard",  # quick|standard|strict
 ) -> RunArtifact: ...
 ```
 
@@ -165,123 +391,264 @@ def run_forecast(
 
 ## 6. Observability & Error Codes
 
-### 6.1 Standard Error Codes
-*   `E_CONTRACT_MISSING_COLUMN`: Input schema violation.
-*   `E_CONTRACT_DUPLICATE_KEY`: Uniqueness constraint violation (`unique_id` + `ds`).
-*   `E_CONTRACT_INVALID_TYPE`: Invalid column dtype.
-*   `E_CONTRACT_INVALID_FREQUENCY`: Invalid or uninferrable frequency.
-*   `E_SPLIT_RANDOM_FORBIDDEN`: Illegal splitting strategy detected.
-*   `E_COVARIATE_LEAKAGE`: Future leakage detected.
-*   `E_MODEL_FIT_FAILED`: Training failure (triggers fallback).
-*   `E_FALLBACK_EXHAUSTED`: All models in ladder failed.
+### 6.1 Standard Error Codes (Non-exhaustive)
+
+| Code | Meaning |
+|---|---|
+| `E_CONTRACT_INVALID` | Input schema/contract invalid |
+| `E_DS_NOT_MONOTONIC` | Time index not monotonic per series |
+| `E_FREQ_INFER_FAIL` | Frequency cannot be inferred/validated |
+| `E_QA_MIN_HISTORY` | Series history too short |
+| `E_QA_REPAIR_PEEKS_FUTURE` | Repair strategy violates PIT |
+| `E_COVARIATE_LEAKAGE` | Past/observed covariate leaks into future |
+| `E_COVARIATE_INCOMPLETE_KNOWN` | Future-known covariate missing in horizon |
+| `E_COVARIATE_STATIC_INVALID` | Static covariate invalid cardinality |
+| `E_MODEL_FIT_FAIL` | Model fitting failed |
+| `E_MODEL_PREDICT_FAIL` | Model prediction failed |
+| `E_OOM` | Out-of-memory during fit/predict |
+| `E_BACKTEST_FAIL` | Backtest execution failed |
+| `E_CALIBRATION_FAIL` | Calibration failed |
+| `E_ANOMALY_FAIL` | Anomaly detection failed |
 
 ### 6.2 Structured Logging
-*   Events must include: `step_name`, `duration_ms`, `status`, `error_code` (if any), `artifacts_generated`.
+
+All major steps must log:
+* step name, start/end time, durations
+* run_id/plan_id
+* counts: series, rows, missingness
+* errors with code + remediation hints
 
 ---
 
 ## 7. Verification & Acceptance Criteria
 
 ### 7.1 Must-Have (Blocking)
-*   **A1**: `run_forecast(standard)` produces valid `RunArtifact` with full provenance on valid data.
-*   **A2**: Random split attempts are rejected with `E_SPLIT_RANDOM_FORBIDDEN`.
-*   **A3**: Future leakage of observed covariates is detected and blocked.
-*   **A4**: TSFM failure triggers Fallback Ladder to produce a valid baseline forecast.
-*   **A5**: `skill/recipes.md` examples run successfully locally.
+
+A1. **Temporal integrity**: CV folds and features are PIT-safe; no future leakage.  
+A2. **Covariate enforcement**: leakage of `past` covariates is detected and blocked (`E_COVARIATE_LEAKAGE`).  
+A3. **Known coverage**: missing `future` covariates for horizon triggers `E_COVARIATE_INCOMPLETE_KNOWN`.  
+A4. **Deterministic router**: same inputs produce same PlanSpec + decision reasons.  
+A5. **Baseline fallback**: if all candidates fail, baseline runs unless disallowed.  
+A6. **RunArtifact completeness**: contains required provenance fields and outputs.
 
 ### 7.2 Should-Have (Quality)
-*   **B1**: Sparse/Cold-start data is automatically handled via robust routing.
-*   **B2**: Binary reproducibility given same data snapshot and config (seed controlled).
+
+B1. **Calibration**: conformal calibration achieves near-target coverage on synthetic tests (within tolerance).  
+B2. **Anomaly control**: for stationary normal series, false positive rate approximately matches selected level (after calibration).  
+B3. **Repair auditability**: all repairs emit diffs + strategy metadata.
 
 ---
 
-## 8. Version Scope
+## Appendix A: Key Data Contracts (Summary)
 
-### v0.1: Minimum Loop
-*   Modules: `contracts`, `qa`, `series`, `router` (basic), `baseline models`, `rolling backtest`.
-*   Feature: End-to-end flow with Provenance.
+### A.1 PanelFrame
+`unique_id: str`, `ds: datetime`, `y: float`
 
-### v0.2: Enhanced Robustness
-*   Modules: `monitoring`, Advanced `router` (bucketing), Full Feature Hashing.
+### A.2 ForecastFrame (Long)
+`unique_id, ds, model, yhat` + optional intervals/quantiles
 
-### v1.0: Ecosystem
-*   Modules: External Adapters, Hierarchical Reconciliation, Structured Logging.
+### A.3 CVFrame
+`unique_id, ds, cutoff, model, y, yhat` + optional intervals/quantiles
 
----
+### A.4 CovariateBundle
+* `static_x(unique_id, ...)`
+* `past_x(unique_id, ds, ...)`
+* `future_x(unique_id, ds, ...)`
 
-## 9. Implementation Status (v1.0 Complete)
 
-> **Status**: All v1.0 features have been implemented and tested.
-> **Version**: 1.0.0
-> **Test Coverage**: 85% (579 tests passing)
 
-### Functional Requirements Status
+## Appendix B: Pydantic Model Definitions (Normative Reference)
 
-| FR | Requirement | Status | Implementation |
-|:---|:------------|:------:|:---------------|
-| FR-1 | Data Validation | ✅ | `validate_contract()` with full schema checks |
-| FR-2 | Task Specification | ✅ | `TaskSpec` with all fields + `seed` for reproducibility |
-| FR-3 | Forecast Result | ✅ | `ForecastResult` with provenance metadata |
-| FR-4 | Quality Checks | ✅ | `run_qa()` with gap, outlier, zero-density detection |
-| FR-5 | Repair Strategy | ✅ | Configurable repairs logged to provenance |
-| FR-6 | Leakage Detection | ✅ | Future covariate validation in QA |
-| FR-7 | Alignment | ✅ | Timezone unification, resampling in `series/` |
-| FR-8 | Sparsity Profile | ✅ | `SparsityProfile` with 4 classifications |
-| FR-9 | Hierarchy Support | ✅ | `HierarchyStructure` with S-matrix |
-| FR-10 | Feature Factory | ✅ | Point-in-time safe feature engineering |
-| FR-11 | Covariate Policy | ✅ | Strict known/observed separation |
-| FR-12 | Versioning | ✅ | `feature_config_hash` in provenance |
-| FR-13 | TSFM-first Routing | ✅ | `make_plan()` with TSFM priority |
-| FR-14 | Bucketing | ✅ | `DataBucketer` for Head/Tail/Short/Long |
-| FR-15 | Fallback Ladder | ✅ | Automatic TSFM → Baseline → Naive degradation |
-| FR-16 | Interface | ✅ | `fit()` and `predict()` with `ModelArtifact` |
-| FR-17 | Built-in Baselines | ✅ | SeasonalNaive, ETS, Theta, HistoricAverage, Croston |
-| FR-18 | Rolling Engine | ✅ | Expanding/Sliding with NO random splits |
-| FR-19 | Metrics | ✅ | WAPE, SMAPE, MASE, Pinball Loss |
-| FR-20 | Diagnostics | ✅ | `SegmentMetrics` and `TemporalMetrics` |
-| FR-21 | Batch Inference | ✅ | `run_forecast()` with reproducible output |
-| FR-22 | Artifacts | ✅ | `RunArtifact` with comprehensive bundle |
-| FR-23 | Drift Detection | ✅ | PSI and KS tests in `monitoring/` |
-| FR-24 | Stability | ✅ | Jitter detection and coverage analysis |
-| FR-25 | Triggers | ✅ | `TriggerEvaluator` for retrain rules |
-| FR-26 | Agent Docs | ✅ | `skill/README.md` with What/When/Inputs/Workflow |
-| FR-27 | Recipes | ✅ | 8 runnable examples in `skill/recipes.md` |
+> These models define the **JSON-serializable configuration and artifact contracts** used by agents and orchestration layers.
+> DataFrames themselves are not serialized; instead, artifacts reference DataFrame **contracts** (required columns, roles, and invariants).
 
-### Acceptance Criteria Status
+```python
+from __future__ import annotations
 
-| Criteria | Description | Status |
-|:---------|:------------|:------:|
-| A1 | `run_forecast(standard)` produces valid `RunArtifact` | ✅ |
-| A2 | Random split attempts rejected with `E_SPLIT_RANDOM_FORBIDDEN` | ✅ |
-| A3 | Future leakage of observed covariates detected/blocked | ✅ |
-| A4 | TSFM failure triggers Fallback Ladder | ✅ |
-| A5 | `skill/recipes.md` examples run successfully | ✅ |
-| B1 | Sparse/Cold-start data handled via robust routing | ✅ |
-| B2 | Binary reproducibility with seed control | ✅ |
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional
 
-### Error Codes Implemented
+from pydantic import BaseModel, Field, ConfigDict
 
-| Code | Description | Status |
-|:-----|:------------|:------:|
-| `E_CONTRACT_MISSING_COLUMN` | Input schema violation | ✅ |
-| `E_CONTRACT_DUPLICATE_KEY` | Uniqueness constraint violation | ✅ |
-| `E_SPLIT_RANDOM_FORBIDDEN` | Illegal splitting strategy | ✅ |
-| `E_COVARIATE_LEAKAGE` | Future leakage detected | ✅ |
-| `E_MODEL_FIT_FAILED` | Training failure (triggers fallback) | ✅ |
-| `E_FALLBACK_EXHAUSTED` | All models in ladder failed | ✅ |
 
-**Note**: `E_CONTRACT_UNSORTED` has been consolidated into `E_SPLIT_RANDOM_FORBIDDEN` as both indicate temporal ordering violations.
+# ---------------------------
+# Common
+# ---------------------------
 
-### Module Implementation Summary
+class BaseSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-- ✅ `contracts/` - Complete with validation, task specs, errors
-- ✅ `qa/` - Complete with quality checks and leakage detection
-- ✅ `series/` - Complete with TSDataset and sparsity profiling
-- ✅ `features/` - Complete with FeatureFactory and versioning
-- ✅ `router/` - Complete with routing, bucketing, fallback ladder
-- ✅ `models/` - Complete with baselines and TSFM adapters
-- ✅ `backtest/` - Complete with rolling engine and diagnostics
-- ✅ `serving/` - Complete with orchestration and structured logging
-- ✅ `monitoring/` - Complete with drift, stability, triggers
-- ✅ `hierarchy/` - Complete with reconciliation methods
-- ✅ `skill/` - Complete with documentation and recipes
+
+CovariateRole = Literal["static", "past", "future_known"]
+AggregationMode = Literal["reject", "sum", "mean", "median", "last"]
+MissingPolicy = Literal["error", "ffill", "bfill", "zero", "mean"]
+IntervalMode = Literal["level", "quantiles"]
+AnomalyMethod = Literal["interval_breach", "conformal_interval", "mad_residual"]
+SeasonalityMethod = Literal["acf", "stl", "periodogram"]
+
+
+# ---------------------------
+# Data contracts (column-level)
+# ---------------------------
+
+class PanelContract(BaseSpec):
+    unique_id_col: str = "unique_id"
+    ds_col: str = "ds"
+    y_col: str = "y"
+    aggregation: AggregationMode = "reject"
+
+
+class ForecastContract(BaseSpec):
+    long_format: bool = True
+    model_col: str = "model"
+    yhat_col: str = "yhat"
+    cutoff_col: str = "cutoff"  # required for CV output
+    interval_mode: IntervalMode = "level"
+    levels: List[int] = Field(default_factory=lambda: [80, 95])
+    quantiles: List[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
+
+
+class CovariateSpec(BaseSpec):
+    # Explicit typing strongly preferred for agent safety.
+    roles: Dict[str, CovariateRole] = Field(default_factory=dict)
+    missing_policy: MissingPolicy = "error"
+
+
+# ---------------------------
+# Task / execution specs
+# ---------------------------
+
+class BacktestSpec(BaseSpec):
+    h: int = Field(..., gt=0)
+    n_windows: int = Field(5, gt=0)
+    step: int = Field(1, gt=0)
+    min_train_size: int = Field(56, gt=1)
+    regularize_grid: bool = True
+
+
+class TaskSpec(BaseSpec):
+    # Forecast horizon
+    h: int = Field(..., gt=0)
+
+    # Frequency handling
+    freq: Optional[str] = None  # e.g. "D", "H", "W"
+    infer_freq: bool = True
+
+    # Contracts
+    panel_contract: PanelContract = Field(default_factory=PanelContract)
+    forecast_contract: ForecastContract = Field(default_factory=ForecastContract)
+
+    # Covariates
+    covariates: Optional[CovariateSpec] = None
+
+    # Backtest defaults (can be overridden by the caller)
+    backtest: BacktestSpec = Field(default_factory=lambda: BacktestSpec(h=1))
+
+
+# ---------------------------
+# Router / planning
+# ---------------------------
+
+class RouterThresholds(BaseSpec):
+    min_train_size: int = Field(56, gt=1)
+    max_missing_ratio: float = Field(0.15, ge=0.0, le=1.0)
+
+    # Intermittency classification (heuristic, deterministic)
+    max_intermittency_adi: float = Field(1.32, gt=0.0)
+    max_intermittency_cv2: float = Field(0.49, ge=0.0)
+
+    # Seasonality
+    seasonality_method: SeasonalityMethod = "acf"
+    min_seasonality_conf: float = Field(0.70, ge=0.0, le=1.0)
+
+    # Practical routing guardrails
+    max_series_count_for_tsfm: int = Field(20000, gt=0)
+    max_points_per_series_for_tsfm: int = Field(5000, gt=0)
+
+
+class PlanSpec(BaseSpec):
+    plan_name: str
+    candidate_models: List[str] = Field(..., min_length=1)
+
+    # Covariate usage rules
+    use_static: bool = True
+    use_past: bool = True
+    use_future_known: bool = True
+
+    # Training policy
+    min_train_size: int = Field(56, gt=1)
+    max_train_size: Optional[int] = None  # if set, truncate oldest points deterministically
+
+    # Output policy
+    interval_mode: IntervalMode = "level"
+    levels: List[int] = Field(default_factory=lambda: [80, 95])
+    quantiles: List[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
+
+    # Fallback policy
+    allow_drop_covariates: bool = True
+    allow_baseline: bool = True
+
+
+class RouteDecision(BaseSpec):
+    # Series statistics used in routing (computed deterministically)
+    stats: Dict[str, Any] = Field(default_factory=dict)
+
+    # Bucket tags
+    buckets: List[str] = Field(default_factory=list)
+
+    # Which plan template was selected
+    selected_plan: PlanSpec
+
+    # Human-readable deterministic reasons (safe for logs)
+    reasons: List[str] = Field(default_factory=list)
+
+
+class RouterConfig(BaseSpec):
+    thresholds: RouterThresholds = Field(default_factory=RouterThresholds)
+
+    # Mapping bucket -> plan template name, resolved by registry
+    bucket_to_plan: Dict[str, str] = Field(default_factory=dict)
+
+    # Default plan when no bucket matches
+    default_plan: str = "default"
+
+
+# ---------------------------
+# Calibration + anomaly
+# ---------------------------
+
+class CalibratorSpec(BaseSpec):
+    method: Literal["none", "conformal_interval"] = "conformal_interval"
+    level: int = Field(99, ge=50, le=99)
+    by: Optional[Literal["unique_id", "global"]] = "unique_id"
+
+
+class AnomalySpec(BaseSpec):
+    method: AnomalyMethod = "conformal_interval"
+    level: int = Field(99, ge=50, le=99)
+    score: Literal["margin", "normalized_margin", "zscore"] = "normalized_margin"
+
+
+# ---------------------------
+# Provenance artifacts
+# ---------------------------
+
+class RunArtifact(BaseSpec):
+    run_id: str
+    created_at: datetime
+
+    task_spec: TaskSpec
+    router_config: Optional[RouterConfig] = None
+    route_decision: Optional[RouteDecision] = None
+
+    # Identifiers / hashes for reproducibility (implementation-defined)
+    data_signature: Optional[str] = None
+    code_signature: Optional[str] = None
+
+    # Output references (implementation-defined; typically file paths or object-store keys)
+    outputs: Dict[str, str] = Field(default_factory=dict)
+```
+
+**Notes**
+- `TaskSpec.backtest.h` is set to `1` by default in the model above only because Pydantic requires a value; in implementation, set `backtest.h = TaskSpec.h` if the caller does not override it.
+- `RouterThresholds` uses conservative defaults; adjust per business frequency and SLA.
