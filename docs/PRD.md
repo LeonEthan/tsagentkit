@@ -57,7 +57,7 @@
     *   **Checks**: `unique_id` (str), `ds` (datetime), `y` (num), duplicates, frequency.
     *   **Output**: `ValidationReport`.
 *   **FR-2 Task Specification (`TaskSpec`)**:
-    *   **Fields**: `horizon`, `freq`, `rolling_step`, `quantiles`, `covariate_policy`.
+    *   **Fields**: `horizon`, `freq`, `rolling_step`, `quantiles`, `covariate_policy` (`ignore|known|observed|auto`), `repair_strategy` (optional), `season_length` (optional).
     *   **Constraint**: Must be JSON-serializable and hashable.
 *   **FR-3 Forecast Result**:
     *   **Fields**: `unique_id`, `ds`, `yhat`, `quantiles` (optional).
@@ -77,7 +77,16 @@
 
 ### 3.4 Features (`features/`)
 *   **FR-10 Feature Factory**: Lags, rolling stats, calendar features (Point-in-Time safe).
-*   **FR-11 Covariate Policy**: Strict separation of `known` vs `observed` inputs.
+*   **FR-11 Covariate Policy (AutoGluon-style)**:
+    *   **Types**:
+        *   **Known covariates**: values are available for the full forecast horizon (e.g., calendars, planned promotions).
+        *   **Observed covariates** (aka **past covariates**): values are only known up to the forecast start (e.g., realized weather, related series).
+    *   **Layout**: Both known and observed covariates are represented as additional columns in the input data.
+    *   **Inference**:
+        *   `covariate_policy="known"`: treat all extra columns as known covariates.
+        *   `covariate_policy="observed"`: treat all extra columns as observed/past covariates.
+        *   `covariate_policy="auto"`: infer known covariates by presence of values in the forecast horizon; remaining columns are observed.
+    *   **Guardrail**: Observed/past covariates must not be available beyond forecast start; reject on leakage.
 *   **FR-12 Versioning**: Compute `feature_config_hash` for traceability.
 
 ### 3.5 Router (`router/`)
@@ -92,6 +101,7 @@
     *   `fit(dataset, plan) -> ModelArtifact`
     *   `predict(dataset, artifact, horizon) -> ForecastResult`
 *   **FR-17 Built-in Baselines**: Seasonal Naive, Moving Average, ETS (at least one required).
+*   **FR-17b TSFM Loading**: TSFM adapters are **lazy-loaded**; model weights are only loaded on first use (optionally cached).
 
 ### 3.7 Backtest (`backtest/`)
 *   **FR-18 Rolling Engine**: Expanding/Sliding window. **NO Random Splits**.
@@ -157,7 +167,9 @@ def run_forecast(
 
 ### 6.1 Standard Error Codes
 *   `E_CONTRACT_MISSING_COLUMN`: Input schema violation.
-*   `E_DUPLICATE_KEY`: Uniqueness constraint violation (`unique_id` + `ds`).
+*   `E_CONTRACT_DUPLICATE_KEY`: Uniqueness constraint violation (`unique_id` + `ds`).
+*   `E_CONTRACT_INVALID_TYPE`: Invalid column dtype.
+*   `E_CONTRACT_INVALID_FREQUENCY`: Invalid or uninferrable frequency.
 *   `E_SPLIT_RANDOM_FORBIDDEN`: Illegal splitting strategy detected.
 *   `E_COVARIATE_LEAKAGE`: Future leakage detected.
 *   `E_MODEL_FIT_FAILED`: Training failure (triggers fallback).
