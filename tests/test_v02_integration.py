@@ -34,7 +34,7 @@ class TestFeaturesIntegration:
 
     def test_feature_factory_integration(self, sample_data):
         """Test FeatureFactory with full feature set."""
-        config = FeatureConfig(
+        config = FeatureConfig(engine="native", 
             lags=[1, 7],
             calendar_features=["dayofweek", "month"],
             rolling_windows={7: ["mean"], 14: ["std"]},
@@ -61,7 +61,7 @@ class TestFeaturesIntegration:
 
     def test_feature_versioning_consistency(self, sample_data):
         """Test that same config produces same hash."""
-        config = FeatureConfig(lags=[1, 7, 14])
+        config = FeatureConfig(engine="native", lags=[1, 7, 14])
         factory1 = FeatureFactory(config)
         factory2 = FeatureFactory(config)
 
@@ -388,7 +388,7 @@ class TestEndToEndV02:
         })
 
         # Create features
-        config = FeatureConfig(lags=[1, 7])
+        config = FeatureConfig(engine="native", lags=[1, 7])
         factory = FeatureFactory(config)
 
         class MockTSDataset:

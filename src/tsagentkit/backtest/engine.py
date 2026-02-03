@@ -12,10 +12,9 @@ import numpy as np
 import pandas as pd
 
 from tsagentkit.covariates import AlignedDataset, align_covariates
-from tsagentkit.contracts import ESplitRandomForbidden
-from tsagentkit.utils import drop_future_rows, normalize_quantile_columns, parse_quantile_column
-
-from .metrics import compute_all_metrics
+from tsagentkit.contracts import CVFrame, ESplitRandomForbidden
+from tsagentkit.eval import evaluate_forecasts
+from tsagentkit.utils import drop_future_rows, normalize_quantile_columns
 from .report import (
     BacktestReport,
     SegmentMetrics,
@@ -251,74 +250,31 @@ def rolling_backtest(
                     "bottom_up",
                 )
             predictions = normalize_quantile_columns(predictions)
+            predictions["model"] = model_name
 
-            # Compute window-level metrics
+            # Compute window + series metrics via eval utilities
             merged_metrics = predictions.merge(
                 test_df[["unique_id", "ds", "y"]],
                 on=["unique_id", "ds"],
                 how="left",
             )
-            y_true_window = merged_metrics["y"].values
-            y_pred_window = merged_metrics["yhat"].values
-            window_quantiles: dict[float, np.ndarray] | None = None
-            quantile_cols_window = [
-                c for c in merged_metrics.columns
-                if parse_quantile_column(c) is not None
-            ]
-            if quantile_cols_window:
-                window_quantiles = {}
-                for col in quantile_cols_window:
-                    q_val = parse_quantile_column(col)
-                    if q_val is None:
-                        continue
-                    window_quantiles[q_val] = merged_metrics[col].values
-            window_metrics = compute_all_metrics(
-                y_true=y_true_window,
-                y_pred=y_pred_window,
-                y_train=train_df["y"].values if len(train_df) > 0 else None,
+            metric_frame, summary = evaluate_forecasts(
+                merged_metrics,
+                train_df=train_df,
                 season_length=season_length,
-                y_quantiles=window_quantiles,
+                id_col="unique_id",
+                ds_col="ds",
+                target_col="y",
+                model_col="model",
+                pred_col="yhat",
+                cutoff_col=None,
             )
 
-            # Compute metrics per series
-            for uid in test_df["unique_id"].unique():
-                test_series = test_df[test_df["unique_id"] == uid]
-                pred_series = predictions[predictions["unique_id"] == uid]
-
-                if len(test_series) == 0 or len(pred_series) == 0:
+            window_metrics = _summary_to_metrics(summary.df, model_name)
+            series_window_metrics = _series_metrics_from_frame(metric_frame.df, model_name)
+            for uid, metrics in series_window_metrics.items():
+                if not metrics:
                     continue
-
-                y_true = test_series["y"].values
-                y_pred = pred_series["yhat"].values
-
-                # Collect quantile forecasts if present
-                y_quantiles: dict[float, np.ndarray] | None = None
-                quantile_cols = [
-                    c for c in pred_series.columns
-                    if parse_quantile_column(c) is not None
-                ]
-                if quantile_cols:
-                    y_quantiles = {}
-                    for col in quantile_cols:
-                        q_val = parse_quantile_column(col)
-                        if q_val is None:
-                            continue
-                        y_quantiles[q_val] = pred_series[col].values
-
-                # Get training data for MASE
-                train_series = train_df[train_df["unique_id"] == uid]
-                y_train = train_series["y"].values if len(train_series) > 0 else None
-
-                # Compute metrics
-                metrics = compute_all_metrics(
-                    y_true=y_true,
-                    y_pred=y_pred,
-                    y_train=y_train,
-                    season_length=season_length,
-                    y_quantiles=y_quantiles,
-                )
-
-                # Aggregate per series
                 if uid not in series_metrics_agg:
                     series_metrics_agg[uid] = []
                 series_metrics_agg[uid].append(metrics)
@@ -351,9 +307,12 @@ def rolling_backtest(
     # Create series metrics
     series_metrics: dict[str, SeriesMetrics] = {}
     for uid, metrics_list in series_metrics_agg.items():
+        metric_names: set[str] = set()
+        for metrics in metrics_list:
+            metric_names.update(metrics.keys())
         avg_metrics = {
             k: np.mean([m[k] for m in metrics_list if not np.isnan(m.get(k, np.nan))])
-            for k in metrics_list[0].keys()
+            for k in metric_names
         }
         series_metrics[uid] = SeriesMetrics(
             series_id=uid,
@@ -387,8 +346,44 @@ def rolling_backtest(
                 "reason": "rule_based_router",
             },
         },
-        cv_frame=pd.concat(cv_frames, ignore_index=True) if cv_frames else None,
+        cv_frame=CVFrame(df=pd.concat(cv_frames, ignore_index=True)) if cv_frames else None,
     )
+
+
+def _summary_to_metrics(summary_df: pd.DataFrame, model_name: str | None) -> dict[str, float]:
+    if summary_df is None or summary_df.empty:
+        return {}
+    df = summary_df
+    if "model" in df.columns:
+        if model_name and model_name in df["model"].unique():
+            df = df[df["model"] == model_name]
+        else:
+            df = df[df["model"] == df["model"].iloc[0]]
+    if "metric" not in df.columns or "value" not in df.columns:
+        return {}
+    metrics = df.groupby("metric")["value"].mean()
+    return {metric: float(value) for metric, value in metrics.items()}
+
+
+def _series_metrics_from_frame(
+    metrics_df: pd.DataFrame,
+    model_name: str | None,
+) -> dict[str, dict[str, float]]:
+    if metrics_df is None or metrics_df.empty:
+        return {}
+    df = metrics_df
+    if "model" in df.columns:
+        if model_name and model_name in df["model"].unique():
+            df = df[df["model"] == model_name]
+        else:
+            df = df[df["model"] == df["model"].iloc[0]]
+    if "unique_id" not in df.columns or "metric" not in df.columns or "value" not in df.columns:
+        return {}
+    grouped = df.groupby(["unique_id", "metric"])["value"].mean().reset_index()
+    result: dict[str, dict[str, float]] = {}
+    for uid, group in grouped.groupby("unique_id"):
+        result[uid] = {row["metric"]: float(row["value"]) for _, row in group.iterrows()}
+    return result
 
 
 def _aggregate_metrics(
@@ -406,10 +401,10 @@ def _aggregate_metrics(
         return {}
 
     # Collect all metric names
-    all_metric_names = set()
+    all_metric_names: set[str] = set()
     for metrics_list in series_metrics_agg.values():
-        if metrics_list:
-            all_metric_names.update(metrics_list[0].keys())
+        for metrics in metrics_list:
+            all_metric_names.update(metrics.keys())
 
     # Aggregate each metric
     aggregated: dict[str, float] = {}
@@ -687,7 +682,9 @@ def _compute_segment_metrics(
 
         # Compute mean for each metric
         aggregated: dict[str, float] = {}
-        metric_names = metrics_list[0].keys()
+        metric_names: set[str] = set()
+        for metrics in metrics_list:
+            metric_names.update(metrics.keys())
         for metric_name in metric_names:
             values = [m[metric_name] for m in metrics_list if not np.isnan(m.get(metric_name, np.nan))]
             if values:
@@ -701,6 +698,20 @@ def _compute_segment_metrics(
         )
 
     return result
+
+
+def _select_primary_metric(
+    series_metrics_agg: dict[str, list[dict[str, float]]],
+    preferred: tuple[str, ...] = ("wape", "mae", "rmse", "smape", "mase"),
+) -> str | None:
+    metric_names: set[str] = set()
+    for metrics_list in series_metrics_agg.values():
+        for metrics in metrics_list:
+            metric_names.update(metrics.keys())
+    for name in preferred:
+        if name in metric_names:
+            return name
+    return next(iter(metric_names), None)
 
 
 def _compute_temporal_metrics(
@@ -718,6 +729,10 @@ def _compute_temporal_metrics(
     """
     result: dict[str, TemporalMetrics] = {}
 
+    metric_name = _select_primary_metric(series_metrics_agg)
+    if metric_name is None:
+        return result
+
     # Parse dates
     df = df.copy()
     df["ds"] = pd.to_datetime(df["ds"])
@@ -734,11 +749,11 @@ def _compute_temporal_metrics(
             values = []
             for uid in hour_series:
                 if uid in series_metrics_agg and series_metrics_agg[uid]:
-                    avg_wape = np.mean([m.get("wape", np.nan) for m in series_metrics_agg[uid]])
-                    if not np.isnan(avg_wape):
-                        values.append(avg_wape)
+                    avg_metric = np.mean([m.get(metric_name, np.nan) for m in series_metrics_agg[uid]])
+                    if not np.isnan(avg_metric):
+                        values.append(avg_metric)
             if values:
-                hour_metrics[hour_str] = {"wape": float(np.mean(values))}
+                hour_metrics[hour_str] = {metric_name: float(np.mean(values))}
 
     if hour_metrics:
         result["hour"] = TemporalMetrics(dimension="hour", metrics_by_value=hour_metrics)
@@ -756,11 +771,11 @@ def _compute_temporal_metrics(
             values = []
             for uid in dow_series:
                 if uid in series_metrics_agg and series_metrics_agg[uid]:
-                    avg_wape = np.mean([m.get("wape", np.nan) for m in series_metrics_agg[uid]])
-                    if not np.isnan(avg_wape):
-                        values.append(avg_wape)
+                    avg_metric = np.mean([m.get(metric_name, np.nan) for m in series_metrics_agg[uid]])
+                    if not np.isnan(avg_metric):
+                        values.append(avg_metric)
             if values:
-                dow_metrics[dow_str] = {"wape": float(np.mean(values))}
+                dow_metrics[dow_str] = {metric_name: float(np.mean(values))}
 
     if dow_metrics:
         result["dayofweek"] = TemporalMetrics(dimension="dayofweek", metrics_by_value=dow_metrics)

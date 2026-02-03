@@ -250,7 +250,7 @@ def predict_sktime(
     for uid, forecaster in bundle.forecasters.items():
         future_dates = future_index[future_index["unique_id"] == uid]["ds"]
         future_dates = pd.to_datetime(future_dates).sort_values()
-        fh = ForecastingHorizon(future_dates, is_relative=False)
+        fh = ForecastingHorizon(pd.DatetimeIndex(future_dates), is_relative=False)
 
         X_future = None
         if covariates is not None and (bundle.static_columns or bundle.future_columns):
@@ -291,7 +291,7 @@ def _basic_provenance(dataset: Any, spec: Any, artifact: ModelArtifact) -> Any:
     from datetime import datetime, timezone
 
     from tsagentkit.contracts import Provenance
-    from tsagentkit.serving.provenance import compute_data_signature
+    from tsagentkit.utils import compute_data_signature
 
     return Provenance(
         run_id=f"sktime_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",

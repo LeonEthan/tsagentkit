@@ -1,5 +1,6 @@
 """Tests for sktime adapter integration."""
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -22,7 +23,7 @@ def test_sktime_adapter_with_future_covariates() -> None:
     df_future = pd.DataFrame({
         "unique_id": ["A"] * 2,
         "ds": pd.date_range("2024-01-11", periods=2, freq="D"),
-        "y": [None, None],
+        "y": [np.nan, np.nan],
         "promo": [1, 0],
     })
     panel = pd.concat([df_hist, df_future], ignore_index=True)

@@ -218,6 +218,36 @@ class TestHierarchyStructure:
 
         assert structure.get_num_levels() == 3
 
+    def test_to_s_df_and_tags(self) -> None:
+        """Test S_df and tags export ordering."""
+        structure = HierarchyStructure(
+            aggregation_graph={
+                "Total": ["A", "B"],
+                "A": ["A1", "A2"],
+            },
+            bottom_nodes=["A1", "A2", "B"],
+            s_matrix=np.array([
+                #A1 A2  B
+                [1, 1, 0],  # A
+                [1, 0, 0],  # A1
+                [0, 1, 0],  # A2
+                [0, 0, 1],  # B
+                [1, 1, 1],  # Total
+            ]),
+        )
+
+        order = structure.node_order()
+        assert order[-3:] == ["A1", "A2", "B"]
+
+        s_df = structure.to_s_df()
+        assert list(s_df.columns) == ["unique_id", "A1", "A2", "B"]
+        assert list(s_df["unique_id"]) == order
+
+        tags = structure.to_tags()
+        assert tags["level_0"].tolist() == ["Total"]
+        assert set(tags["level_1"].tolist()) == {"A", "B"}
+        assert set(tags["level_2"].tolist()) == {"A1", "A2"}
+
     def test_empty_hierarchy(self) -> None:
         """Test empty hierarchy returns 0 levels."""
         # Note: This would fail validation, but testing edge case

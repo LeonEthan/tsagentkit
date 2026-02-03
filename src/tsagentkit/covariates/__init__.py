@@ -88,6 +88,7 @@ def align_covariates(
         )
 
     if policy == "spec" and spec is not None:
+        _validate_spec_roles(spec, covariate_cols)
         for col, role in spec.roles.items():
             if role == "static":
                 static_cols.append(col)
@@ -110,6 +111,9 @@ def align_covariates(
     else:
         past_cols = covariate_cols
 
+    for col in future_cols:
+        _enforce_future_coverage(panel, future_index, col, uid_col, ds_col)
+
     static_x = _extract_static(panel, uid_col, static_cols)
     past_x = _extract_time_covariates(panel, uid_col, ds_col, past_cols)
     future_x = _extract_future_covariates(panel, future_index, uid_col, ds_col, future_cols)
@@ -130,6 +134,29 @@ def _panel_base(panel: pd.DataFrame, uid_col: str, ds_col: str, y_col: str) -> p
     cols = [c for c in [uid_col, ds_col, y_col] if c in panel.columns]
     return panel[cols].copy()
 
+
+def _validate_spec_roles(spec: CovariateSpec, covariate_cols: list[str]) -> None:
+    if not spec.roles:
+        if covariate_cols:
+            raise ETaskSpecInvalid(
+                "covariate_policy='spec' requires explicit roles for all covariate columns.",
+                context={"missing_roles_for": sorted(covariate_cols)},
+            )
+        return
+
+    missing_in_panel = [col for col in spec.roles.keys() if col not in covariate_cols]
+    if missing_in_panel:
+        raise ETaskSpecInvalid(
+            "CovariateSpec roles include columns not present in panel data.",
+            context={"missing_in_panel": sorted(missing_in_panel)},
+        )
+
+    extra_in_panel = [col for col in covariate_cols if col not in spec.roles]
+    if extra_in_panel:
+        raise ETaskSpecInvalid(
+            "covariate_policy='spec' requires roles for all panel covariates.",
+            context={"missing_roles_for": sorted(extra_in_panel)},
+        )
 
 def _has_future_values(
     panel: pd.DataFrame,

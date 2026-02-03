@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -13,6 +13,7 @@ class FeatureConfig:
     """Configuration for feature engineering.
 
     Attributes:
+        engine: Feature backend selection ("auto", "native", "tsfeatures")
         lags: List of lag periods to create (e.g., [1, 7, 14])
         calendar_features: List of calendar features to create
                          (e.g., ["dayofweek", "month", "quarter", "year"])
@@ -21,6 +22,10 @@ class FeatureConfig:
         known_covariates: List of column names for known covariates
         observed_covariates: List of column names for observed covariates
         include_intercept: Whether to include an intercept column (all 1s)
+        tsfeatures_features: Optional list of tsfeatures function names
+        tsfeatures_freq: Optional season length to pass to tsfeatures
+        tsfeatures_dict_freqs: Optional dict mapping pandas freq -> season length
+        allow_fallback: Allow fallback to native when tsfeatures is unavailable
 
     Example:
         >>> config = FeatureConfig(
@@ -34,15 +39,23 @@ class FeatureConfig:
         abc123def456...
     """
 
+    engine: Literal["auto", "native", "tsfeatures"] = "auto"
     lags: list[int] = field(default_factory=list)
     calendar_features: list[str] = field(default_factory=list)
     rolling_windows: dict[int, list[str]] = field(default_factory=dict)
     known_covariates: list[str] = field(default_factory=list)
     observed_covariates: list[str] = field(default_factory=list)
     include_intercept: bool = False
+    tsfeatures_features: list[str] = field(default_factory=list)
+    tsfeatures_freq: int | None = None
+    tsfeatures_dict_freqs: dict[str, int] = field(default_factory=dict)
+    allow_fallback: bool = True
 
     def __post_init__(self) -> None:
         """Validate configuration after creation."""
+        if self.engine not in {"auto", "native", "tsfeatures"}:
+            raise ValueError(f"Invalid feature engine: {self.engine}")
+
         # Validate lags are positive integers
         for lag in self.lags:
             if not isinstance(lag, int) or lag < 1:
@@ -72,6 +85,15 @@ class FeatureConfig:
         if overlap:
             raise ValueError(f"Covariates cannot be both known and observed: {overlap}")
 
+        if self.tsfeatures_freq is not None and self.tsfeatures_freq < 1:
+            raise ValueError("tsfeatures_freq must be a positive integer when provided")
+
+        for key, value in self.tsfeatures_dict_freqs.items():
+            if not isinstance(value, int) or value < 1:
+                raise ValueError(
+                    f"tsfeatures_dict_freqs must map to positive integers, got {key}={value}"
+                )
+
 
 def compute_feature_hash(config: FeatureConfig) -> str:
     """Compute deterministic hash of feature configuration.
@@ -94,6 +116,7 @@ def compute_feature_hash(config: FeatureConfig) -> str:
     """
     # Build normalized configuration dict
     config_dict = {
+        "engine": config.engine,
         "lags": sorted(config.lags) if config.lags else [],
         "calendar": sorted(config.calendar_features),
         "rolling": [
@@ -103,6 +126,13 @@ def compute_feature_hash(config: FeatureConfig) -> str:
         "known_covariates": sorted(config.known_covariates),
         "observed_covariates": sorted(config.observed_covariates),
         "include_intercept": config.include_intercept,
+        "tsfeatures_features": sorted(config.tsfeatures_features),
+        "tsfeatures_freq": config.tsfeatures_freq,
+        "tsfeatures_dict_freqs": {
+            k: config.tsfeatures_dict_freqs[k]
+            for k in sorted(config.tsfeatures_dict_freqs)
+        },
+        "allow_fallback": config.allow_fallback,
     }
 
     # Create deterministic JSON representation
@@ -135,12 +165,17 @@ def config_to_dict(config: FeatureConfig) -> dict[str, Any]:
         Dictionary representation
     """
     return {
+        "engine": config.engine,
         "lags": config.lags,
         "calendar_features": config.calendar_features,
         "rolling_windows": config.rolling_windows,
         "known_covariates": config.known_covariates,
         "observed_covariates": config.observed_covariates,
         "include_intercept": config.include_intercept,
+        "tsfeatures_features": config.tsfeatures_features,
+        "tsfeatures_freq": config.tsfeatures_freq,
+        "tsfeatures_dict_freqs": config.tsfeatures_dict_freqs,
+        "allow_fallback": config.allow_fallback,
     }
 
 
@@ -154,10 +189,15 @@ def config_from_dict(data: dict[str, Any]) -> FeatureConfig:
         FeatureConfig instance
     """
     return FeatureConfig(
+        engine=data.get("engine", "auto"),
         lags=data.get("lags", []),
         calendar_features=data.get("calendar_features", []),
         rolling_windows=data.get("rolling_windows", {}),
         known_covariates=data.get("known_covariates", []),
         observed_covariates=data.get("observed_covariates", []),
         include_intercept=data.get("include_intercept", False),
+        tsfeatures_features=data.get("tsfeatures_features", []),
+        tsfeatures_freq=data.get("tsfeatures_freq"),
+        tsfeatures_dict_freqs=data.get("tsfeatures_dict_freqs", {}),
+        allow_fallback=data.get("allow_fallback", True),
     )

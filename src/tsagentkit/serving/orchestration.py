@@ -563,8 +563,12 @@ def run_forecast(
                     context={"mode": mode},
                 )
 
+            cv_frame = backtest_report.cv_frame
+            if hasattr(cv_frame, "df"):
+                cv_frame = cv_frame.df
+
             calibration_artifact = fit_calibrator(
-                backtest_report.cv_frame,
+                cv_frame,
                 method=calibrator_spec.method,
                 level=calibrator_spec.level,
                 by=calibrator_spec.by,

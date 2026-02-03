@@ -22,40 +22,27 @@ class ReconciliationMethod(Enum):
     MIN_TRACE = "min_trace"
 
 
-def _build_hf_order(structure: HierarchyStructure) -> list[str]:
-    """Return node order with aggregates first and bottom nodes last."""
-    order: list[str] = []
-    for level in range(structure.get_num_levels()):
-        order.extend(structure.get_nodes_at_level(level))
-    bottom = [n for n in structure.bottom_nodes if n in order]
-    order = [n for n in order if n not in bottom] + bottom
-    return order
-
-
-def _build_tags(structure: HierarchyStructure, hf_order: list[str]) -> dict[str, np.ndarray]:
-    """Build tags mapping for hierarchicalforecast using row indices."""
-    node_to_idx = {node: idx for idx, node in enumerate(hf_order)}
-    tags: dict[str, np.ndarray] = {}
-    for level in range(structure.get_num_levels()):
-        nodes = structure.get_nodes_at_level(level)
+def _build_tag_indices(tags: dict[str, np.ndarray], order: list[str]) -> dict[str, np.ndarray]:
+    node_to_idx = {node: idx for idx, node in enumerate(order)}
+    indexed: dict[str, np.ndarray] = {}
+    for key, nodes in tags.items():
         indices = [node_to_idx[n] for n in nodes if n in node_to_idx]
         if indices:
-            tags[f"level_{level}"] = np.array(indices, dtype=int)
-    bottom_indices = [node_to_idx[n] for n in structure.bottom_nodes if n in node_to_idx]
-    tags["bottom"] = np.array(bottom_indices, dtype=int)
-    return tags
+            indexed[key] = np.array(indices, dtype=int)
+    return indexed
 
 
-def _build_s_matrix(structure: HierarchyStructure, hf_order: list[str]) -> np.ndarray:
-    row_indices = [structure.all_nodes.index(node) for node in hf_order]
-    return np.asarray(structure.s_matrix, dtype=float)[row_indices]
+def _build_s_matrix(structure: HierarchyStructure, order: list[str]) -> np.ndarray:
+    s_df = structure.to_s_df()
+    s_df = s_df.set_index("unique_id").reindex(order)
+    return s_df[structure.bottom_nodes].to_numpy(dtype=float)
 
 
 def _get_level_key(tags: dict[str, np.ndarray], middle_level: int | str | None) -> str:
     level_keys = [k for k in tags.keys() if k.startswith("level_")]
     level_keys = sorted(level_keys, key=lambda k: int(k.split("_")[1]))
     if not level_keys:
-        return "bottom"
+        return next(iter(tags), "bottom")
 
     if isinstance(middle_level, str) and middle_level in tags:
         return middle_level
@@ -146,8 +133,9 @@ class Reconciler:
         if was_1d:
             y_hat = y_hat[:, None]
 
-        hf_order = _build_hf_order(self.structure)
-        tags = _build_tags(self.structure, hf_order)
+        hf_order = self.structure.node_order()
+        tags = self.structure.to_tags()
+        indexed_tags = _build_tag_indices(tags, hf_order)
         s_matrix = _build_s_matrix(self.structure, hf_order)
         order_to_hf = [self.structure.all_nodes.index(node) for node in hf_order]
         hf_to_order = np.argsort(order_to_hf)
@@ -157,8 +145,9 @@ class Reconciler:
         y_hat_insample = None
         has_insample = False
         if fitted_values is not None and residuals is not None:
-            y_hat_insample = np.asarray(fitted_values, dtype=float)
-            y_insample = y_hat_insample + np.asarray(residuals, dtype=float)
+            y_hat_insample = np.asarray(fitted_values, dtype=float)[order_to_hf]
+            residuals_arr = np.asarray(residuals, dtype=float)[order_to_hf]
+            y_insample = y_hat_insample + residuals_arr
             has_insample = True
 
         reconciler = _select_reconciler(
@@ -171,7 +160,7 @@ class Reconciler:
             reconciler,
             s_matrix,
             y_hat,
-            tags,
+            indexed_tags,
             y_insample=y_insample,
             y_hat_insample=y_hat_insample,
         )
@@ -205,36 +194,39 @@ def reconcile_forecasts(
     if not value_cols:
         raise ValueError("No numeric forecast columns to reconcile.")
 
-    ds_values = sorted(pd.to_datetime(df[ds_col]).unique())
-    hf_order = _build_hf_order(structure)
-    tags = _build_tags(structure, hf_order)
-    s_matrix = _build_s_matrix(structure, hf_order)
+    from hierarchicalforecast.core import HierarchicalReconciliation
+
+    tags = structure.to_tags()
+    s_df = structure.to_s_df()
     reconciler = _select_reconciler(method, tags)
+    engine = HierarchicalReconciliation([reconciler])
 
-    reconciled_frames: list[pd.DataFrame] = []
+    y_hat_df = df[[id_col, ds_col] + value_cols].copy()
+    reconciled = engine.reconcile(
+        Y_hat_df=y_hat_df,
+        S_df=s_df,
+        tags=tags,
+        Y_df=None,
+        id_col=id_col,
+        time_col=ds_col,
+        target_col="y",
+    )
+
+    method_label = reconciler.__class__.__name__
+    reconciled = reconciled.copy()
     for col in value_cols:
-        pivot = (
-            df.pivot_table(index=id_col, columns=ds_col, values=col, aggfunc="mean")
-            .reindex(index=hf_order, columns=ds_values)
-        )
-        if pivot.isna().any().any():
-            raise ValueError(f"Missing forecasts for reconciliation in column '{col}'.")
-        y_hat = pivot.to_numpy(dtype=float)
-        reconciled = _apply_reconciler(reconciler, s_matrix, y_hat, tags)
-        rec_df = (
-            pd.DataFrame(reconciled, index=hf_order, columns=ds_values)
-            .reset_index()
-            .melt(id_vars="index", var_name=ds_col, value_name=col)
-            .rename(columns={"index": id_col})
-        )
-        reconciled_frames.append(rec_df)
+        candidate = f"{col}/{method_label}"
+        if candidate in reconciled.columns:
+            reconciled[col] = reconciled[candidate]
+        else:
+            alternatives = [c for c in reconciled.columns if c.startswith(f"{col}/")]
+            if len(alternatives) == 1:
+                reconciled[col] = reconciled[alternatives[0]]
+    drop_cols = [c for c in reconciled.columns if "/" in c and c.split("/")[0] in value_cols]
+    if drop_cols:
+        reconciled = reconciled.drop(columns=drop_cols)
 
-    # Merge reconciled columns back together
-    result = reconciled_frames[0]
-    for frame in reconciled_frames[1:]:
-        result = result.merge(frame, on=[id_col, ds_col], how="left")
-
-    return result.sort_values([id_col, ds_col]).reset_index(drop=True)
+    return reconciled.sort_values([id_col, ds_col]).reset_index(drop=True)
 
 
 __all__ = ["ReconciliationMethod", "Reconciler", "reconcile_forecasts"]

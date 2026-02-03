@@ -7,17 +7,14 @@ guaranteed schema and temporal integrity.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pandas as pd
 
 from tsagentkit.contracts import PanelContract, TaskSpec, validate_contract
+from tsagentkit.series.validation import normalize_panel_columns
 
 from .sparsity import SparsityProfile, compute_sparsity_profile
-
-if TYPE_CHECKING:
-    from tsagentkit.covariates import AlignedDataset, CovariateBundle
-    from tsagentkit.hierarchy import HierarchyStructure
 
 
 @dataclass(frozen=True)
@@ -75,24 +72,7 @@ class TSDataset:
         df: pd.DataFrame,
         contract: PanelContract,
     ) -> tuple[pd.DataFrame, dict[str, str] | None]:
-        default_contract = PanelContract()
-        mapping = {
-            contract.unique_id_col: default_contract.unique_id_col,
-            contract.ds_col: default_contract.ds_col,
-            contract.y_col: default_contract.y_col,
-        }
-        if mapping == {
-            default_contract.unique_id_col: default_contract.unique_id_col,
-            default_contract.ds_col: default_contract.ds_col,
-            default_contract.y_col: default_contract.y_col,
-        }:
-            return df, None
-
-        missing = [src for src in mapping if src not in df.columns]
-        if missing:
-            raise ValueError(f"Missing required columns: {missing}")
-
-        return df.rename(columns=mapping), mapping
+        return normalize_panel_columns(df, contract)
 
     @classmethod
     def from_dataframe(

@@ -146,10 +146,10 @@ plan = make_plan(dataset, spec)
 from tsagentkit.serving import get_tsfm_model
 
 # Load cached TSFM model
-adapter = get_tsfm_model("chronos", pipeline="base")
+adapter = get_tsfm_model("chronos", model_size="base")
 
 # Generate forecast
-forecast = adapter.fit_predict(dataset, spec)
+result = adapter.predict(dataset, horizon=spec.horizon)
 ```
 
 ## Architecture
@@ -199,26 +199,29 @@ tsagentkit provides unified adapters for major Time-Series Foundation Models:
 
 ### Chronos (Amazon)
 ```python
-from tsagentkit.models.adapters import ChronosAdapter
+from tsagentkit.models.adapters import AdapterConfig, ChronosAdapter
 
-adapter = ChronosAdapter(pipeline="base", device="auto")
+config = AdapterConfig(model_name="chronos", model_size="base")
+adapter = ChronosAdapter(config)
 ```
 
 ### Moirai (Salesforce)
 ```python
-from tsagentkit.models.adapters import MoiraiAdapter
+from tsagentkit.models.adapters import AdapterConfig, MoiraiAdapter
 
-adapter = MoiraiAdapter(model_size="base", device="auto")
+config = AdapterConfig(model_name="moirai", model_size="base")
+adapter = MoiraiAdapter(config)
 ```
 
 ### TimesFM (Google)
 ```python
-from tsagentkit.models.adapters import TimesFMAdapter
+from tsagentkit.models.adapters import AdapterConfig, TimesFMAdapter
 
-adapter = TimesFMAdapter(checkpoint_path="google/timesfm-1.0-200m")
+config = AdapterConfig(model_name="timesfm", model_size="base")
+adapter = TimesFMAdapter(config)
 ```
 
-See [docs/adapters/](docs/adapters/) for detailed configuration.
+See `docs/README.md` and adapter docstrings for configuration details.
 
 ## Hierarchical Reconciliation
 
@@ -243,7 +246,7 @@ reconciled = reconcile_forecasts(
 )
 ```
 
-See [docs/hierarchical/RECONCILIATION.md](docs/hierarchical/RECONCILIATION.md) for full guide.
+See `docs/ARCHITECTURE.md` for hierarchy contract details (`S_df`/`tags`).
 
 ## Guardrails
 
@@ -266,9 +269,8 @@ except ESplitRandomForbidden as e:
 
 Pre-built recipes for AI agents:
 
-- [TSFM Model Selection](docs/recipes/RECIPE_TSFM_SELECTION.md)
-- [Hierarchical Forecasting](docs/recipes/RECIPE_HIERARCHICAL_FORECASTING.md)
-- [Troubleshooting](docs/recipes/RECIPE_TROUBLESHOOTING.md)
+- `skill/recipes.md`
+- `skill/README.md`
 
 ## Development
 
@@ -302,9 +304,7 @@ tsagentkit/
 │   ├── serving/       # Inference orchestration
 │   └── monitoring/    # Drift detection
 ├── docs/              # Documentation
-│   ├── adapters/      # TSFM adapter guides
-│   ├── hierarchical/  # Reconciliation guide
-│   └── recipes/       # Agent recipes
+│   └── README.md      # Documentation index
 └── tests/             # Test suite
 ```
 

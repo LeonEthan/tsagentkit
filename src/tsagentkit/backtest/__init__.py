@@ -1,6 +1,8 @@
 """Backtest module for tsagentkit.
 
-Provides rolling window backtesting and metrics calculation.
+Provides rolling window backtesting and report structures. Legacy metric
+helpers are still exported for compatibility but are deprecated; prefer
+``tsagentkit.eval.evaluate_forecasts`` for new evaluation flows.
 """
 
 from .engine import cross_validation_split, rolling_backtest

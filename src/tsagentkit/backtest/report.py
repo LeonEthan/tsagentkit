@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 
+from tsagentkit.contracts import CVFrame
 
 @dataclass(frozen=True)
 class WindowResult:
@@ -146,7 +147,12 @@ class BacktestReport:
     temporal_metrics: dict[str, TemporalMetrics] = field(default_factory=dict)
     errors: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-    cv_frame: pd.DataFrame | None = None
+    cv_frame: pd.DataFrame | CVFrame | None = None
+
+    def _cv_dataframe(self) -> pd.DataFrame | None:
+        if isinstance(self.cv_frame, CVFrame):
+            return self.cv_frame.df
+        return self.cv_frame
 
     def get_metric(self, metric_name: str) -> float:
         """Get an aggregate metric by name.
@@ -283,7 +289,11 @@ class BacktestReport:
             "window_results": [w.to_dict() for w in self.window_results],
             "errors": self.errors,
             "metadata": self.metadata,
-            "cv_frame": self.cv_frame.to_dict("records") if self.cv_frame is not None else None,
+            "cv_frame": (
+                self._cv_dataframe().to_dict("records")
+                if self._cv_dataframe() is not None
+                else None
+            ),
         }
 
     def summary(self) -> str:

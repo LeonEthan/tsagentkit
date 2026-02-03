@@ -5,7 +5,6 @@ Provides utilities for tracking data lineage and reproducibility.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -20,41 +19,7 @@ if TYPE_CHECKING:
     from tsagentkit.router import PlanSpec
 
 
-def compute_data_signature(df: pd.DataFrame) -> str:
-    """Compute a hash signature for a DataFrame.
-
-    Args:
-        df: DataFrame to hash
-
-    Returns:
-        SHA-256 hash string (truncated to 16 chars)
-    """
-    # Use sorted values to ensure consistent hashing
-    cols = sorted(df.columns)
-    data_str = ""
-
-    for col in cols:
-        if pd.api.types.is_datetime64_any_dtype(df[col]):
-            # Convert datetimes to ISO format strings
-            values = df[col].dt.strftime("%Y-%m-%dT%H:%M:%S").tolist()
-        else:
-            values = df[col].astype(str).tolist()
-        data_str += f"{col}:{','.join(values)};"
-
-    return hashlib.sha256(data_str.encode()).hexdigest()[:16]
-
-
-def compute_config_signature(config: dict[str, Any]) -> str:
-    """Compute a hash signature for a configuration dict.
-
-    Args:
-        config: Configuration dictionary
-
-    Returns:
-        SHA-256 hash string (truncated to 16 chars)
-    """
-    json_str = json.dumps(config, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(json_str.encode()).hexdigest()[:16]
+from tsagentkit.utils import compute_config_signature, compute_data_signature
 
 
 def create_provenance(

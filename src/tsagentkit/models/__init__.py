@@ -112,7 +112,7 @@ def _basic_provenance(
 ) -> Provenance:
     from datetime import datetime, timezone
 
-    from tsagentkit.serving.provenance import compute_data_signature
+    from tsagentkit.utils import compute_data_signature
 
     return Provenance(
         run_id=f"model_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",

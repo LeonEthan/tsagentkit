@@ -6,11 +6,33 @@ Defines the data structures for forecast outputs including provenance tracking.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any
 
-import pandas as pd
+_QUANTILE_PATTERN = re.compile(r"^q[_]?([0-9]+(?:\.[0-9]+)?)$")
 
-from tsagentkit.utils import parse_quantile_column
+
+def _parse_quantile_column(col: str) -> float | None:
+    match = _QUANTILE_PATTERN.match(col)
+    if not match:
+        return None
+    value = float(match.group(1))
+    if value > 1:
+        value = value / 100.0
+    if not 0 < value < 1:
+        return None
+    return value
+
+
+def _is_datetime_like(series: Any) -> bool:
+    try:
+        import pandas as pd  # Optional import for accurate dtype checks.
+
+        return bool(pd.api.types.is_datetime64_any_dtype(series))
+    except Exception:
+        dtype = getattr(series, "dtype", None)
+        kind = getattr(dtype, "kind", None)
+        return kind == "M"
 
 
 @dataclass(frozen=True)
@@ -20,7 +42,7 @@ class ForecastFrame:
     Expected columns: unique_id, ds, model, yhat (+ intervals/quantiles).
     """
 
-    df: pd.DataFrame
+    df: Any
 
 
 @dataclass(frozen=True)
@@ -30,7 +52,7 @@ class CVFrame:
     Expected columns: unique_id, ds, cutoff, model, y, yhat (+ intervals/quantiles).
     """
 
-    df: pd.DataFrame
+    df: Any
 
 
 @dataclass(frozen=True)
@@ -96,7 +118,7 @@ class ForecastResult:
         horizon: Forecast horizon
     """
 
-    df: pd.DataFrame
+    df: Any
     provenance: Provenance
     model_name: str
     horizon: int
@@ -109,7 +131,7 @@ class ForecastResult:
             raise ValueError(f"ForecastResult df missing columns: {missing}")
 
         # Validate types
-        if not pd.api.types.is_datetime64_any_dtype(self.df["ds"]):
+        if not _is_datetime_like(self.df["ds"]):
             raise ValueError("Column 'ds' must be datetime")
 
     def get_quantile_columns(self) -> list[str]:
@@ -118,7 +140,7 @@ class ForecastResult:
         Returns:
             List of column names starting with 'q' (quantile columns)
         """
-        return [c for c in self.df.columns if parse_quantile_column(c) is not None]
+        return [c for c in self.df.columns if _parse_quantile_column(c) is not None]
 
     def get_series(self, unique_id: str) -> pd.DataFrame:
         """Get forecast for a specific series.

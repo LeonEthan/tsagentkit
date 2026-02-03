@@ -13,6 +13,7 @@ dependencies = [
     "statsforecast>=1.7.0",
     "utilsforecast>=0.1.0",
     "hierarchicalforecast>=1.0.0",
+    "tsfeatures>=0.4.5",
 ]
 
 [project.optional-dependencies]
@@ -21,6 +22,7 @@ dev = [
     "pytest-cov>=4.0.0",
     "mypy>=1.0.0",
     "ruff>=0.1.0",
+    "import-linter>=2.0.0",
 ]
 models = [
     "statsforecast>=1.7.0",
@@ -45,6 +47,9 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --cov=src/tsagentkit --cov-report=term-missing"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
 
 [tool.mypy]
 python_version = "3.11"
