@@ -196,5 +196,12 @@ def predict_baseline(
     forecast_df = normalize_quantile_columns(forecast_df)
 
     # Keep standard column order
-    cols = ["unique_id", "ds", "yhat"] + [c for c in forecast_df.columns if c.startswith("q")]
+    if "model" not in forecast_df.columns:
+        forecast_df["model"] = model_artifact.model_name
+    cols = [
+        "unique_id",
+        "ds",
+        "model",
+        "yhat",
+    ] + [c for c in forecast_df.columns if c.startswith("q")]
     return forecast_df[cols]

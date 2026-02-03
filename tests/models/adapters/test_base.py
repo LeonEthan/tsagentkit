@@ -56,6 +56,7 @@ class MockAdapter(TSFMAdapter):
         df = pd.DataFrame({
             "unique_id": ["A"] * horizon,
             "ds": pd.date_range("2024-01-01", periods=horizon, freq="D"),
+            "model": ["mock"] * horizon,
             "yhat": [1.0] * horizon,
         })
 

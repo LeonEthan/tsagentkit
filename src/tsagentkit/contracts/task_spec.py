@@ -73,7 +73,7 @@ class TaskSpec(BaseSpec):
     h: int = Field(..., gt=0)
 
     # Frequency handling
-    freq: str = Field(...)
+    freq: Optional[str] = None
     infer_freq: bool = True
 
     # Contracts
@@ -146,7 +146,9 @@ class TaskSpec(BaseSpec):
         return self._infer_season_length(self.freq)
 
     @staticmethod
-    def _infer_season_length(freq: str) -> int | None:
+    def _infer_season_length(freq: str | None) -> int | None:
+        if not freq:
+            return None
         freq_map: dict[str, int] = {
             "D": 7,
             "B": 5,

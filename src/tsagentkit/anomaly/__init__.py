@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
+import warnings
 
 from tsagentkit.contracts import EAnomalyFail
 from tsagentkit.utils import parse_quantile_column
@@ -54,6 +55,12 @@ def detect_anomalies(
     if strict and calibrator is None:
         raise EAnomalyFail(
             "Strict mode requires calibrated intervals/quantiles for anomaly detection."
+        )
+    if not strict and calibrator is None and method != "interval_breach":
+        warnings.warn(
+            "Anomaly detection requested without calibrated intervals/quantiles. "
+            "Proceeding may increase false positives.",
+            UserWarning,
         )
 
     df = forecast_with_y.copy()

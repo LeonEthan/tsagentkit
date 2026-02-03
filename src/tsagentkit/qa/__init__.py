@@ -45,6 +45,7 @@ def run_qa(
     outlier_z: float = 3.0,
     apply_repairs: bool = False,
     repair_strategy: dict[str, Any] | None = None,
+    skip_covariate_checks: bool = False,
 ) -> QAReport:
     """Run QA checks for missing values, gaps, outliers, and leakage."""
     repair_strategy = repair_strategy or {}
@@ -183,18 +184,19 @@ def run_qa(
             )
 
     # Covariate guardrails
-    try:
-        align_covariates(df, task_spec)
-    except (ECovariateLeakage, ECovariateIncompleteKnown, ECovariateStaticInvalid) as exc:
-        leakage_detected = isinstance(exc, ECovariateLeakage)
-        issues.append(
-            {
-                "type": "covariate_guardrail",
-                "error": str(exc),
-                "severity": "critical",
-            }
-        )
-        raise
+    if not skip_covariate_checks:
+        try:
+            align_covariates(df, task_spec)
+        except (ECovariateLeakage, ECovariateIncompleteKnown, ECovariateStaticInvalid) as exc:
+            leakage_detected = isinstance(exc, ECovariateLeakage)
+            issues.append(
+                {
+                    "type": "covariate_guardrail",
+                    "error": str(exc),
+                    "severity": "critical",
+                }
+            )
+            raise
 
     repairs: list[dict[str, Any]] = []
     if apply_repairs:

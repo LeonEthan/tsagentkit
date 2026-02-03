@@ -32,6 +32,10 @@ def _predict_stub(dataset: TSDataset, model, spec: TaskSpec) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _predict_fail_stub(dataset: TSDataset, model, spec: TaskSpec) -> pd.DataFrame:
+    raise RuntimeError("predict failed")
+
+
 @pytest.fixture
 def sample_dataset() -> TSDataset:
     """Create a sample dataset."""
@@ -190,6 +194,37 @@ class TestRollingBacktest:
         )
 
         assert "mae" in report.aggregate_metrics
+
+    def test_report_has_decision_summary(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
+        """Report metadata should include a decision summary."""
+        report = rolling_backtest(
+            dataset=sample_dataset,
+            spec=sample_dataset.task_spec,
+            plan=sample_plan,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
+            n_windows=1,
+        )
+
+        decision = report.metadata.get("decision_summary", {})
+        assert decision.get("plan_name") == sample_plan.plan_name
+        assert decision.get("primary_model") == sample_plan.candidate_models[0]
+
+    def test_predict_errors_include_model_and_stage(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
+        """Predict failures should be recorded with model/stage details."""
+        report = rolling_backtest(
+            dataset=sample_dataset,
+            spec=sample_dataset.task_spec,
+            plan=sample_plan,
+            fit_func=_fit_stub,
+            predict_func=_predict_fail_stub,
+            n_windows=1,
+        )
+
+        assert any(
+            e.get("stage") == "predict" and e.get("model") == sample_plan.candidate_models[0]
+            for e in report.errors
+        )
 
 
 class TestRollingBacktestRealWorldData:

@@ -80,6 +80,7 @@ class TestForecastResult:
         return pd.DataFrame({
             "unique_id": ["A", "A", "B", "B"],
             "ds": pd.date_range("2024-01-01", periods=4, freq="D"),
+            "model": ["Test"] * 4,
             "yhat": [1.0, 2.0, 3.0, 4.0],
             "q0.1": [0.9, 1.9, 2.9, 3.9],
             "q0.9": [1.1, 2.1, 3.1, 4.1],
@@ -103,6 +104,7 @@ class TestForecastResult:
         df = pd.DataFrame({
             "unique_id": ["A"],
             "ds": ["2024-01-01"],
+            "model": ["Test"],
             # Missing yhat
         })
         with pytest.raises(ValueError, match="missing columns"):
@@ -118,6 +120,7 @@ class TestForecastResult:
         df = pd.DataFrame({
             "unique_id": ["A"],
             "ds": ["not-a-date"],  # String instead of datetime
+            "model": ["Test"],
             "yhat": [1.0],
         })
         with pytest.raises(ValueError, match="datetime"):

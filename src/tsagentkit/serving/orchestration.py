@@ -13,22 +13,28 @@ from typing import TYPE_CHECKING, Any, Literal
 import pandas as pd
 
 from tsagentkit.backtest import rolling_backtest
+from tsagentkit.covariates import AlignedDataset, CovariateBundle, align_covariates
 from tsagentkit.contracts import (
     AnomalySpec,
     CalibratorSpec,
     ECovariateLeakage,
+    ECovariateIncompleteKnown,
+    ECovariateStaticInvalid,
     EAnomalyFail,
     ECalibrationFail,
     EQACriticalIssue,
+    EFallbackExhausted,
     ForecastResult,
     PanelContract,
     TaskSpec,
+    ETaskSpecInvalid,
     ValidationReport,
     validate_contract,
 )
 from tsagentkit.qa import QAReport, run_qa
 from tsagentkit.router import make_plan
 from tsagentkit.series import TSDataset
+from tsagentkit.time import infer_freq
 from tsagentkit.utils import drop_future_rows, normalize_quantile_columns
 
 from .packaging import package_run
@@ -69,6 +75,7 @@ class MonitoringConfig:
 def run_forecast(
     data: pd.DataFrame,
     task_spec: TaskSpec,
+    covariates: CovariateBundle | None = None,
     mode: Literal["quick", "standard", "strict"] = "standard",
     fit_func: Any | None = None,
     predict_func: Any | None = None,
@@ -89,6 +96,7 @@ def run_forecast(
     Args:
         data: Input DataFrame with columns [unique_id, ds, y]
         task_spec: Task specification with horizon, freq, etc.
+        covariates: Optional covariate bundle (bundle mode)
         mode: Execution mode:
             - "quick": Skip backtest, fit on all data
             - "standard": Full pipeline with backtest (default)
@@ -143,9 +151,44 @@ def run_forecast(
     if column_map:
         task_spec = task_spec.model_copy(update={"panel_contract": PanelContract()})
 
+    # Infer frequency if missing
+    if not task_spec.freq:
+        if not task_spec.infer_freq:
+            raise ETaskSpecInvalid(
+                "TaskSpec.freq is required when infer_freq=False.",
+                context={"freq": task_spec.freq},
+            )
+        step_start = time.time()
+        try:
+            inferred = infer_freq(
+                data,
+                id_col=task_spec.panel_contract.unique_id_col,
+                ds_col=task_spec.panel_contract.ds_col,
+            )
+            task_spec = task_spec.model_copy(update={"freq": inferred})
+            events.append(
+                log_event(
+                    step_name="infer_freq",
+                    status="success",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    context={"freq": inferred},
+                )
+            )
+        except Exception as e:
+            events.append(
+                log_event(
+                    step_name="infer_freq",
+                    status="failed",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    error_code=type(e).__name__,
+                )
+            )
+            raise
+
     # Step 2: QA
     step_start = time.time()
     effective_repair_strategy = repair_strategy
+    covariate_error: Exception | None = None
     try:
         qa_report = _step_qa(
             data,
@@ -162,6 +205,49 @@ def run_forecast(
                 duration_ms=(time.time() - step_start) * 1000,
             )
         )
+    except (ECovariateLeakage, ECovariateIncompleteKnown, ECovariateStaticInvalid) as e:
+        covariate_error = e
+        if mode == "strict":
+            events.append(
+                log_event(
+                    step_name="qa",
+                    status="failed",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    error_code=type(e).__name__,
+                )
+            )
+            raise
+        qa_report = _step_qa(
+            data,
+            task_spec,
+            mode,
+            apply_repairs=mode != "strict",
+            repair_strategy=effective_repair_strategy,
+            skip_covariate_checks=True,
+        )
+        qa_repairs = qa_report.repairs
+        issues = list(qa_report.issues)
+        issues.append(
+            {
+                "type": "covariate_guardrail",
+                "error": str(e),
+                "severity": "critical",
+                "action": "dropped_covariates",
+            }
+        )
+        qa_report = QAReport(
+            issues=issues,
+            repairs=qa_report.repairs,
+            leakage_detected=isinstance(e, ECovariateLeakage),
+        )
+        events.append(
+            log_event(
+                step_name="qa",
+                status="success",
+                duration_ms=(time.time() - step_start) * 1000,
+                context={"covariates_dropped": True},
+            )
+        )
     except Exception as e:
         events.append(
             log_event(
@@ -173,7 +259,59 @@ def run_forecast(
         )
         raise
 
-    # Step 2b: Drop future rows (y is null beyond last observed per series)
+    # Step 2b: Align covariates before dropping future rows (preserve single-table future-known)
+    step_start = time.time()
+    aligned_dataset: AlignedDataset | None = None
+    panel_with_covariates = data.copy()
+    if covariate_error is None:
+        try:
+            aligned_dataset = align_covariates(
+                panel_with_covariates,
+                task_spec,
+                covariates=covariates,
+            )
+            events.append(
+                log_event(
+                    step_name="align_covariates",
+                    status="success",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    artifacts_generated=["aligned_covariates"],
+                )
+            )
+        except (ECovariateLeakage, ECovariateIncompleteKnown, ECovariateStaticInvalid) as e:
+            covariate_error = e
+            events.append(
+                log_event(
+                    step_name="align_covariates",
+                    status="failed",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    error_code=type(e).__name__,
+                )
+            )
+            if mode == "strict":
+                raise
+        except Exception as e:
+            events.append(
+                log_event(
+                    step_name="align_covariates",
+                    status="failed",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    error_code=type(e).__name__,
+                )
+            )
+            if mode == "strict":
+                raise
+    else:
+        events.append(
+            log_event(
+                step_name="align_covariates",
+                status="skipped",
+                duration_ms=(time.time() - step_start) * 1000,
+                context={"covariates_dropped": True},
+            )
+        )
+
+    # Step 2c: Drop future rows (y is null beyond last observed per series)
     step_start = time.time()
     data, drop_info = drop_future_rows(
         data,
@@ -197,6 +335,23 @@ def run_forecast(
     dataset = TSDataset.from_dataframe(data, task_spec, validate=False)
     if hierarchy is not None:
         dataset = dataset.with_hierarchy(hierarchy)
+    if aligned_dataset is not None:
+        uid_col = task_spec.panel_contract.unique_id_col
+        ds_col = task_spec.panel_contract.ds_col
+        y_col = task_spec.panel_contract.y_col
+        aligned_dataset = AlignedDataset(
+            panel=data[[uid_col, ds_col, y_col]].copy(),
+            static_x=aligned_dataset.static_x,
+            past_x=aligned_dataset.past_x,
+            future_x=aligned_dataset.future_x,
+            covariate_spec=aligned_dataset.covariate_spec,
+            future_index=aligned_dataset.future_index,
+        )
+        dataset = dataset.with_covariates(
+            aligned_dataset,
+            panel_with_covariates=panel_with_covariates,
+            covariate_bundle=covariates,
+        )
     events.append(
         log_event(
             step_name="build_dataset",
@@ -250,6 +405,16 @@ def run_forecast(
         )
     )
 
+    if covariate_error is not None:
+        if not plan.allow_drop_covariates:
+            raise covariate_error
+        fallbacks_triggered.append(
+            {
+                "type": "covariates_dropped",
+                "error": str(covariate_error),
+            }
+        )
+
     # Step 5: Backtest (if standard or strict mode)
     backtest_report = None
     if mode in ("standard", "strict"):
@@ -264,7 +429,6 @@ def run_forecast(
                 predict_func = default_predict
 
             backtest_cfg = task_spec.backtest
-            step_size = backtest_cfg.step
             n_windows = backtest_cfg.n_windows
             min_train_size = backtest_cfg.min_train_size
 
@@ -275,7 +439,7 @@ def run_forecast(
                 fit_func=fit_func,
                 predict_func=predict_func,
                 n_windows=n_windows,
-                step_size=step_size,
+                step_size=task_spec.horizon,
                 min_train_size=min_train_size,
             )
             events.append(
@@ -315,6 +479,7 @@ def run_forecast(
         plan=plan,
         fit_func=fit_func,
         on_fallback=on_fallback,
+        covariates=aligned_dataset,
     )
 
     events.append(
@@ -328,21 +493,62 @@ def run_forecast(
 
     # Step 7: Predict
     step_start = time.time()
-    forecast_df = _step_predict(
-        artifact=model_artifact,
-        dataset=dataset,
-        task_spec=task_spec,
-        predict_func=predict_func,
-        plan=plan,
-    )
-    events.append(
-        log_event(
-            step_name="predict",
-            status="success",
-            duration_ms=(time.time() - step_start) * 1000,
-            artifacts_generated=["forecast"],
+    try:
+        forecast_df = _step_predict(
+            artifact=model_artifact,
+            dataset=dataset,
+            task_spec=task_spec,
+            predict_func=predict_func,
+            plan=plan,
+            covariates=aligned_dataset,
         )
-    )
+        events.append(
+            log_event(
+                step_name="predict",
+                status="success",
+                duration_ms=(time.time() - step_start) * 1000,
+                artifacts_generated=["forecast"],
+            )
+        )
+    except Exception as e:
+        events.append(
+            log_event(
+                step_name="predict",
+                status="failed",
+                duration_ms=(time.time() - step_start) * 1000,
+                error_code=type(e).__name__,
+            )
+        )
+        try:
+            model_artifact, forecast_df = _fit_predict_with_fallback(
+                dataset=dataset,
+                plan=plan,
+                task_spec=task_spec,
+                fit_func=fit_func,
+                predict_func=predict_func,
+                covariates=aligned_dataset,
+                start_after=model_artifact.model_name,
+                initial_error=e,
+                on_fallback=on_fallback,
+            )
+            events.append(
+                log_event(
+                    step_name="predict_fallback",
+                    status="success",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    artifacts_generated=["forecast"],
+                )
+            )
+        except Exception as fallback_error:
+            events.append(
+                log_event(
+                    step_name="predict_fallback",
+                    status="failed",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    error_code=type(fallback_error).__name__,
+                )
+            )
+            raise
 
     # Step 8: Calibration (optional)
     calibration_artifact = None
@@ -534,6 +740,7 @@ def _step_qa(
     mode: Literal["quick", "standard", "strict"],
     apply_repairs: bool = False,
     repair_strategy: dict[str, Any] | None = None,
+    skip_covariate_checks: bool = False,
 ) -> QAReport:
     """Execute QA step.
 
@@ -545,6 +752,7 @@ def _step_qa(
         mode,
         apply_repairs=apply_repairs,
         repair_strategy=repair_strategy,
+        skip_covariate_checks=skip_covariate_checks,
     )
 
     if mode == "strict":
@@ -561,6 +769,7 @@ def _step_fit(
     plan: Any,
     fit_func: Any | None,
     on_fallback: Any | None = None,
+    covariates: AlignedDataset | None = None,
 ) -> Any:
     """Execute fit step with fallback."""
     from tsagentkit.models import fit as default_fit
@@ -568,9 +777,10 @@ def _step_fit(
     if fit_func is None:
         # Use default fit function
         fit_func = default_fit
+    kwargs = {"covariates": covariates} if covariates is not None else {}
     if fit_func is default_fit:
-        return fit_func(dataset, plan, on_fallback=on_fallback)
-    return fit_func(dataset, plan)
+        return fit_func(dataset, plan, on_fallback=on_fallback, **kwargs)
+    return _call_with_optional_kwargs(fit_func, dataset, plan, **kwargs)
 
 
 def _step_predict(
@@ -579,6 +789,7 @@ def _step_predict(
     task_spec: TaskSpec,
     predict_func: Any | None,
     plan: Any | None = None,
+    covariates: AlignedDataset | None = None,
 ) -> pd.DataFrame:
     """Execute predict step."""
     if predict_func is None:
@@ -587,9 +798,17 @@ def _step_predict(
 
         predict_func = default_predict
 
-    forecast = predict_func(dataset, artifact, task_spec)
+    kwargs = {"covariates": covariates} if covariates is not None else {}
+    forecast = _call_with_optional_kwargs(predict_func, dataset, artifact, task_spec, **kwargs)
     if isinstance(forecast, ForecastResult):
         forecast = forecast.df
+
+    if "model" not in forecast.columns:
+        model_name = getattr(artifact, "model_name", None)
+        if model_name is None and hasattr(artifact, "metadata"):
+            model_name = artifact.metadata.get("model_name") if artifact.metadata else None
+        forecast = forecast.copy()
+        forecast["model"] = model_name or "model"
 
     # Apply reconciliation if hierarchical
     if plan and dataset.is_hierarchical() and dataset.hierarchy:
@@ -619,8 +838,96 @@ def _step_predict(
     return forecast
 
 
+def _fit_predict_with_fallback(
+    dataset: TSDataset,
+    plan: Any,
+    task_spec: TaskSpec,
+    fit_func: Any | None,
+    predict_func: Any | None,
+    covariates: AlignedDataset | None = None,
+    start_after: str | None = None,
+    initial_error: Exception | None = None,
+    on_fallback: Any | None = None,
+) -> tuple[Any, pd.DataFrame]:
+    """Fit and predict with fallback across remaining candidates."""
+    from tsagentkit.models import fit as default_fit
+    from tsagentkit.models import predict as default_predict
+
+    fit_callable = fit_func or default_fit
+    predict_callable = predict_func or default_predict
+
+    candidates = list(getattr(plan, "candidate_models", []) or [])
+    start_idx = 0
+    if start_after in candidates:
+        start_idx = candidates.index(start_after) + 1
+    remaining = candidates[start_idx:]
+
+    last_error: Exception | None = None
+
+    if start_after and remaining and on_fallback and initial_error is not None:
+        on_fallback(start_after, remaining[0], initial_error)
+
+    for i, model_name in enumerate(remaining):
+        plan_for_model = plan
+        if hasattr(plan, "model_copy"):
+            plan_for_model = plan.model_copy(update={"candidate_models": [model_name]})
+
+        try:
+            artifact = _call_with_optional_kwargs(
+                fit_callable,
+                dataset,
+                plan_for_model,
+                covariates=covariates,
+            )
+        except Exception as e:
+            last_error = e
+            if on_fallback and i < len(remaining) - 1:
+                on_fallback(model_name, remaining[i + 1], e)
+            continue
+
+        try:
+            forecast = _step_predict(
+                artifact=artifact,
+                dataset=dataset,
+                task_spec=task_spec,
+                predict_func=predict_callable,
+                plan=plan,
+                covariates=covariates,
+            )
+            return artifact, forecast
+        except Exception as e:
+            last_error = e
+            if on_fallback and i < len(remaining) - 1:
+                on_fallback(model_name, remaining[i + 1], e)
+            continue
+
+    raise EFallbackExhausted(
+        f"All models failed during predict fallback. Last error: {last_error}",
+        context={
+            "models_attempted": remaining,
+            "last_error": str(last_error),
+        },
+    )
+
+
 def _get_error_code(validation: ValidationReport) -> str | None:
     """Extract error code from validation report."""
     if validation.errors:
         return validation.errors[0].get("code")
     return None
+
+
+def _call_with_optional_kwargs(func: Any, *args: Any, **kwargs: Any) -> Any:
+    """Call a function with only supported keyword arguments."""
+    if not kwargs:
+        return func(*args)
+
+    try:
+        import inspect
+
+        params = inspect.signature(func).parameters
+        accepted = {k: v for k, v in kwargs.items() if k in params}
+        return func(*args, **accepted)
+    except Exception:
+        # Fall back to direct call if signature inspection fails
+        return func(*args, **kwargs)

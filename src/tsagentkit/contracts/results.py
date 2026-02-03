@@ -90,7 +90,7 @@ class ForecastResult:
     provenance information for reproducibility.
 
     Attributes:
-        df: DataFrame with columns [unique_id, ds, yhat] + quantile columns
+        df: DataFrame with columns [unique_id, ds, model, yhat] + quantile columns
         provenance: Full provenance information
         model_name: Name of the model that produced this forecast
         horizon: Forecast horizon
@@ -103,7 +103,7 @@ class ForecastResult:
 
     def __post_init__(self) -> None:
         """Validate the dataframe structure."""
-        required_cols = {"unique_id", "ds", "yhat"}
+        required_cols = {"unique_id", "ds", "model", "yhat"}
         missing = required_cols - set(self.df.columns)
         if missing:
             raise ValueError(f"ForecastResult df missing columns: {missing}")

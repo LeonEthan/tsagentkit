@@ -312,6 +312,7 @@ class TimesFMAdapter(TSFMAdapter):
                 result_rows.append(row)
 
         result_df = pd.DataFrame(result_rows)
+        result_df["model"] = f"timesfm-{self.config.model_size}"
         provenance = self._create_provenance(dataset, horizon, quantiles)
 
         return ForecastResult(

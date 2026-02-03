@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 import numpy as np
 import pandas as pd
 
+from tsagentkit.covariates import AlignedDataset, align_covariates
 from tsagentkit.contracts import ESplitRandomForbidden
 from tsagentkit.utils import drop_future_rows, normalize_quantile_columns, parse_quantile_column
 
@@ -87,6 +88,8 @@ def rolling_backtest(
     # Set defaults
     horizon = spec.horizon
     step = step_size if step_size is not None else horizon
+    if step != horizon:
+        step = horizon
     season_length = spec.season_length or 1
 
     if min_train_size is None:
@@ -147,9 +150,52 @@ def rolling_backtest(
             train_ds = TSDataset.from_dataframe(train_df, spec, validate=False)
             if dataset.is_hierarchical() and dataset.hierarchy:
                 train_ds = train_ds.with_hierarchy(dataset.hierarchy)
+            window_covariates = None
+            try:
+                window_covariates = _build_window_covariates(
+                    dataset=dataset,
+                    task_spec=spec,
+                    cutoff_date=pd.Timestamp(cutoff_date),
+                    panel_for_index=train_df,
+                )
+            except Exception as e:
+                errors.append(
+                    {
+                        "window": window_idx,
+                        "stage": "covariate_alignment",
+                        "error": str(e),
+                        "type": type(e).__name__,
+                    }
+                )
+                if not plan.allow_drop_covariates:
+                    raise
+            if window_covariates is not None:
+                train_ds = train_ds.with_covariates(
+                    window_covariates,
+                    panel_with_covariates=dataset.panel_with_covariates,
+                    covariate_bundle=dataset.covariate_bundle,
+                )
 
             # Fit model (with fallback handled by fit_func)
-            model = fit_func(train_ds, plan)
+            try:
+                model = _call_with_optional_kwargs(
+                    fit_func,
+                    train_ds,
+                    plan,
+                    covariates=window_covariates,
+                )
+            except Exception as e:
+                errors.append(
+                    {
+                        "window": window_idx,
+                        "stage": "fit",
+                        "error": str(e),
+                        "type": type(e).__name__,
+                        "model": plan.candidate_models[0] if plan.candidate_models else None,
+                    }
+                )
+                continue
+
             model_name = getattr(model, "model_name", None)
             if model_name is None and hasattr(model, "metadata"):
                 model_name = model.metadata.get("model_name") if model.metadata else None
@@ -157,7 +203,25 @@ def rolling_backtest(
                 model_name = plan.candidate_models[0] if plan.candidate_models else "model"
 
             # Predict using training context
-            predictions = predict_func(train_ds, model, spec)
+            try:
+                predictions = _call_with_optional_kwargs(
+                    predict_func,
+                    train_ds,
+                    model,
+                    spec,
+                    covariates=window_covariates,
+                )
+            except Exception as e:
+                errors.append(
+                    {
+                        "window": window_idx,
+                        "stage": "predict",
+                        "error": str(e),
+                        "type": type(e).__name__,
+                        "model": model_name,
+                    }
+                )
+                continue
             if isinstance(predictions, dict):
                 raise ValueError("predict_func must return DataFrame or ForecastResult")
             if hasattr(predictions, "df"):
@@ -187,6 +251,34 @@ def rolling_backtest(
                     "bottom_up",
                 )
             predictions = normalize_quantile_columns(predictions)
+
+            # Compute window-level metrics
+            merged_metrics = predictions.merge(
+                test_df[["unique_id", "ds", "y"]],
+                on=["unique_id", "ds"],
+                how="left",
+            )
+            y_true_window = merged_metrics["y"].values
+            y_pred_window = merged_metrics["yhat"].values
+            window_quantiles: dict[float, np.ndarray] | None = None
+            quantile_cols_window = [
+                c for c in merged_metrics.columns
+                if parse_quantile_column(c) is not None
+            ]
+            if quantile_cols_window:
+                window_quantiles = {}
+                for col in quantile_cols_window:
+                    q_val = parse_quantile_column(col)
+                    if q_val is None:
+                        continue
+                    window_quantiles[q_val] = merged_metrics[col].values
+            window_metrics = compute_all_metrics(
+                y_true=y_true_window,
+                y_pred=y_pred_window,
+                y_train=train_df["y"].values if len(train_df) > 0 else None,
+                season_length=season_length,
+                y_quantiles=window_quantiles,
+            )
 
             # Compute metrics per series
             for uid in test_df["unique_id"].unique():
@@ -238,6 +330,7 @@ def rolling_backtest(
                 train_end=str(train_df["ds"].max()),
                 test_start=str(test_df["ds"].min()),
                 test_end=str(test_df["ds"].max()),
+                metrics=window_metrics,
                 num_series=test_df["unique_id"].nunique(),
                 num_observations=len(test_df),
             )
@@ -288,6 +381,11 @@ def rolling_backtest(
             "step_size": step,
             "min_train_size": min_train_size,
             "primary_model": plan.candidate_models[0] if plan.candidate_models else None,
+            "decision_summary": {
+                "plan_name": getattr(plan, "plan_name", None),
+                "primary_model": plan.candidate_models[0] if plan.candidate_models else None,
+                "reason": "rule_based_router",
+            },
         },
         cv_frame=pd.concat(cv_frames, ignore_index=True) if cv_frames else None,
     )
@@ -503,6 +601,50 @@ def _reconcile_forecast(
     )
 
     return reconciled
+
+
+def _build_window_covariates(
+    dataset: "TSDataset",
+    task_spec: "TaskSpec",
+    cutoff_date: pd.Timestamp,
+    panel_for_index: pd.DataFrame,
+) -> AlignedDataset | None:
+    """Align covariates for a specific backtest window."""
+    if dataset.panel_with_covariates is None and dataset.covariate_bundle is None:
+        return None
+
+    uid_col = task_spec.panel_contract.unique_id_col
+    ds_col = task_spec.panel_contract.ds_col
+    y_col = task_spec.panel_contract.y_col
+
+    if dataset.panel_with_covariates is not None:
+        panel = dataset.panel_with_covariates.copy()
+    else:
+        panel = panel_for_index.copy()
+
+    if y_col in panel.columns:
+        panel.loc[panel[ds_col] >= cutoff_date, y_col] = np.nan
+
+    return align_covariates(
+        panel=panel,
+        task_spec=task_spec,
+        covariates=dataset.covariate_bundle,
+    )
+
+
+def _call_with_optional_kwargs(func: Any, *args: Any, **kwargs: Any) -> Any:
+    """Call a function with only supported keyword arguments."""
+    if not kwargs:
+        return func(*args)
+
+    try:
+        import inspect
+
+        params = inspect.signature(func).parameters
+        accepted = {k: v for k, v in kwargs.items() if k in params}
+        return func(*args, **accepted)
+    except Exception:
+        return func(*args, **kwargs)
 
 
 def _compute_segment_metrics(

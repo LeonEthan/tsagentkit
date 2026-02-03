@@ -41,6 +41,34 @@ class TestRunForecast:
         assert result.forecast.model_name is not None
         assert result.metadata["mode"] == "quick"
 
+    def test_infer_freq_when_missing(self, sample_data: pd.DataFrame) -> None:
+        """Infer freq when missing and infer_freq=True."""
+        from tsagentkit.models import fit, predict
+
+        spec = TaskSpec(h=7, freq=None, infer_freq=True)
+        result = run_forecast(
+            data=sample_data,
+            task_spec=spec,
+            mode="quick",
+            fit_func=fit,
+            predict_func=predict,
+        )
+
+        assert result.task_spec is not None
+        assert result.task_spec.get("freq") == "D"
+
+    def test_missing_freq_without_infer_raises(self, sample_data: pd.DataFrame) -> None:
+        """Raise if freq is missing and infer_freq=False."""
+        from tsagentkit.contracts import ETaskSpecInvalid
+
+        spec = TaskSpec(h=7, freq=None, infer_freq=False)
+        with pytest.raises(ETaskSpecInvalid):
+            run_forecast(
+                data=sample_data,
+                task_spec=spec,
+                mode="quick",
+            )
+
     def test_standard_mode(self, sample_data: pd.DataFrame, sample_spec: TaskSpec) -> None:
         """Test standard mode execution."""
         from tsagentkit.models import fit, predict
@@ -88,8 +116,8 @@ class TestRunForecast:
                 task_spec=sample_spec,
             )
 
-    def test_leakage_raises_in_any_mode(self) -> None:
-        """Any mode should raise on observed covariate leakage."""
+    def test_leakage_raises_in_strict_mode(self) -> None:
+        """Strict mode should raise on observed covariate leakage."""
         df = pd.DataFrame({
             "unique_id": ["A", "A", "A"],
             "ds": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
@@ -100,13 +128,87 @@ class TestRunForecast:
 
         from tsagentkit.contracts import ECovariateLeakage
 
-        for mode in ("quick", "standard", "strict"):
-            with pytest.raises(ECovariateLeakage):
-                run_forecast(
-                    data=df,
-                    task_spec=spec,
-                    mode=mode,
-                )
+        with pytest.raises(ECovariateLeakage):
+            run_forecast(
+                data=df,
+                task_spec=spec,
+                mode="strict",
+            )
+
+    def test_covariate_leakage_fallback_non_strict(self) -> None:
+        """Non-strict modes should drop covariates on leakage and continue."""
+        df = pd.DataFrame({
+            "unique_id": ["A", "A", "A"],
+            "ds": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
+            "y": [1.0, 2.0, None],
+            "promo": [0, 1, 1],
+        })
+        spec = TaskSpec(h=1, freq="D", covariate_policy="observed")
+
+        from tsagentkit.models import fit, predict
+
+        for mode in ("quick", "standard"):
+            result = run_forecast(
+                data=df,
+                task_spec=spec,
+                mode=mode,
+                fit_func=fit,
+                predict_func=predict,
+            )
+
+            assert result is not None
+            assert result.provenance is not None
+            assert any(
+                f.get("type") == "covariates_dropped"
+                for f in (result.provenance.fallbacks_triggered or [])
+            )
+
+    def test_predict_failure_triggers_fallback(self, sample_data: pd.DataFrame, monkeypatch) -> None:
+        """Predict failures should trigger fallback to the next candidate."""
+        from tsagentkit.contracts import ModelArtifact
+        from tsagentkit.router import PlanSpec
+
+        def fake_make_plan(dataset, task_spec, qa_report):
+            return PlanSpec(plan_name="default", candidate_models=["bad", "good"])
+
+        monkeypatch.setattr(
+            "tsagentkit.serving.orchestration.make_plan",
+            fake_make_plan,
+        )
+
+        def fit_func(dataset, plan):
+            return ModelArtifact(model={}, model_name=plan.candidate_models[0])
+
+        def predict_func(dataset, artifact, spec):
+            if artifact.model_name == "bad":
+                raise RuntimeError("predict failed")
+            rows = []
+            step = pd.tseries.frequencies.to_offset(spec.freq)
+            for uid, last_date in dataset.df.groupby("unique_id")["ds"].max().items():
+                for h in range(1, spec.horizon + 1):
+                    rows.append(
+                        {
+                            "unique_id": uid,
+                            "ds": last_date + h * step,
+                            "yhat": 1.0,
+                        }
+                    )
+            return pd.DataFrame(rows)
+
+        spec = TaskSpec(h=2, freq="D")
+        result = run_forecast(
+            data=sample_data,
+            task_spec=spec,
+            mode="quick",
+            fit_func=fit_func,
+            predict_func=predict_func,
+        )
+
+        assert result.forecast.model_name == "good"
+        assert any(
+            f.get("from") == "bad" and f.get("to") == "good"
+            for f in (result.provenance.fallbacks_triggered or [])
+        )
 
     def test_logs_events(self, sample_data: pd.DataFrame, sample_spec: TaskSpec) -> None:
         """Test that events are logged."""

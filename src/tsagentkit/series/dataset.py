@@ -16,6 +16,7 @@ from tsagentkit.contracts import PanelContract, TaskSpec, validate_contract
 from .sparsity import SparsityProfile, compute_sparsity_profile
 
 if TYPE_CHECKING:
+    from tsagentkit.covariates import AlignedDataset, CovariateBundle
     from tsagentkit.hierarchy import HierarchyStructure
 
 
@@ -49,6 +50,13 @@ class TSDataset:
     sparsity_profile: SparsityProfile | None = field(default=None)
     metadata: dict[str, Any] = field(default_factory=dict)
     hierarchy: HierarchyStructure | None = field(default=None)
+    static_x: pd.DataFrame | None = field(default=None)
+    past_x: pd.DataFrame | None = field(default=None)
+    future_x: pd.DataFrame | None = field(default=None)
+    future_index: pd.DataFrame | None = field(default=None)
+    covariate_spec: Any | None = field(default=None)
+    covariate_bundle: "CovariateBundle | None" = field(default=None)
+    panel_with_covariates: pd.DataFrame | None = field(default=None)
 
     def __post_init__(self) -> None:
         """Validate the dataset after creation."""
@@ -302,6 +310,17 @@ class TSDataset:
             "sparsity_profile": self.sparsity_profile.series_profiles if self.sparsity_profile else None,
             "metadata": self.metadata,
             "hierarchy": self.hierarchy is not None,
+            "covariates": {
+                "static_x_rows": int(len(self.static_x)) if self.static_x is not None else 0,
+                "past_x_rows": int(len(self.past_x)) if self.past_x is not None else 0,
+                "future_x_rows": int(len(self.future_x)) if self.future_x is not None else 0,
+                "future_index_rows": int(len(self.future_index)) if self.future_index is not None else 0,
+                "covariate_spec": (
+                    self.covariate_spec.model_dump()
+                    if hasattr(self.covariate_spec, "model_dump")
+                    else self.covariate_spec
+                ),
+            },
         }
 
     def with_hierarchy(self, hierarchy: HierarchyStructure) -> "TSDataset":
@@ -314,6 +333,36 @@ class TSDataset:
             New TSDataset instance with hierarchy
         """
         return replace(self, hierarchy=hierarchy)
+
+    def with_covariates(
+        self,
+        aligned: "AlignedDataset | None",
+        panel_with_covariates: pd.DataFrame | None = None,
+        covariate_bundle: "CovariateBundle | None" = None,
+    ) -> "TSDataset":
+        """Return new TSDataset with covariates attached."""
+        if aligned is None:
+            return replace(
+                self,
+                static_x=None,
+                past_x=None,
+                future_x=None,
+                future_index=None,
+                covariate_spec=None,
+                covariate_bundle=covariate_bundle,
+                panel_with_covariates=panel_with_covariates,
+            )
+
+        return replace(
+            self,
+            static_x=aligned.static_x,
+            past_x=aligned.past_x,
+            future_x=aligned.future_x,
+            future_index=aligned.future_index,
+            covariate_spec=aligned.covariate_spec,
+            covariate_bundle=covariate_bundle,
+            panel_with_covariates=panel_with_covariates,
+        )
 
     def is_hierarchical(self) -> bool:
         """Check if dataset has hierarchy.

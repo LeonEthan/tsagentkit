@@ -17,6 +17,7 @@ class TestRunArtifact:
         forecast = pd.DataFrame({
             "unique_id": ["A", "A"],
             "ds": pd.to_datetime(["2024-01-01", "2024-01-02"]),
+            "model": ["Naive", "Naive"],
             "yhat": [1.0, 2.0],
         })
         plan = PlanSpec(plan_name="default", candidate_models=["Naive"])
@@ -72,6 +73,7 @@ class TestPackageRun:
         forecast = pd.DataFrame({
             "unique_id": ["A"],
             "ds": pd.to_datetime(["2024-01-01"]),
+            "model": ["Naive"],
             "yhat": [1.0],
         })
         plan = PlanSpec(plan_name="default", candidate_models=["Naive"])
@@ -103,6 +105,7 @@ class TestPackageRun:
         forecast = pd.DataFrame({
             "unique_id": ["A"],
             "ds": pd.to_datetime(["2024-01-01"]),
+            "model": ["Naive"],
             "yhat": [1.0],
         })
         plan = PlanSpec(plan_name="default", candidate_models=["Naive"])

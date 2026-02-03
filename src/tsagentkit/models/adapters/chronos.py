@@ -289,6 +289,7 @@ class ChronosAdapter(TSFMAdapter):
                 result_rows.append(row)
 
         result_df = pd.DataFrame(result_rows)
+        result_df["model"] = f"chronos-{self.config.model_size}"
 
         # Create provenance
         provenance = self._create_provenance(dataset, horizon, quantiles)

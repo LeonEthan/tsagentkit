@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from tsagentkit.contracts import ModelArtifact, ForecastResult, Provenance
 from tsagentkit.models.baselines import fit_baseline, is_baseline_model, predict_baseline
+from tsagentkit.models.sktime import SktimeModelBundle, fit_sktime, predict_sktime
 from tsagentkit.utils import normalize_quantile_columns
 
 # Import adapters submodules
@@ -24,6 +25,10 @@ if TYPE_CHECKING:
 
 def _is_tsfm_model(model_name: str) -> bool:
     return model_name.lower().startswith("tsfm-")
+
+
+def _is_sktime_model(model_name: str) -> bool:
+    return model_name.lower().startswith("sktime-")
 
 
 def _build_adapter_config(model_name: str, config: dict[str, Any]) -> "adapters.AdapterConfig":
@@ -45,6 +50,7 @@ def _fit_model_name(
     model_name: str,
     dataset: "TSDataset",
     plan: "PlanSpec",
+    covariates: Any | None = None,
 ) -> ModelArtifact:
     """Fit a model by name with baseline or TSFM dispatch."""
     config: dict[str, Any] = {
@@ -72,6 +78,9 @@ def _fit_model_name(
     if is_baseline_model(model_name):
         return fit_baseline(model_name, dataset, config)
 
+    if _is_sktime_model(model_name):
+        return fit_sktime(model_name, dataset, plan, covariates=covariates)
+
     raise ValueError(f"Unknown model name: {model_name}")
 
 
@@ -79,12 +88,13 @@ def fit(
     dataset: "TSDataset",
     plan: "PlanSpec",
     on_fallback: Callable[[str, str, Exception], None] | None = None,
+    covariates: Any | None = None,
 ) -> ModelArtifact:
     """Fit a model using the plan's fallback ladder."""
     from tsagentkit.router import execute_with_fallback
 
     def _fit(model_name: str, ds: "TSDataset") -> ModelArtifact:
-        return _fit_model_name(model_name, ds, plan)
+        return _fit_model_name(model_name, ds, plan, covariates=covariates)
 
     artifact, _ = execute_with_fallback(
         fit_func=_fit,
@@ -119,6 +129,7 @@ def predict(
     dataset: "TSDataset",
     artifact: ModelArtifact,
     spec: "TaskSpec",
+    covariates: Any | None = None,
 ) -> ForecastResult:
     """Generate predictions for baseline or TSFM models."""
     if isinstance(artifact.model, adapters.TSFMAdapter):
@@ -127,8 +138,12 @@ def predict(
             horizon=spec.horizon,
             quantiles=artifact.config.get("quantiles"),
         )
+        df = normalize_quantile_columns(result.df)
+        if "model" not in df.columns:
+            df = df.copy()
+            df["model"] = artifact.model_name
         return ForecastResult(
-            df=normalize_quantile_columns(result.df),
+            df=df,
             provenance=result.provenance,
             model_name=artifact.model_name,
             horizon=spec.horizon,
@@ -141,12 +156,23 @@ def predict(
             horizon=spec.horizon,
             quantiles=artifact.config.get("quantiles"),
         )
+        if "model" not in forecast_df.columns:
+            forecast_df = forecast_df.copy()
+            forecast_df["model"] = artifact.model_name
         provenance = _basic_provenance(dataset, spec, artifact)
         return ForecastResult(
             df=normalize_quantile_columns(forecast_df),
             provenance=provenance,
             model_name=artifact.model_name,
             horizon=spec.horizon,
+        )
+
+    if isinstance(artifact.model, SktimeModelBundle):
+        return predict_sktime(
+            dataset=dataset,
+            artifact=artifact,
+            spec=spec,
+            covariates=covariates,
         )
 
     raise ValueError(f"Unknown model type for prediction: {artifact.model_name}")
