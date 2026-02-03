@@ -33,8 +33,11 @@ from tsagentkit import (
     TSDataset, SparsityProfile, SparsityClass, build_dataset,
     # QA
     run_qa,
+    # Calibration + Anomaly + Eval
+    fit_calibrator, apply_calibrator, detect_anomalies, evaluate_forecasts,
     # Router
-    Plan, make_plan, FallbackLadder, execute_with_fallback,
+    PlanSpec, make_plan, compute_plan_signature, get_candidate_models,
+    FallbackLadder, execute_with_fallback,
     # Router Bucketing
     DataBucketer, BucketConfig, BucketProfile, BucketStatistics, SeriesBucket,
     # Backtest
@@ -71,34 +74,29 @@ if not report.valid:
 
 ### Task Specification
 
-#### `TaskSpec(horizon, freq, **kwargs)`
+#### `TaskSpec(h, freq, **kwargs)`
 **Purpose**: Define forecasting task parameters.
 
 **Parameters**:
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `horizon` | int | Yes | - | Number of steps to forecast |
+| `h` | int | Yes | - | Number of steps to forecast |
 | `freq` | str | Yes | - | Pandas frequency string ("D", "H", "M") |
-| `rolling_step` | int | No | horizon | Step size for backtest windows |
-| `quantiles` | list[float] | No | None | Quantiles to forecast (e.g., [0.1, 0.5, 0.9]) |
-| `covariate_policy` | str | No | "ignore" | "ignore", "known", "observed", "auto" |
-| `repair_strategy` | dict | No | None | QA repair configuration |
-| `season_length` | int | No | inferred | Seasonal period |
-| `valid_from` | str | No | None | Validation start (ISO 8601) |
-| `valid_until` | str | No | None | Validation end (ISO 8601) |
-| `metadata` | dict | No | {} | User-defined metadata |
+| `infer_freq` | bool | No | True | Allow frequency inference/validation |
+| `panel_contract` | PanelContract | No | defaults | Column names and aggregation |
+| `forecast_contract` | ForecastContract | No | defaults | Output format + levels/quantiles |
+| `covariates` | CovariateSpec | No | None | Explicit covariate typing |
+| `covariate_policy` | str | No | "auto" | "ignore", "known", "observed", "auto", "spec" |
+| `backtest` | BacktestSpec | No | defaults | Rolling-origin backtest settings |
 
 **Methods**:
 - `model_hash() -> str`: Compute hash for provenance
-- `to_signature() -> str`: Human-readable signature
 
 **Example**:
 ```python
 spec = TaskSpec(
-    horizon=7,
+    h=7,
     freq="D",
-    quantiles=[0.1, 0.5, 0.9],
-    season_length=7,
 )
 ```
 
@@ -305,58 +303,39 @@ Convenience function for `TSDataset.from_dataframe()`.
 
 ## Router
 
-### `make_plan(dataset, task_spec, qa=None, **kwargs) -> Plan`
-**Purpose**: Create execution plan for forecasting.
+### `make_plan(dataset, task_spec, qa=None, **kwargs) -> PlanSpec`
+**Purpose**: Create deterministic plan for forecasting.
 
 **Parameters**:
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `dataset` | TSDataset | Yes | - | Time series dataset |
 | `task_spec` | TaskSpec | Yes | - | Task specification |
-| `qa` | QAReport | No | None | QA report for considerations |
-| `strategy` | str | No | "auto" | "auto", "baseline_only", "tsfm_first" |
-| `use_tsfm` | bool | No | True | Whether to use TSFMs |
+| `qa` | QAReport | No | None | QA report (optional) |
+| `use_tsfm` | bool | No | True | Whether to include TSFMs |
 | `tsfm_preference` | list[str] | No | ["chronos", "moirai", "timesfm"] | TSFM priority |
 
-**Returns**: `Plan` with model selection and fallback chain.
+**Returns**: `PlanSpec` with candidate models and policy settings.
 
 ---
 
-### Plan
+### PlanSpec
 
 **Fields**:
 | Field | Type | Description |
 |-------|------|-------------|
-| `primary_model` | str | Primary model to use |
-| `fallback_chain` | list[str] | Ordered fallback models |
-| `config` | dict | Model configuration |
-| `strategy` | str | Strategy used |
-| `signature` | str | Hash of plan |
-
-**Methods**:
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `get_all_models() -> list[str]` | list | Primary + fallbacks |
-| `to_signature() -> str` | str | Human-readable signature |
-| `to_dict() -> dict` | dict | Serialize |
-| `from_dict(data) -> Plan` | Plan | Deserialize |
-
----
-
-### FallbackLadder
-
-**Class Constants**:
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `STANDARD_LADDER` | ["SeasonalNaive", "HistoricAverage", "Naive"] | Standard fallback |
-| `INTERMITTENT_LADDER` | ["Croston", "Naive"] | Intermittent demand |
-| `COLD_START_LADDER` | ["HistoricAverage", "Naive"] | Cold-start series |
-
-**Class Methods**:
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `get_ladder(is_intermittent, is_cold_start) -> list[str]` | list | Get appropriate ladder |
-| `with_primary(primary, fallbacks, ...) -> list[str]` | list | Create full chain |
+| `plan_name` | str | Plan template name |
+| `candidate_models` | list[str] | Ordered fallback ladder |
+| `use_static` | bool | Use static covariates |
+| `use_past` | bool | Use past covariates |
+| `use_future_known` | bool | Use future-known covariates |
+| `min_train_size` | int | Minimum training history |
+| `max_train_size` | int | Optional max history cap |
+| `interval_mode` | str | "level" or "quantiles" |
+| `levels` | list[int] | Interval levels |
+| `quantiles` | list[float] | Quantiles to emit |
+| `allow_drop_covariates` | bool | Allow covariate-free fallback |
+| `allow_baseline` | bool | Allow baseline fallback |
 
 ---
 
@@ -366,9 +345,9 @@ Convenience function for `TSDataset.from_dataframe()`.
 **Parameters**:
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `fit_func` | Callable | Yes | Function: fit_func(model_name, dataset, config) |
+| `fit_func` | Callable | Yes | Function: fit_func(dataset, plan) |
 | `dataset` | TSDataset | Yes | Dataset to fit on |
-| `plan` | Plan | Yes | Execution plan |
+| `plan` | PlanSpec | Yes | Execution plan |
 | `on_fallback` | Callable | No | Callback: on_fallback(from_model, to_model, error) |
 
 **Returns**: (result, model_name_that_succeeded)
@@ -406,7 +385,7 @@ Convenience function for `TSDataset.from_dataframe()`.
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `dataset` | TSDataset | Yes | Dataset to fit on |
-| `plan` | Plan | Yes | Execution plan |
+| `plan` | PlanSpec | Yes | Execution plan |
 | `on_fallback` | Callable | No | Callback on fallback |
 
 ---
@@ -462,7 +441,7 @@ Available TSFM adapters (if packages installed):
 |------|------|----------|---------|-------------|
 | `dataset` | TSDataset | Yes | - | Dataset to backtest |
 | `spec` | TaskSpec | Yes | - | Task specification |
-| `plan` | Plan | Yes | - | Execution plan |
+| `plan` | PlanSpec | Yes | - | Execution plan |
 | `fit_func` | Callable | No | default_fit | Custom fit function |
 | `predict_func` | Callable | No | default_predict | Custom predict function |
 | `n_windows` | int | No | 5 | Number of windows |
@@ -527,6 +506,8 @@ Available TSFM adapters (if packages installed):
 | `reference_data` | pd.DataFrame | No | None | For drift detection |
 | `repair_strategy` | dict | No | None | QA repair config |
 | `hierarchy` | HierarchyStructure | No | None | Hierarchy for reconciliation |
+| `calibrator_spec` | CalibratorSpec | No | None | Calibration spec (conformal) |
+| `anomaly_spec` | AnomalySpec | No | None | Anomaly detection spec |
 
 **Pipeline Steps**:
 1. Validate
@@ -563,7 +544,7 @@ Available TSFM adapters (if packages installed):
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `forecast` | ForecastResult | Yes | Forecast result |
-| `plan` | Plan | Yes | Execution plan |
+| `plan` | PlanSpec | Yes | Execution plan |
 | `backtest_report` | BacktestReport | No | Backtest results |
 | `qa_report` | QAReport | No | QA report |
 | `model_artifact` | ModelArtifact | No | Fitted model |

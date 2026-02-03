@@ -105,7 +105,7 @@ df = pd.DataFrame({
     'ds': pd.date_range('2024-01-01', periods=30),
     'y': range(30)
 })
-result = run_forecast(df, TaskSpec(horizon=7, freq='D'))
+result = run_forecast(df, TaskSpec(h=7, freq='D'))
 print(result.summary())
 "
 ```
@@ -160,7 +160,7 @@ from tsagentkit import (
 ```python
 from tsagentkit import TaskSpec, run_forecast
 
-spec = TaskSpec(horizon=7, freq="D", quantiles=[0.1, 0.5, 0.9])
+spec = TaskSpec(h=7, freq="D", quantiles=[0.1, 0.5, 0.9])
 result = run_forecast(data, spec, mode="standard")
 
 # Access results

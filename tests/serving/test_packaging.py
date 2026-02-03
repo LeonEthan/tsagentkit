@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from tsagentkit.contracts import ForecastResult, ModelArtifact, Provenance
-from tsagentkit.router import Plan
+from tsagentkit.router import PlanSpec, compute_plan_signature
 from tsagentkit.serving import RunArtifact, package_run
 
 
@@ -19,13 +19,13 @@ class TestRunArtifact:
             "ds": pd.to_datetime(["2024-01-01", "2024-01-02"]),
             "yhat": [1.0, 2.0],
         })
-        plan = Plan(primary_model="Naive")
+        plan = PlanSpec(plan_name="default", candidate_models=["Naive"])
         provenance = Provenance(
             run_id="test-run",
             timestamp="2024-01-01T00:00:00Z",
             data_signature="sig1",
             task_signature="sig2",
-            plan_signature=plan.signature,
+            plan_signature=compute_plan_signature(plan),
             model_signature="sig3",
         )
         forecast_result = ForecastResult(
@@ -37,7 +37,7 @@ class TestRunArtifact:
 
         return RunArtifact(
             forecast=forecast_result,
-            plan=plan.to_dict(),
+            plan=plan.model_dump(),
             model_artifact=None,
             provenance=provenance,
         )
@@ -74,13 +74,13 @@ class TestPackageRun:
             "ds": pd.to_datetime(["2024-01-01"]),
             "yhat": [1.0],
         })
-        plan = Plan(primary_model="Naive")
+        plan = PlanSpec(plan_name="default", candidate_models=["Naive"])
         provenance = Provenance(
             run_id="test-run",
             timestamp="2024-01-01T00:00:00Z",
             data_signature="sig1",
             task_signature="sig2",
-            plan_signature=plan.signature,
+            plan_signature=compute_plan_signature(plan),
             model_signature="sig3",
         )
         forecast_result = ForecastResult(
@@ -105,14 +105,14 @@ class TestPackageRun:
             "ds": pd.to_datetime(["2024-01-01"]),
             "yhat": [1.0],
         })
-        plan = Plan(primary_model="Naive")
+        plan = PlanSpec(plan_name="default", candidate_models=["Naive"])
         model_artifact = ModelArtifact(model={}, model_name="Naive")
         provenance = Provenance(
             run_id="test-run",
             timestamp="2024-01-01T00:00:00Z",
             data_signature="sig1",
             task_signature="sig2",
-            plan_signature=plan.signature,
+            plan_signature=compute_plan_signature(plan),
             model_signature="sig3",
         )
         forecast_result = ForecastResult(

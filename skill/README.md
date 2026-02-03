@@ -20,7 +20,7 @@ df = pd.DataFrame({
 })
 
 # Define the task
-spec = TaskSpec(horizon=7, freq="D")
+spec = TaskSpec(h=7, freq="D")
 
 # Run forecast
 result = run_forecast(df, spec)
@@ -46,7 +46,7 @@ validate -> QA -> series -> route -> backtest -> fit -> predict -> package
 | Function | Purpose | Inputs | Output |
 |----------|---------|--------|--------|
 | `validate_contract(data)` | Validate data schema | DataFrame with unique_id, ds, y | ValidationReport |
-| `TaskSpec(...)` | Define forecasting task | horizon, freq, quantiles, etc. | TaskSpec |
+| `TaskSpec(...)` | Define forecasting task | h, freq, quantiles, etc. | TaskSpec |
 
 **Example**:
 ```python
@@ -59,7 +59,7 @@ if not report.valid:
 
 # Then create task spec
 spec = TaskSpec(
-    horizon=14,
+    h=14,
     freq="D",
     quantiles=[0.1, 0.5, 0.9],
 )
@@ -122,7 +122,7 @@ if qa_report.leakage_detected:
 
 | Function | Purpose | Inputs | Output |
 |----------|---------|--------|--------|
-| `make_plan(dataset, spec)` | Create execution plan | TSDataset, TaskSpec | Plan |
+| `make_plan(dataset, spec)` | Create execution plan | TSDataset, TaskSpec | PlanSpec |
 | `execute_with_fallback(fit_func, dataset, plan)` | Execute with fallback | fit function, dataset, plan | (result, model_name) |
 
 **Example**:
@@ -144,7 +144,7 @@ print(f"Fallbacks: {plan.fallback_chain}")
 
 | Function | Purpose | Inputs | Output |
 |----------|---------|--------|--------|
-| `fit(dataset, plan)` | Fit model | TSDataset, Plan | ModelArtifact |
+| `fit(dataset, plan)` | Fit model | TSDataset, PlanSpec | ModelArtifact |
 | `predict(dataset, artifact, spec)` | Generate forecast | TSDataset, ModelArtifact, TaskSpec | ForecastResult |
 
 **Example**:
@@ -165,7 +165,7 @@ forecast = predict(dataset, artifact, spec)
 
 | Function | Purpose | Inputs | Output |
 |----------|---------|--------|--------|
-| `rolling_backtest(dataset, spec, plan)` | Temporal cross-validation | TSDataset, TaskSpec, Plan | BacktestReport |
+| `rolling_backtest(dataset, spec, plan)` | Temporal cross-validation | TSDataset, TaskSpec, PlanSpec | BacktestReport |
 
 **Example**:
 ```python

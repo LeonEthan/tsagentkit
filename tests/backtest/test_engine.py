@@ -7,12 +7,13 @@ import pytest
 from tsagentkit import TaskSpec
 from tsagentkit.backtest import cross_validation_split, rolling_backtest
 from tsagentkit.contracts import ESplitRandomForbidden
-from tsagentkit.router import Plan
+from tsagentkit.contracts import ModelArtifact
+from tsagentkit.router import PlanSpec
 from tsagentkit.series import TSDataset
 
 
-def _fit_stub(dataset: TSDataset, plan: Plan):
-    return {"type": plan.primary_model}
+def _fit_stub(dataset: TSDataset, plan: PlanSpec):
+    return ModelArtifact(model={}, model_name=plan.candidate_models[0])
 
 
 def _predict_stub(dataset: TSDataset, model, spec: TaskSpec) -> pd.DataFrame:
@@ -39,18 +40,14 @@ def sample_dataset() -> TSDataset:
         "ds": list(pd.date_range("2024-01-01", periods=50, freq="D")) * 2,
         "y": list(range(50)) * 2,
     })
-    spec = TaskSpec(horizon=7, freq="D")
+    spec = TaskSpec(h=7, freq="D")
     return TSDataset.from_dataframe(df, spec)
 
 
 @pytest.fixture
-def sample_plan() -> Plan:
+def sample_plan() -> PlanSpec:
     """Create a sample plan."""
-    return Plan(
-        primary_model="Naive",
-        fallback_chain=[],
-        config={"season_length": 7},
-    )
+    return PlanSpec(plan_name="default", candidate_models=["Naive"])
 
 
 class TestValidateTemporalOrdering:
@@ -152,7 +149,7 @@ class TestCrossValidationSplit:
 class TestRollingBacktest:
     """Tests for rolling_backtest function."""
 
-    def test_returns_backtest_report(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
+    def test_returns_backtest_report(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
         """Test that rolling_backtest returns a BacktestReport."""
         from tsagentkit.backtest import BacktestReport
 
@@ -167,7 +164,7 @@ class TestRollingBacktest:
 
         assert isinstance(report, BacktestReport)
 
-    def test_report_has_windows(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
+    def test_report_has_windows(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
         """Test that report contains window results."""
         report = rolling_backtest(
             dataset=sample_dataset,
@@ -181,7 +178,7 @@ class TestRollingBacktest:
         assert report.n_windows > 0
         assert len(report.window_results) > 0
 
-    def test_report_has_aggregate_metrics(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
+    def test_report_has_aggregate_metrics(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
         """Test that report contains aggregate metrics."""
         report = rolling_backtest(
             dataset=sample_dataset,
@@ -216,13 +213,9 @@ class TestRollingBacktestRealWorldData:
     def test_backtest_runs_on_air_passengers(self) -> None:
         """Ensure rolling backtest works on real-world data."""
         df = self._air_passengers_dataframe()
-        spec = TaskSpec(horizon=3, freq="MS", season_length=12)
+        spec = TaskSpec(h=3, freq="MS")
         dataset = TSDataset.from_dataframe(df, spec)
-        plan = Plan(
-            primary_model="Naive",
-            fallback_chain=[],
-            config={"season_length": 12},
-        )
+        plan = PlanSpec(plan_name="default", candidate_models=["Naive"])
 
         report = rolling_backtest(
             dataset=dataset,
@@ -238,7 +231,7 @@ class TestRollingBacktestRealWorldData:
         assert report.errors == []
         assert report.aggregate_metrics["mae"] >= 0
 
-    def test_expanding_strategy(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
+    def test_expanding_strategy(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
         """Test expanding window strategy."""
         report = rolling_backtest(
             dataset=sample_dataset,
@@ -252,7 +245,7 @@ class TestRollingBacktestRealWorldData:
 
         assert report.strategy == "expanding"
 
-    def test_insufficient_data_raises(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
+    def test_insufficient_data_raises(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
         """Test that insufficient data raises error."""
         from tsagentkit.contracts import EBacktestInsufficientData
 

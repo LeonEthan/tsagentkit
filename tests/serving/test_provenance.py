@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from tsagentkit import TaskSpec
-from tsagentkit.router import Plan
+from tsagentkit.router import PlanSpec
 from tsagentkit.serving.provenance import (
     StructuredLogger,
     compute_config_signature,
@@ -97,8 +97,8 @@ class TestCreateProvenance:
             "ds": pd.to_datetime(["2024-01-01"]),
             "y": [1.0],
         })
-        spec = TaskSpec(horizon=7, freq="D")
-        plan = Plan(primary_model="Naive")
+        spec = TaskSpec(h=7, freq="D")
+        plan = PlanSpec(plan_name="default", candidate_models=["Naive"])
 
         provenance = create_provenance(df, spec, plan)
 
@@ -117,8 +117,8 @@ class TestCreateProvenance:
             "ds": pd.to_datetime(["2024-01-01"]),
             "y": [1.0],
         })
-        spec = TaskSpec(horizon=7, freq="D")
-        plan = Plan(primary_model="Naive")
+        spec = TaskSpec(h=7, freq="D")
+        plan = PlanSpec(plan_name="default", candidate_models=["Naive"])
 
         repairs = [{"type": "interpolate"}]
         fallbacks = [{"from": "A", "to": "B"}]

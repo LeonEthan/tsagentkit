@@ -14,9 +14,14 @@ import pandas as pd
 
 from tsagentkit.backtest import rolling_backtest
 from tsagentkit.contracts import (
+    AnomalySpec,
+    CalibratorSpec,
     ECovariateLeakage,
-    ForecastResult,
+    EAnomalyFail,
+    ECalibrationFail,
     EQACriticalIssue,
+    ForecastResult,
+    PanelContract,
     TaskSpec,
     ValidationReport,
     validate_contract,
@@ -72,6 +77,8 @@ def run_forecast(
     repair_strategy: dict[str, Any] | None = None,
     hierarchy: "HierarchyStructure" | None = None,
     feature_config: "FeatureConfig" | None = None,
+    calibrator_spec: CalibratorSpec | None = None,
+    anomaly_spec: AnomalySpec | None = None,
 ) -> "RunArtifact":
     """Execute the complete forecasting pipeline.
 
@@ -93,6 +100,8 @@ def run_forecast(
         repair_strategy: Optional QA repair configuration (overrides TaskSpec)
         hierarchy: Optional hierarchy structure for reconciliation
         feature_config: Optional feature configuration for feature engineering (v1.0)
+        calibrator_spec: Optional calibration specification
+        anomaly_spec: Optional anomaly detection specification
 
     Returns:
         RunArtifact with forecast, metrics, and provenance
@@ -107,11 +116,13 @@ def run_forecast(
     qa_repairs: list[dict[str, Any]] = []
     fallbacks_triggered: list[dict[str, Any]] = []
     start_time = time.time()
+    column_map: dict[str, str] | None = None
+    original_panel_contract = task_spec.panel_contract
 
     # Step 1: Validate
     data = data.copy()
     step_start = time.time()
-    validation = _step_validate(data)
+    validation, data = _step_validate(data, task_spec)
     events.append(
         log_event(
             step_name="validate",
@@ -124,11 +135,17 @@ def run_forecast(
     if not validation.valid:
         validation.raise_if_errors()
 
+    # Normalize panel columns to canonical names if needed
+    data, column_map = TSDataset._normalize_panel_columns(
+        data,
+        task_spec.panel_contract,
+    )
+    if column_map:
+        task_spec = task_spec.model_copy(update={"panel_contract": PanelContract()})
+
     # Step 2: QA
     step_start = time.time()
-    effective_repair_strategy = (
-        repair_strategy if repair_strategy is not None else task_spec.repair_strategy
-    )
+    effective_repair_strategy = repair_strategy
     try:
         qa_report = _step_qa(
             data,
@@ -158,7 +175,12 @@ def run_forecast(
 
     # Step 2b: Drop future rows (y is null beyond last observed per series)
     step_start = time.time()
-    data, drop_info = drop_future_rows(data)
+    data, drop_info = drop_future_rows(
+        data,
+        id_col=task_spec.panel_contract.unique_id_col,
+        ds_col=task_spec.panel_contract.ds_col,
+        y_col=task_spec.panel_contract.y_col,
+    )
     if drop_info:
         qa_repairs.append(drop_info)
         events.append(
@@ -241,14 +263,20 @@ def run_forecast(
             if predict_func is None:
                 predict_func = default_predict
 
+            backtest_cfg = task_spec.backtest
+            step_size = backtest_cfg.step
+            n_windows = backtest_cfg.n_windows
+            min_train_size = backtest_cfg.min_train_size
+
             backtest_report = rolling_backtest(
                 dataset=dataset,
                 spec=task_spec,
                 plan=plan,
                 fit_func=fit_func,
                 predict_func=predict_func,
-                n_windows=3,
-                step_size=task_spec.rolling_step,
+                n_windows=n_windows,
+                step_size=step_size,
+                min_train_size=min_train_size,
             )
             events.append(
                 log_event(
@@ -316,7 +344,98 @@ def run_forecast(
         )
     )
 
-    # Step 8: Drift Detection (v0.2)
+    # Step 8: Calibration (optional)
+    calibration_artifact = None
+    if calibrator_spec is not None:
+        step_start = time.time()
+        try:
+            from tsagentkit.calibration import apply_calibrator, fit_calibrator
+
+            if backtest_report is None or backtest_report.cv_frame is None:
+                raise ECalibrationFail(
+                    "Calibration requires CV residuals from backtest.",
+                    context={"mode": mode},
+                )
+
+            calibration_artifact = fit_calibrator(
+                backtest_report.cv_frame,
+                method=calibrator_spec.method,
+                level=calibrator_spec.level,
+                by=calibrator_spec.by,
+            )
+            forecast_df = apply_calibrator(forecast_df, calibration_artifact)
+            events.append(
+                log_event(
+                    step_name="calibration",
+                    status="success",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    artifacts_generated=["calibration_artifact"],
+                )
+            )
+        except Exception as e:
+            events.append(
+                log_event(
+                    step_name="calibration",
+                    status="failed",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    error_code=type(e).__name__,
+                )
+            )
+            if mode == "strict":
+                raise
+
+    # Step 9: Anomaly Detection (optional)
+    anomaly_report = None
+    if anomaly_spec is not None:
+        step_start = time.time()
+        try:
+            from tsagentkit.anomaly import detect_anomalies
+
+            uid_col = task_spec.panel_contract.unique_id_col
+            ds_col = task_spec.panel_contract.ds_col
+            y_col = task_spec.panel_contract.y_col
+
+            actuals = data[[uid_col, ds_col, y_col]].copy()
+            merged = forecast_df.merge(
+                actuals,
+                on=[uid_col, ds_col],
+                how="left",
+            )
+            if merged[y_col].notna().any():
+                anomaly_report = detect_anomalies(
+                    merged,
+                    method=anomaly_spec.method,
+                    level=anomaly_spec.level,
+                    score=anomaly_spec.score,
+                    calibrator=calibration_artifact,
+                    strict=(mode == "strict"),
+                )
+                events.append(
+                    log_event(
+                        step_name="anomaly_detection",
+                        status="success",
+                        duration_ms=(time.time() - step_start) * 1000,
+                        artifacts_generated=["anomaly_report"],
+                    )
+                )
+            elif mode == "strict":
+                raise EAnomalyFail(
+                    "No actuals available for anomaly detection.",
+                    context={"mode": mode},
+                )
+        except Exception as e:
+            events.append(
+                log_event(
+                    step_name="anomaly_detection",
+                    status="failed",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    error_code=type(e).__name__,
+                )
+            )
+            if mode == "strict":
+                raise
+
+    # Step 10: Drift Detection (v0.2)
     drift_report = None
     if monitoring_config and monitoring_config.enabled and reference_data is not None:
         step_start = time.time()
@@ -349,19 +468,25 @@ def run_forecast(
                 )
             )
 
-    # Step 9: Create Provenance
+    # Step 11: Create Provenance
     provenance = create_provenance(
         data=data,
         task_spec=task_spec,
         plan=plan,
-        model_config=plan.config,
+        model_config=plan.model_dump() if hasattr(plan, "model_dump") else None,
         qa_repairs=qa_repairs,
         fallbacks_triggered=fallbacks_triggered,
         feature_matrix=feature_matrix,
         drift_report=drift_report,
+        column_map=column_map,
+        original_panel_contract=(
+            original_panel_contract.model_dump()
+            if hasattr(original_panel_contract, "model_dump")
+            else None
+        ),
     )
 
-    # Step 10: Package
+    # Step 12: Package
     forecast_result = ForecastResult(
         df=forecast_df,
         provenance=provenance,
@@ -371,10 +496,14 @@ def run_forecast(
     artifact = package_run(
         forecast=forecast_result,
         plan=plan,
+        task_spec=task_spec.model_dump() if hasattr(task_spec, "model_dump") else None,
+        validation_report=validation.to_dict() if validation else None,
         backtest_report=backtest_report,
         qa_report=qa_report,
         model_artifact=model_artifact,
         provenance=provenance,
+        calibration_artifact=calibration_artifact,
+        anomaly_report=anomaly_report,
         metadata={
             "mode": mode,
             "total_duration_ms": (time.time() - start_time) * 1000,
@@ -385,9 +514,18 @@ def run_forecast(
     return artifact
 
 
-def _step_validate(data: pd.DataFrame) -> ValidationReport:
+def _step_validate(
+    data: pd.DataFrame,
+    task_spec: TaskSpec,
+) -> tuple[ValidationReport, pd.DataFrame]:
     """Execute validation step."""
-    return validate_contract(data)
+    report, normalized = validate_contract(
+        data,
+        panel_contract=task_spec.panel_contract,
+        apply_aggregation=True,
+        return_data=True,
+    )
+    return report, normalized
 
 
 def _step_qa(
@@ -457,7 +595,7 @@ def _step_predict(
     if plan and dataset.is_hierarchical() and dataset.hierarchy:
         from tsagentkit.hierarchy import reconcile_forecasts, ReconciliationMethod
 
-        method_str = plan.config.get("reconciliation_method", "bottom_up")
+        method_str = "bottom_up"
         method_map = {
             "bottom_up": ReconciliationMethod.BOTTOM_UP,
             "top_down": ReconciliationMethod.TOP_DOWN,

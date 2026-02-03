@@ -18,7 +18,7 @@ from tsagentkit.models import adapters
 if TYPE_CHECKING:
     from tsagentkit.series import TSDataset
     from tsagentkit.models.adapters import TSFMAdapter
-    from tsagentkit.router import Plan
+    from tsagentkit.router import PlanSpec
     from tsagentkit.contracts import TaskSpec
 
 
@@ -41,16 +41,26 @@ def _build_adapter_config(model_name: str, config: dict[str, Any]) -> "adapters.
     )
 
 
-def _fit_model_name(model_name: str, dataset: "TSDataset", config: dict[str, Any]) -> ModelArtifact:
+def _fit_model_name(
+    model_name: str,
+    dataset: "TSDataset",
+    plan: "PlanSpec",
+) -> ModelArtifact:
     """Fit a model by name with baseline or TSFM dispatch."""
+    config: dict[str, Any] = {
+        "horizon": dataset.task_spec.horizon,
+        "season_length": dataset.task_spec.season_length or 1,
+        "quantiles": plan.quantiles,
+    }
+
     if _is_tsfm_model(model_name):
         adapter_name = model_name.split("tsfm-", 1)[-1]
-        adapter_config = _build_adapter_config(model_name, config)
+        adapter_config = _build_adapter_config(model_name, {})
         adapter = adapters.AdapterRegistry.create(adapter_name, adapter_config)
         adapter.fit(
             dataset=dataset,
-            prediction_length=config.get("horizon", dataset.task_spec.horizon),
-            quantiles=config.get("quantiles"),
+            prediction_length=dataset.task_spec.horizon,
+            quantiles=plan.quantiles,
         )
         return ModelArtifact(
             model=adapter,
@@ -67,14 +77,17 @@ def _fit_model_name(model_name: str, dataset: "TSDataset", config: dict[str, Any
 
 def fit(
     dataset: "TSDataset",
-    plan: "Plan",
+    plan: "PlanSpec",
     on_fallback: Callable[[str, str, Exception], None] | None = None,
 ) -> ModelArtifact:
     """Fit a model using the plan's fallback ladder."""
     from tsagentkit.router import execute_with_fallback
 
+    def _fit(model_name: str, ds: "TSDataset") -> ModelArtifact:
+        return _fit_model_name(model_name, ds, plan)
+
     artifact, _ = execute_with_fallback(
-        fit_func=_fit_model_name,
+        fit_func=_fit,
         dataset=dataset,
         plan=plan,
         on_fallback=on_fallback,

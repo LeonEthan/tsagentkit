@@ -1,6 +1,6 @@
 """Metrics calculation for time series forecasting.
 
-Implements common forecasting metrics: WAPE, SMAPE, MASE, Pinball Loss.
+Implements common forecasting metrics: WAPE, SMAPE, MASE, Pinball Loss, WQL.
 """
 
 from __future__ import annotations
@@ -129,6 +129,16 @@ def pinball_loss(
     return np.mean(loss)
 
 
+def wql(y_true: np.ndarray, y_quantiles: dict[float, np.ndarray]) -> float:
+    """Weighted Quantile Loss (average pinball loss across quantiles)."""
+    if not y_quantiles:
+        return float("nan")
+    losses = []
+    for q, preds in y_quantiles.items():
+        losses.append(pinball_loss(y_true, preds, q))
+    return float(np.mean(losses)) if losses else float("nan")
+
+
 def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Mean Absolute Error.
 
@@ -202,6 +212,7 @@ def compute_all_metrics(
         for q, y_q in y_quantiles.items():
             key = f"pinball_{q:.2f}"
             metrics[key] = pinball_loss(y_true, y_q, q)
+        metrics["wql"] = wql(y_true, y_quantiles)
 
     return metrics
 

@@ -26,15 +26,15 @@ from .report import (
 if TYPE_CHECKING:
     from tsagentkit.contracts import TaskSpec
     from tsagentkit.hierarchy import HierarchyStructure, ReconciliationMethod
-    from tsagentkit.router import Plan
+    from tsagentkit.router import PlanSpec
     from tsagentkit.series import TSDataset
 
 
 def rolling_backtest(
     dataset: TSDataset,
     spec: TaskSpec,
-    plan: Plan,
-    fit_func: Callable[[TSDataset, Plan], Any] | None = None,
+    plan: PlanSpec,
+    fit_func: Callable[[TSDataset, PlanSpec], Any] | None = None,
     predict_func: Callable[[TSDataset, Any, TaskSpec], Any] | None = None,
     n_windows: int = 5,
     window_strategy: Literal["expanding", "sliding"] = "expanding",
@@ -113,6 +113,7 @@ def rolling_backtest(
     # Generate windows
     window_results: list[WindowResult] = []
     series_metrics_agg: dict[str, list[dict]] = {}
+    cv_frames: list[pd.DataFrame] = []
     errors: list[dict] = []
 
     # Calculate window cutoffs
@@ -149,6 +150,11 @@ def rolling_backtest(
 
             # Fit model (with fallback handled by fit_func)
             model = fit_func(train_ds, plan)
+            model_name = getattr(model, "model_name", None)
+            if model_name is None and hasattr(model, "metadata"):
+                model_name = model.metadata.get("model_name") if model.metadata else None
+            if model_name is None:
+                model_name = plan.candidate_models[0] if plan.candidate_models else "model"
 
             # Predict using training context
             predictions = predict_func(train_ds, model, spec)
@@ -163,13 +169,22 @@ def rolling_backtest(
                 on=["unique_id", "ds"],
                 how="inner",
             )
+            predictions["model"] = model_name
+
+            cv_frame = predictions.merge(
+                test_df[["unique_id", "ds", "y"]],
+                on=["unique_id", "ds"],
+                how="left",
+            )
+            cv_frame["cutoff"] = pd.Timestamp(cutoff_date)
+            cv_frames.append(cv_frame)
 
             # Apply reconciliation if hierarchical
             if reconcile and dataset.is_hierarchical() and dataset.hierarchy:
                 predictions = _reconcile_forecast(
                     predictions,
                     dataset.hierarchy,
-                    plan.config.get("reconciliation_method", "bottom_up"),
+                    "bottom_up",
                 )
             predictions = normalize_quantile_columns(predictions)
 
@@ -272,8 +287,9 @@ def rolling_backtest(
             "horizon": horizon,
             "step_size": step,
             "min_train_size": min_train_size,
-            "primary_model": plan.primary_model,
+            "primary_model": plan.candidate_models[0] if plan.candidate_models else None,
         },
+        cv_frame=pd.concat(cv_frames, ignore_index=True) if cv_frames else None,
     )
 
 

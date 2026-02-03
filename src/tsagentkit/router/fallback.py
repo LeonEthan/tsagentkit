@@ -5,21 +5,21 @@ Provides automatic model degradation when primary models fail.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Callable, TypeVar
 
-from tsagentkit.contracts.errors import EFallbackExhausted, EModelFitFailed
+from tsagentkit.contracts.errors import EFallbackExhausted
+from tsagentkit.router.plan import get_candidate_models, PlanSpec
 
 if TYPE_CHECKING:
     from tsagentkit.series import TSDataset
-    from .plan import Plan
 
 T = TypeVar("T")
 
 
 def execute_with_fallback(
-    fit_func: Callable[[str, TSDataset, dict[str, Any]], T],
+    fit_func: Callable[[str, TSDataset], T],
     dataset: TSDataset,
-    plan: Plan,
+    plan: PlanSpec,
     on_fallback: Callable[[str, str, Exception], None] | None = None,
 ) -> tuple[T, str]:
     """Execute fit function with fallback ladder.
@@ -27,7 +27,7 @@ def execute_with_fallback(
     Attempts to fit models in order (primary -> fallbacks) until one succeeds.
 
     Args:
-        fit_func: Function that fits a model given (model_name, dataset, config)
+        fit_func: Function that fits a model given (model_name, dataset)
         dataset: TSDataset to fit on
         plan: Execution plan with fallback chain
         on_fallback: Optional callback when fallback triggered (from_model, to_model, error)
@@ -38,12 +38,12 @@ def execute_with_fallback(
     Raises:
         EFallbackExhausted: If all models in the ladder fail
     """
-    models = plan.get_all_models()
+    models = get_candidate_models(plan)
     last_error: Exception | None = None
 
     for i, model_name in enumerate(models):
         try:
-            result = fit_func(model_name, dataset, plan.config)
+            result = fit_func(model_name, dataset)
             return result, model_name
         except Exception as e:
             last_error = e

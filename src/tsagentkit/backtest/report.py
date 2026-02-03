@@ -146,6 +146,7 @@ class BacktestReport:
     temporal_metrics: dict[str, TemporalMetrics] = field(default_factory=dict)
     errors: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    cv_frame: pd.DataFrame | None = None
 
     def get_metric(self, metric_name: str) -> float:
         """Get an aggregate metric by name.
@@ -282,6 +283,7 @@ class BacktestReport:
             "window_results": [w.to_dict() for w in self.window_results],
             "errors": self.errors,
             "metadata": self.metadata,
+            "cv_frame": self.cv_frame.to_dict("records") if self.cv_frame is not None else None,
         }
 
     def summary(self) -> str:

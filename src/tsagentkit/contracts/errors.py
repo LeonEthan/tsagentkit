@@ -1,7 +1,7 @@
 """Error codes and exceptions for tsagentkit.
 
-This module defines all structured error codes used throughout the pipeline
-for consistent error handling and debugging.
+Defines structured error codes used throughout the pipeline.
+Aligned to docs/PRD.md Section 6.1 with compatibility aliases.
 """
 
 from typing import Any
@@ -33,13 +33,17 @@ class TSAgentKitError(Exception):
         return f"[{self.error_code}] {self.message}"
 
 
+# ---------------------------
 # Contract Errors
+# ---------------------------
+
+class EContractInvalid(TSAgentKitError):
+    """Input schema/contract invalid."""
+    error_code = "E_CONTRACT_INVALID"
+
 
 class EContractMissingColumn(TSAgentKitError):
-    """Input data is missing required columns.
-
-    Required columns: 'unique_id' (str), 'ds' (datetime), 'y' (numeric)
-    """
+    """Input data is missing required columns."""
     error_code = "E_CONTRACT_MISSING_COLUMN"
 
 
@@ -53,77 +57,39 @@ class EContractDuplicateKey(TSAgentKitError):
     error_code = "E_CONTRACT_DUPLICATE_KEY"
 
 
-class EContractInvalidFrequency(TSAgentKitError):
-    """Could not infer or invalid frequency."""
-    error_code = "E_CONTRACT_INVALID_FREQUENCY"
+class EFreqInferFail(TSAgentKitError):
+    """Frequency cannot be inferred/validated."""
+    error_code = "E_FREQ_INFER_FAIL"
 
 
-# Guardrail Errors
+class EDSNotMonotonic(TSAgentKitError):
+    """Time index not monotonic per series."""
+    error_code = "E_DS_NOT_MONOTONIC"
+
 
 class ESplitRandomForbidden(TSAgentKitError):
-    """Random train/test splits are strictly forbidden.
-
-    Time series data must use temporal splits only.
-    """
+    """Random train/test splits are strictly forbidden."""
     error_code = "E_SPLIT_RANDOM_FORBIDDEN"
 
 
-class EContractUnsorted(ESplitRandomForbidden):
-    """Data is not sorted by (unique_id, ds).
-
-    .. deprecated::
-        Use `ESplitRandomForbidden` instead. Both errors indicate the same
-        issue: temporal ordering violations that require sorting data by
-        (unique_id, ds).
-    """
-    error_code = "E_SPLIT_RANDOM_FORBIDDEN"
+class EContractUnsorted(EDSNotMonotonic):
+    """Data is not sorted by (unique_id, ds)."""
+    error_code = "E_DS_NOT_MONOTONIC"
 
 
-class ECovariateLeakage(TSAgentKitError):
-    """Future covariate leakage detected.
-
-    Observed covariates cannot be used for future horizons.
-    """
-    error_code = "E_COVARIATE_LEAKAGE"
-
-
-# Model Errors
-
-class EModelFitFailed(TSAgentKitError):
-    """Model training failed.
-
-    This error triggers the fallback ladder.
-    """
-    error_code = "E_MODEL_FIT_FAILED"
-
-
-class EModelPredictFailed(TSAgentKitError):
-    """Model prediction failed."""
-    error_code = "E_MODEL_PREDICT_FAILED"
-
-
-class EModelLoadFailed(TSAgentKitError):
-    """Model loading failed.
-
-    Typically occurs when TSFM adapter cannot load the underlying model.
-    """
-    error_code = "E_MODEL_LOAD_FAILED"
-
-
-class EAdapterNotAvailable(TSAgentKitError):
-    """TSFM adapter not available.
-
-    The required package for the TSFM adapter is not installed.
-    """
-    error_code = "E_ADAPTER_NOT_AVAILABLE"
-
-
-class EFallbackExhausted(TSAgentKitError):
-    """All models in the fallback ladder failed."""
-    error_code = "E_FALLBACK_EXHAUSTED"
-
-
+# ---------------------------
 # QA Errors
+# ---------------------------
+
+class EQAMinHistory(TSAgentKitError):
+    """Series history too short."""
+    error_code = "E_QA_MIN_HISTORY"
+
+
+class EQARepairPeeksFuture(TSAgentKitError):
+    """Repair strategy violates PIT safety."""
+    error_code = "E_QA_REPAIR_PEEKS_FUTURE"
+
 
 class EQACriticalIssue(TSAgentKitError):
     """Critical data quality issue detected in strict mode."""
@@ -135,7 +101,62 @@ class EQALeakageDetected(TSAgentKitError):
     error_code = "E_QA_LEAKAGE_DETECTED"
 
 
+# ---------------------------
+# Covariate Errors
+# ---------------------------
+
+class ECovariateLeakage(TSAgentKitError):
+    """Past/observed covariate leaks into future."""
+    error_code = "E_COVARIATE_LEAKAGE"
+
+
+class ECovariateIncompleteKnown(TSAgentKitError):
+    """Future-known covariate missing in horizon."""
+    error_code = "E_COVARIATE_INCOMPLETE_KNOWN"
+
+
+class ECovariateStaticInvalid(TSAgentKitError):
+    """Static covariate invalid cardinality."""
+    error_code = "E_COVARIATE_STATIC_INVALID"
+
+
+# ---------------------------
+# Model Errors
+# ---------------------------
+
+class EModelFitFailed(TSAgentKitError):
+    """Model fitting failed."""
+    error_code = "E_MODEL_FIT_FAIL"
+
+
+class EModelPredictFailed(TSAgentKitError):
+    """Model prediction failed."""
+    error_code = "E_MODEL_PREDICT_FAIL"
+
+
+class EModelLoadFailed(TSAgentKitError):
+    """Model loading failed."""
+    error_code = "E_MODEL_LOAD_FAILED"
+
+
+class EAdapterNotAvailable(TSAgentKitError):
+    """TSFM adapter not available."""
+    error_code = "E_ADAPTER_NOT_AVAILABLE"
+
+
+class EFallbackExhausted(TSAgentKitError):
+    """All models in the fallback ladder failed."""
+    error_code = "E_FALLBACK_EXHAUSTED"
+
+
+class EOOM(TSAgentKitError):
+    """Out-of-memory during fit/predict."""
+    error_code = "E_OOM"
+
+
+# ---------------------------
 # Task Spec Errors
+# ---------------------------
 
 class ETaskSpecInvalid(TSAgentKitError):
     """Task specification is invalid or incomplete."""
@@ -143,11 +164,18 @@ class ETaskSpecInvalid(TSAgentKitError):
 
 
 class ETaskSpecIncompatible(TSAgentKitError):
-    """Task spec is incompatible with data (e.g., horizon too long)."""
+    """Task spec is incompatible with data."""
     error_code = "E_TASK_SPEC_INCOMPATIBLE"
 
 
+# ---------------------------
 # Backtest Errors
+# ---------------------------
+
+class EBacktestFail(TSAgentKitError):
+    """Backtest execution failed."""
+    error_code = "E_BACKTEST_FAIL"
+
 
 class EBacktestInsufficientData(TSAgentKitError):
     """Not enough data for requested backtest windows."""
@@ -159,38 +187,87 @@ class EBacktestInvalidWindow(TSAgentKitError):
     error_code = "E_BACKTEST_INVALID_WINDOW"
 
 
+# ---------------------------
+# Calibration / Anomaly Errors
+# ---------------------------
+
+class ECalibrationFail(TSAgentKitError):
+    """Calibration failed."""
+    error_code = "E_CALIBRATION_FAIL"
+
+
+class EAnomalyFail(TSAgentKitError):
+    """Anomaly detection failed."""
+    error_code = "E_ANOMALY_FAIL"
+
+
 # Registry for lookup
 ERROR_REGISTRY: dict[str, type[TSAgentKitError]] = {
+    "E_CONTRACT_INVALID": EContractInvalid,
     "E_CONTRACT_MISSING_COLUMN": EContractMissingColumn,
     "E_CONTRACT_INVALID_TYPE": EContractInvalidType,
     "E_CONTRACT_DUPLICATE_KEY": EContractDuplicateKey,
-    "E_CONTRACT_INVALID_FREQUENCY": EContractInvalidFrequency,
+    "E_FREQ_INFER_FAIL": EFreqInferFail,
+    "E_DS_NOT_MONOTONIC": EDSNotMonotonic,
     "E_SPLIT_RANDOM_FORBIDDEN": ESplitRandomForbidden,
-    # E_CONTRACT_UNSORTED is consolidated into E_SPLIT_RANDOM_FORBIDDEN
-    # Both indicate temporal ordering violations requiring sorting by (unique_id, ds)
-    "E_CONTRACT_UNSORTED": EContractUnsorted,  # Deprecated alias
+    "E_CONTRACT_UNSORTED": EContractUnsorted,
+    "E_QA_MIN_HISTORY": EQAMinHistory,
+    "E_QA_REPAIR_PEEKS_FUTURE": EQARepairPeeksFuture,
+    "E_QA_CRITICAL_ISSUE": EQACriticalIssue,
+    "E_QA_LEAKAGE_DETECTED": EQALeakageDetected,
     "E_COVARIATE_LEAKAGE": ECovariateLeakage,
-    "E_MODEL_FIT_FAILED": EModelFitFailed,
-    "E_MODEL_PREDICT_FAILED": EModelPredictFailed,
+    "E_COVARIATE_INCOMPLETE_KNOWN": ECovariateIncompleteKnown,
+    "E_COVARIATE_STATIC_INVALID": ECovariateStaticInvalid,
+    "E_MODEL_FIT_FAIL": EModelFitFailed,
+    "E_MODEL_PREDICT_FAIL": EModelPredictFailed,
     "E_MODEL_LOAD_FAILED": EModelLoadFailed,
     "E_ADAPTER_NOT_AVAILABLE": EAdapterNotAvailable,
     "E_FALLBACK_EXHAUSTED": EFallbackExhausted,
-    "E_QA_CRITICAL_ISSUE": EQACriticalIssue,
-    "E_QA_LEAKAGE_DETECTED": EQALeakageDetected,
+    "E_OOM": EOOM,
     "E_TASK_SPEC_INVALID": ETaskSpecInvalid,
     "E_TASK_SPEC_INCOMPATIBLE": ETaskSpecIncompatible,
+    "E_BACKTEST_FAIL": EBacktestFail,
     "E_BACKTEST_INSUFFICIENT_DATA": EBacktestInsufficientData,
     "E_BACKTEST_INVALID_WINDOW": EBacktestInvalidWindow,
+    "E_CALIBRATION_FAIL": ECalibrationFail,
+    "E_ANOMALY_FAIL": EAnomalyFail,
 }
 
 
 def get_error_class(error_code: str) -> type[TSAgentKitError]:
-    """Get error class by error code.
-
-    Args:
-        error_code: The error code string
-
-    Returns:
-        The corresponding error class, or TSAgentKitError if not found
-    """
+    """Get error class by error code."""
     return ERROR_REGISTRY.get(error_code, TSAgentKitError)
+
+
+__all__ = [
+    "TSAgentKitError",
+    "EContractInvalid",
+    "EContractMissingColumn",
+    "EContractInvalidType",
+    "EContractDuplicateKey",
+    "EFreqInferFail",
+    "EDSNotMonotonic",
+    "ESplitRandomForbidden",
+    "EContractUnsorted",
+    "EQAMinHistory",
+    "EQARepairPeeksFuture",
+    "EQACriticalIssue",
+    "EQALeakageDetected",
+    "ECovariateLeakage",
+    "ECovariateIncompleteKnown",
+    "ECovariateStaticInvalid",
+    "EModelFitFailed",
+    "EModelPredictFailed",
+    "EModelLoadFailed",
+    "EAdapterNotAvailable",
+    "EFallbackExhausted",
+    "EOOM",
+    "ETaskSpecInvalid",
+    "ETaskSpecIncompatible",
+    "EBacktestFail",
+    "EBacktestInsufficientData",
+    "EBacktestInvalidWindow",
+    "ECalibrationFail",
+    "EAnomalyFail",
+    "get_error_class",
+]

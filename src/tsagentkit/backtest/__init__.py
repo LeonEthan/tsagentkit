@@ -12,6 +12,7 @@ from .metrics import (
     pinball_loss,
     rmse,
     smape,
+    wql,
     wape,
 )
 from .report import (
@@ -39,6 +40,7 @@ __all__ = [
     "mae",
     "rmse",
     "pinball_loss",
+    "wql",
     "compute_all_metrics",
     "compute_metrics_by_series",
 ]

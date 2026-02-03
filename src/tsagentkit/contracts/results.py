@@ -12,6 +12,27 @@ import pandas as pd
 
 from tsagentkit.utils import parse_quantile_column
 
+
+@dataclass(frozen=True)
+class ForecastFrame:
+    """Forecast frame in long format.
+
+    Expected columns: unique_id, ds, model, yhat (+ intervals/quantiles).
+    """
+
+    df: pd.DataFrame
+
+
+@dataclass(frozen=True)
+class CVFrame:
+    """Cross-validation frame in long format.
+
+    Expected columns: unique_id, ds, cutoff, model, y, yhat (+ intervals/quantiles).
+    """
+
+    df: pd.DataFrame
+
+
 @dataclass(frozen=True)
 class Provenance:
     """Provenance information for a forecast run.
@@ -229,11 +250,16 @@ class RunArtifact:
     """
 
     forecast: ForecastResult
-    plan: dict[str, Any]
+    plan: dict[str, Any] | None = None
+    task_spec: dict[str, Any] | None = None
+    plan_spec: dict[str, Any] | None = None
+    validation_report: dict[str, Any] | None = None
     backtest_report: dict[str, Any] | None = None
     qa_report: dict[str, Any] | None = None
     model_artifact: ModelArtifact | None = None
     provenance: Provenance | None = None
+    calibration_artifact: dict[str, Any] | None = None
+    anomaly_report: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -241,6 +267,9 @@ class RunArtifact:
         return {
             "forecast": self.forecast.to_dict() if self.forecast else None,
             "plan": self.plan,
+            "task_spec": self.task_spec,
+            "plan_spec": self.plan_spec,
+            "validation_report": self.validation_report,
             "backtest_report": self.backtest_report,
             "qa_report": self.qa_report,
             "model_artifact": {
@@ -249,6 +278,8 @@ class RunArtifact:
                 "fit_timestamp": self.model_artifact.fit_timestamp,
             } if self.model_artifact else None,
             "provenance": self.provenance.to_dict() if self.provenance else None,
+            "calibration_artifact": self.calibration_artifact,
+            "anomaly_report": self.anomaly_report,
             "metadata": self.metadata,
         }
 
@@ -259,13 +290,18 @@ class RunArtifact:
 
         plan_desc = "N/A"
         if isinstance(self.plan, dict):
-            primary = self.plan.get("primary_model")
-            fallback = self.plan.get("fallback_chain", [])
-            if primary:
-                chain = "->".join([primary] + list(fallback)) if fallback else primary
+            candidates = self.plan.get("candidate_models")
+            if candidates:
+                chain = "->".join(candidates)
                 plan_desc = f"Plan({chain})"
             else:
-                plan_desc = str(self.plan.get("signature") or self.plan)
+                primary = self.plan.get("primary_model")
+                fallback = self.plan.get("fallback_chain", [])
+                if primary:
+                    chain = "->".join([primary] + list(fallback)) if fallback else primary
+                    plan_desc = f"Plan({chain})"
+                else:
+                    plan_desc = str(self.plan.get("signature") or self.plan)
         else:
             plan_desc = str(self.plan)
 
@@ -293,3 +329,14 @@ class RunArtifact:
             lines.append(f"  Timestamp: {self.provenance.timestamp}")
 
         return "\n".join(lines)
+
+
+__all__ = [
+    "CVFrame",
+    "ForecastFrame",
+    "ForecastResult",
+    "ModelArtifact",
+    "Provenance",
+    "RunArtifact",
+    "ValidationReport",
+]

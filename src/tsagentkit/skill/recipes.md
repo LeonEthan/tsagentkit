@@ -56,7 +56,7 @@ print(f"Series: {df['unique_id'].unique()}")
 
 # Define forecasting task
 spec = TaskSpec(
-    horizon=14,        # Forecast 2 weeks ahead
+    h=14,              # Forecast 2 weeks ahead
     freq="D",          # Daily frequency
     quantiles=[0.1, 0.5, 0.9],  # Include prediction intervals
 )
@@ -120,14 +120,14 @@ df = generate_sensor_data()
 
 # Analyze sparsity
 print("=== Sparsity Analysis ===")
-dataset = TSDataset.from_dataframe(df, TaskSpec(horizon=24, freq="H"))
+dataset = TSDataset.from_dataframe(df, TaskSpec(h=24, freq="H"))
 profile = dataset.sparsity_profile
 for uid, metrics in profile.series_profiles.items():
     print(f"{uid}: {metrics['classification']} "
           f"(gaps: {metrics.get('gap_ratio', 0):.2%})")
 
 # Forecast next 24 hours
-spec = TaskSpec(horizon=24, freq="H")
+spec = TaskSpec(h=24, freq="H")
 result = run_forecast(df, spec, mode="standard")
 
 print("\n=== Results ===")
@@ -177,7 +177,7 @@ for uid in df["unique_id"].unique():
     print(f"{uid}: {zero_ratio:.1%} zeros")
 
 # Create task
-spec = TaskSpec(horizon=4, freq="W")  # Weekly, 4 weeks ahead
+spec = TaskSpec(h=4, freq="W")  # Weekly, 4 weeks ahead
 
 # Run forecast
 result = run_forecast(df, spec, mode="standard")
@@ -233,14 +233,14 @@ class NaiveModel:
 # Custom fit function
 def custom_fit(dataset: TSDataset, plan):
     """Fit custom model."""
-    season_length = plan.config.get("season_length", 1)
+    season_length = dataset.task_spec.season_length or 1
     model = NaiveModel(season_length=season_length)
     model.fit(dataset.df)
 
     return ModelArtifact(
         model=model,
         model_name="CustomNaive",
-        config=plan.config,
+        config={"season_length": season_length},
     )
 
 # Custom predict function
@@ -259,7 +259,7 @@ df = pd.DataFrame({
 })
 
 # Run with custom model
-spec = TaskSpec(horizon=7, freq="D")
+spec = TaskSpec(h=7, freq="D")
 result = run_forecast(
     df, spec,
     mode="standard",
@@ -291,7 +291,7 @@ df = pd.DataFrame({
 })
 
 # Create dataset and plan
-spec = TaskSpec(horizon=7, freq="D")
+spec = TaskSpec(h=7, freq="D")
 dataset = TSDataset.from_dataframe(df, spec)
 plan = make_plan(dataset, spec)
 
@@ -398,7 +398,7 @@ df_valid = pd.DataFrame({
     "ds": pd.date_range("2024-01-01", periods=4, freq="D"),
     "y": [1.0, 2.0, 3.0, 4.0],
 })
-spec = TaskSpec(horizon=2, freq="D")
+spec = TaskSpec(h=2, freq="D")
 result = robust_forecast(df_valid, spec)
 
 print("\n=== Test 2: Missing Column ===")

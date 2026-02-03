@@ -36,7 +36,7 @@ def test_ets_model_fit_predict() -> None:
         "y": np.cumsum(np.random.randn(len(dates))) + 100,
     })
 
-    spec = TaskSpec(horizon=7, freq="D", season_length=7)
+    spec = TaskSpec(h=7, freq="D")
     dataset = TSDataset.from_dataframe(df, spec)
 
     # Fit ETS model
@@ -62,7 +62,7 @@ def test_ets_with_quantiles() -> None:
         "y": np.cumsum(np.random.randn(len(dates))) + 100,
     })
 
-    spec = TaskSpec(horizon=7, freq="D", season_length=7)
+    spec = TaskSpec(h=7, freq="D")
     dataset = TSDataset.from_dataframe(df, spec)
 
     artifact = fit_baseline("ETS", dataset, {"season_length": 7})
@@ -83,7 +83,7 @@ def test_seasonal_naive_model() -> None:
         "y": list(range(len(dates))),
     })
 
-    spec = TaskSpec(horizon=7, freq="D", season_length=7)
+    spec = TaskSpec(h=7, freq="D")
     dataset = TSDataset.from_dataframe(df, spec)
 
     artifact = fit_baseline("SeasonalNaive", dataset, {"season_length": 7})
@@ -102,7 +102,7 @@ def test_naive_model() -> None:
         "y": list(range(len(dates))),
     })
 
-    spec = TaskSpec(horizon=7, freq="D")
+    spec = TaskSpec(h=7, freq="D")
     dataset = TSDataset.from_dataframe(df, spec)
 
     artifact = fit_baseline("Naive", dataset, {})
@@ -121,7 +121,7 @@ def test_historic_average_model() -> None:
         "y": [100.0] * len(dates),
     })
 
-    spec = TaskSpec(horizon=7, freq="D")
+    spec = TaskSpec(h=7, freq="D")
     dataset = TSDataset.from_dataframe(df, spec)
 
     artifact = fit_baseline("HistoricAverage", dataset, {})
@@ -143,7 +143,7 @@ def test_theta_model() -> None:
         "y": np.cumsum(np.random.randn(len(dates))) + 100,
     })
 
-    spec = TaskSpec(horizon=7, freq="D")
+    spec = TaskSpec(h=7, freq="D")
     dataset = TSDataset.from_dataframe(df, spec)
 
     artifact = fit_baseline("Theta", dataset, {})
@@ -171,7 +171,7 @@ def test_croston_model() -> None:
         "y": y_values,
     })
 
-    spec = TaskSpec(horizon=7, freq="D")
+    spec = TaskSpec(h=7, freq="D")
     dataset = TSDataset.from_dataframe(df, spec)
 
     # Croston may not be available in all statsforecast versions
@@ -192,7 +192,7 @@ def test_multiple_series() -> None:
         "y": list(range(len(dates))) + list(range(50, 50 + len(dates))),
     })
 
-    spec = TaskSpec(horizon=7, freq="D")
+    spec = TaskSpec(h=7, freq="D")
     dataset = TSDataset.from_dataframe(df, spec)
 
     artifact = fit_baseline("Naive", dataset, {})
@@ -212,7 +212,7 @@ def test_unknown_model_raises() -> None:
         "y": list(range(len(dates))),
     })
 
-    spec = TaskSpec(horizon=7, freq="D")
+    spec = TaskSpec(h=7, freq="D")
     dataset = TSDataset.from_dataframe(df, spec)
 
     with pytest.raises(ValueError, match="Unknown baseline model"):

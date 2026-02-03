@@ -60,7 +60,6 @@ class TestReconciler:
 
         assert reconciler.method == ReconciliationMethod.BOTTOM_UP
         assert reconciler.structure == simple_structure
-        assert reconciler._projection_matrix is None
 
     def test_bottom_up_reconciliation(self, simple_structure):
         """Test bottom-up reconciliation."""
@@ -139,24 +138,6 @@ class TestReconciler:
         # Should still produce coherent results: Total (index 2) = A (index 0) + B (index 1)
         assert abs(reconciled[2] - (reconciled[0] + reconciled[1])) < 1e-6
 
-    def test_projection_matrix_caching(self, simple_structure):
-        """Test that projection matrix is cached."""
-        reconciler = Reconciler(ReconciliationMethod.BOTTOM_UP, simple_structure)
-
-        # all_nodes = ["A", "B", "Total"]
-        y1 = np.array([4, 6, 15])  # A=4, B=6, Total=15
-        reconciled1 = reconciler.reconcile(y1)
-
-        # Matrix should be cached now
-        assert reconciler._projection_matrix is not None
-
-        # Reconcile again
-        y2 = np.array([5, 7, 20])  # A=5, B=7, Total=20
-        reconciled2 = reconciler.reconcile(y2)
-
-        # Should use cached matrix
-        assert reconciler._projection_matrix is not None
-
 
 class TestReconciliationMethods:
     """Test different reconciliation methods."""
@@ -214,10 +195,9 @@ class TestReconcileForecastsFunction:
         assert "unique_id" in reconciled.columns
         assert "ds" in reconciled.columns
         assert "yhat" in reconciled.columns
-        assert "reconciliation_method" in reconciled.columns
 
         # Check coherence
-        for ds in ["2024-01-01", "2024-01-02", "2024-01-03"]:
+        for ds in pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]):
             total = reconciled[
                 (reconciled["unique_id"] == "Total") & (reconciled["ds"] == ds)
             ]["yhat"].values[0]

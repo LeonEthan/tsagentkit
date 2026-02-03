@@ -19,8 +19,8 @@ A robust execution engine for AI agents performing time-series forecasting. Prov
 | Category | Feature | Status | Notes |
 |----------|---------|--------|-------|
 | **Core** | Input validation | ✅ | `validate_contract()` with schema checking |
-| | Task specification | ✅ | `TaskSpec` with horizon, freq, quantiles |
-| | Random seed support | ✅ | `TaskSpec(seed=42)` for reproducibility |
+| | Task specification | ✅ | `TaskSpec` with h, freq, quantiles |
+| | Deterministic signatures | ✅ | `TaskSpec.model_hash()` for reproducibility |
 | **QA** | Data quality checks | ✅ | `run_qa()` with multiple modes |
 | | Leakage detection | ✅ | Future covariate leakage protection |
 | | Auto-repair | ✅ | Repair strategies for common issues |
@@ -105,7 +105,7 @@ df = pd.DataFrame({
 })
 
 # Create task spec
-spec = TaskSpec(horizon=7, freq="D")
+spec = TaskSpec(h=7, freq="D")
 
 # Run forecast (uses best available model)
 artifact = run_forecast(df, spec, mode="standard")

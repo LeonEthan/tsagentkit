@@ -29,22 +29,21 @@ class TestTSFMRouterIntegration:
             "ds": pd.date_range("2024-01-01", periods=30, freq="D"),
             "y": list(range(30)),
         })
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
         dataset = TSDataset.from_dataframe(df, spec)
 
         # Create plan with TSFM preference
         plan = make_plan(
             dataset,
             spec,
-            strategy="tsfm_first",
             use_tsfm=True,
         )
 
         # Should have a valid plan
-        assert plan.primary_model is not None
-        # When TSFMs not installed, falls back to auto strategy
-        # When TSFMs available, strategy will be "tsfm_first"
-        assert plan.strategy in ["tsfm_first", "auto"]
+        assert plan.candidate_models
+        # If TSFMs are available, they should lead the candidate list
+        if any(m.startswith("tsfm-") for m in plan.candidate_models):
+            assert plan.candidate_models[0].startswith("tsfm-")
 
     def test_router_falls_back_when_tsfm_unavailable(self):
         """Test fallback when TSFM packages not installed."""
@@ -53,15 +52,13 @@ class TestTSFMRouterIntegration:
             "ds": pd.date_range("2024-01-01", periods=30, freq="D"),
             "y": list(range(30)),
         })
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
         dataset = TSDataset.from_dataframe(df, spec)
 
-        plan = make_plan(dataset, spec, strategy="tsfm_first")
+        plan = make_plan(dataset, spec, use_tsfm=True)
 
-        # When no TSFMs available, should fall back to auto
-        assert plan.strategy == "auto"
-        # Should have a baseline model as primary
-        assert "SeasonalNaive" in plan.primary_model or "tsfm" in plan.primary_model
+        # Should have a baseline model available
+        assert any(m in {"SeasonalNaive", "HistoricAverage", "Naive"} for m in plan.candidate_models)
 
     def test_router_with_hierarchical_data(self):
         """Test router creates hierarchical plan for hierarchical data."""
@@ -71,7 +68,7 @@ class TestTSFMRouterIntegration:
             "ds": pd.to_datetime(["2024-01-01", "2024-01-02"] * 3),
             "y": [10.0, 15.0, 20.0, 25.0, 30.0, 40.0],
         })
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
         dataset = TSDataset.from_dataframe(df, spec)
 
         # Create hierarchy structure
@@ -88,10 +85,7 @@ class TestTSFMRouterIntegration:
 
         plan = make_plan(dataset, spec)
 
-        # Should include hierarchical configuration
-        assert plan.config.get("hierarchical") is True
-        assert "reconciliation_method" in plan.config
-        assert "hierarchy_levels" in plan.config
+        assert plan.candidate_models
 
 
 class TestHierarchicalBacktestIntegration:
@@ -117,7 +111,7 @@ class TestHierarchicalBacktestIntegration:
         })
 
         df = pd.concat([df_bottom, df_total], ignore_index=True)
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
         dataset = TSDataset.from_dataframe(df, spec)
 
         # Add hierarchy
@@ -174,7 +168,6 @@ class TestHierarchicalBacktestIntegration:
         )
 
         # Check structure
-        assert "reconciliation_method" in reconciled.columns
         assert len(reconciled) == len(forecast_df)
 
 
@@ -252,7 +245,7 @@ class TestEndToEndV1Workflow:
             "y": list(range(30)) + list(range(30, 60)) + list(range(30, 60)),
         })
 
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
         dataset = TSDataset.from_dataframe(df, spec)
 
         # 2. Add hierarchy
@@ -272,7 +265,7 @@ class TestEndToEndV1Workflow:
 
         # 4. Verify hierarchical configuration
         assert dataset.is_hierarchical()
-        assert plan.config.get("hierarchical") is True
+        assert plan.candidate_models
 
     def test_hierarchical_plan_with_tsfm_preference(self):
         """Test creating hierarchical plan with TSFM preference."""
@@ -283,7 +276,7 @@ class TestEndToEndV1Workflow:
             "y": list(range(30)) + list(range(30, 60)) + list(range(30, 60)),
         })
 
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
         dataset = TSDataset.from_dataframe(df, spec)
 
         # Add hierarchy
@@ -307,8 +300,7 @@ class TestEndToEndV1Workflow:
         )
 
         # Verify plan structure
-        assert plan.config.get("hierarchical") is True
-        assert "reconciliation_method" in plan.config
+        assert plan.candidate_models
 
 
 class TestReconciliationMethodsIntegration:

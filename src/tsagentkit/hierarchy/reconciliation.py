@@ -1,40 +1,18 @@
-"""Hierarchical forecast reconciliation methods.
-
-Implements various reconciliation strategies to ensure coherent forecasts
-across the hierarchy.
-"""
+"""Hierarchical forecast reconciliation (adapter to hierarchicalforecast)."""
 
 from __future__ import annotations
 
-from enum import Enum, auto
-from typing import TYPE_CHECKING, Callable
+from enum import Enum
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-if TYPE_CHECKING:
-    pass
-
-from .aggregation import (
-    create_bottom_up_matrix,
-    create_middle_out_matrix,
-    create_ols_matrix,
-    create_top_down_matrix,
-    create_wls_matrix,
-)
 from .structure import HierarchyStructure
 
 
 class ReconciliationMethod(Enum):
-    """Available reconciliation methods.
-
-    - BOTTOM_UP: Aggregate bottom-level forecasts up the hierarchy
-    - TOP_DOWN: Distribute top-level forecasts down using proportions
-    - MIDDLE_OUT: Use forecasts at a middle level as pivot
-    - OLS: Ordinary Least Squares (structural) reconciliation
-    - WLS: Weighted Least Squares reconciliation
-    - MIN_TRACE: Minimum Trace (optimal) reconciliation
-    """
+    """Available reconciliation methods."""
 
     BOTTOM_UP = "bottom_up"
     TOP_DOWN = "top_down"
@@ -44,410 +22,219 @@ class ReconciliationMethod(Enum):
     MIN_TRACE = "min_trace"
 
 
+def _build_hf_order(structure: HierarchyStructure) -> list[str]:
+    """Return node order with aggregates first and bottom nodes last."""
+    order: list[str] = []
+    for level in range(structure.get_num_levels()):
+        order.extend(structure.get_nodes_at_level(level))
+    bottom = [n for n in structure.bottom_nodes if n in order]
+    order = [n for n in order if n not in bottom] + bottom
+    return order
+
+
+def _build_tags(structure: HierarchyStructure, hf_order: list[str]) -> dict[str, np.ndarray]:
+    """Build tags mapping for hierarchicalforecast using row indices."""
+    node_to_idx = {node: idx for idx, node in enumerate(hf_order)}
+    tags: dict[str, np.ndarray] = {}
+    for level in range(structure.get_num_levels()):
+        nodes = structure.get_nodes_at_level(level)
+        indices = [node_to_idx[n] for n in nodes if n in node_to_idx]
+        if indices:
+            tags[f"level_{level}"] = np.array(indices, dtype=int)
+    bottom_indices = [node_to_idx[n] for n in structure.bottom_nodes if n in node_to_idx]
+    tags["bottom"] = np.array(bottom_indices, dtype=int)
+    return tags
+
+
+def _build_s_matrix(structure: HierarchyStructure, hf_order: list[str]) -> np.ndarray:
+    row_indices = [structure.all_nodes.index(node) for node in hf_order]
+    return np.asarray(structure.s_matrix, dtype=float)[row_indices]
+
+
+def _get_level_key(tags: dict[str, np.ndarray], middle_level: int | str | None) -> str:
+    level_keys = [k for k in tags.keys() if k.startswith("level_")]
+    level_keys = sorted(level_keys, key=lambda k: int(k.split("_")[1]))
+    if not level_keys:
+        return "bottom"
+
+    if isinstance(middle_level, str) and middle_level in tags:
+        return middle_level
+    if isinstance(middle_level, int):
+        idx = min(max(middle_level, 0), len(level_keys) - 1)
+        return level_keys[idx]
+
+    if len(level_keys) >= 3:
+        return level_keys[len(level_keys) // 2]
+    if len(level_keys) == 2:
+        return level_keys[1]
+    return level_keys[0]
+
+
+def _select_reconciler(
+    method: ReconciliationMethod,
+    tags: dict[str, np.ndarray],
+    middle_level: int | str | None = None,
+    has_insample: bool = False,
+) -> Any:
+    from hierarchicalforecast.methods import BottomUp, MiddleOut, MinTrace, TopDown
+
+    if method == ReconciliationMethod.BOTTOM_UP:
+        return BottomUp()
+    if method == ReconciliationMethod.TOP_DOWN:
+        return TopDown(method="forecast_proportions")
+    if method == ReconciliationMethod.MIDDLE_OUT:
+        return MiddleOut(
+            middle_level=_get_level_key(tags, middle_level),
+            top_down_method="forecast_proportions",
+        )
+    if method == ReconciliationMethod.OLS:
+        return MinTrace(method="ols")
+    if method == ReconciliationMethod.WLS:
+        return MinTrace(method="wls_struct")
+    if method == ReconciliationMethod.MIN_TRACE:
+        return MinTrace(method="mint_shrink" if has_insample else "ols")
+    return MinTrace(method="ols")
+
+
+def _apply_reconciler(
+    reconciler: Any,
+    s_matrix: np.ndarray,
+    y_hat: np.ndarray,
+    tags: dict[str, np.ndarray],
+    y_insample: np.ndarray | None = None,
+    y_hat_insample: np.ndarray | None = None,
+) -> np.ndarray:
+    result = reconciler.fit_predict(
+        S=s_matrix,
+        y_hat=y_hat,
+        tags=tags,
+        y_insample=y_insample,
+        y_hat_insample=y_hat_insample,
+    )
+    if isinstance(result, dict):
+        if "mean" in result:
+            return np.asarray(result["mean"])
+        # Fallback to first array-like entry
+        for value in result.values():
+            if isinstance(value, (np.ndarray, list)):
+                return np.asarray(value)
+        raise ValueError("Unsupported reconciliation output format.")
+    return np.asarray(result)
+
+
 class Reconciler:
-    """Hierarchical forecast reconciliation engine.
-
-    Implements various reconciliation strategies to ensure
-    coherent forecasts across the hierarchy.
-
-    Example:
-        >>> reconciler = Reconciler(
-        ...     method=ReconciliationMethod.MIN_TRACE,
-        ...     structure=hierarchy_structure,
-        ... )
-        >>> reconciled = reconciler.reconcile(
-        ...     base_forecasts=forecasts,
-        ...     residuals=residuals,
-        ... )
-
-    Attributes:
-        method: Reconciliation method to use
-        structure: Hierarchy structure
-        _projection_matrix: Cached projection matrix
-    """
+    """Hierarchical forecast reconciliation engine (adapter)."""
 
     def __init__(
         self,
         method: ReconciliationMethod,
         structure: HierarchyStructure,
-    ):
-        """Initialize reconciler.
-
-        Args:
-            method: Reconciliation method
-            structure: Hierarchy structure
-        """
+    ) -> None:
         self.method = method
         self.structure = structure
-        self._projection_matrix: np.ndarray | None = None
-        self._cached_params: dict = {}
 
     def reconcile(
         self,
         base_forecasts: np.ndarray,
         fitted_values: np.ndarray | None = None,
         residuals: np.ndarray | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> np.ndarray:
-        """Reconcile base forecasts to be hierarchy-consistent.
+        """Reconcile base forecasts to be hierarchy-consistent."""
+        y_hat = np.asarray(base_forecasts, dtype=float)
+        was_1d = y_hat.ndim == 1
+        if was_1d:
+            y_hat = y_hat[:, None]
 
-        Args:
-            base_forecasts: Array of shape (n_nodes, horizon) or (n_nodes,)
-            fitted_values: Fitted values for MinT (n_nodes, n_obs)
-            residuals: Residuals for MinT variance estimation (n_nodes, n_obs)
-            **kwargs: Additional method-specific parameters
-                - middle_level: int (for MIDDLE_OUT)
-                - proportions: dict (for TOP_DOWN)
-                - weights: np.ndarray (for WLS)
+        hf_order = _build_hf_order(self.structure)
+        tags = _build_tags(self.structure, hf_order)
+        s_matrix = _build_s_matrix(self.structure, hf_order)
+        order_to_hf = [self.structure.all_nodes.index(node) for node in hf_order]
+        hf_to_order = np.argsort(order_to_hf)
+        y_hat = y_hat[order_to_hf]
 
-        Returns:
-            Reconciled forecasts with same shape as base_forecasts
-        """
-        # Compute or retrieve projection matrix
-        cache_key = self._make_cache_key(fitted_values, residuals, **kwargs)
+        y_insample = None
+        y_hat_insample = None
+        has_insample = False
+        if fitted_values is not None and residuals is not None:
+            y_hat_insample = np.asarray(fitted_values, dtype=float)
+            y_insample = y_hat_insample + np.asarray(residuals, dtype=float)
+            has_insample = True
 
-        if (
-            self._projection_matrix is None
-            or self._cached_params.get("cache_key") != cache_key
-        ):
-            self._projection_matrix = self._compute_projection_matrix(
-                fitted_values, residuals, **kwargs
-            )
-            self._cached_params = {"cache_key": cache_key}
-
-        # Handle both 1D and 2D inputs
-        if base_forecasts.ndim == 1:
-            # Single horizon point: (n_nodes,)
-            reconciled = self.structure.s_matrix @ self._projection_matrix @ base_forecasts
-            return reconciled
-        else:
-            # Multiple horizon points: (n_nodes, horizon)
-            reconciled = self.structure.s_matrix @ self._projection_matrix @ base_forecasts
-            return reconciled
-
-    def _make_cache_key(
-        self,
-        fitted_values: np.ndarray | None,
-        residuals: np.ndarray | None,
-        **kwargs,
-    ) -> str:
-        """Create a cache key for the projection matrix."""
-        key_parts = [self.method.value]
-
-        if fitted_values is not None:
-            key_parts.append(f"fitted_{fitted_values.shape}")
-        if residuals is not None:
-            key_parts.append(f"resid_{residuals.shape}")
-
-        for k, v in sorted(kwargs.items()):
-            key_parts.append(f"{k}_{v}")
-
-        return "_".join(key_parts)
-
-    def _compute_projection_matrix(
-        self,
-        fitted_values: np.ndarray | None,
-        residuals: np.ndarray | None,
-        **kwargs,
-    ) -> np.ndarray:
-        """Compute projection matrix for the reconciliation method."""
-        method_map: dict[ReconciliationMethod, Callable] = {
-            ReconciliationMethod.BOTTOM_UP: self._bottom_up_matrix,
-            ReconciliationMethod.TOP_DOWN: self._top_down_matrix,
-            ReconciliationMethod.MIDDLE_OUT: self._middle_out_matrix,
-            ReconciliationMethod.OLS: self._ols_matrix,
-            ReconciliationMethod.WLS: self._wls_matrix,
-            ReconciliationMethod.MIN_TRACE: self._mint_matrix,
-        }
-
-        func = method_map[self.method]
-        return func(fitted_values, residuals, **kwargs)
-
-    def _bottom_up_matrix(
-        self,
-        fitted_values: np.ndarray | None,
-        residuals: np.ndarray | None,
-        **kwargs,
-    ) -> np.ndarray:
-        """Bottom-up projection matrix."""
-        return create_bottom_up_matrix(self.structure)
-
-    def _top_down_matrix(
-        self,
-        fitted_values: np.ndarray | None,
-        residuals: np.ndarray | None,
-        **kwargs,
-    ) -> np.ndarray:
-        """Top-down projection matrix."""
-        proportions = kwargs.get("proportions")
-        return create_top_down_matrix(
-            self.structure,
-            proportions=proportions,
-            historical_data=fitted_values,
+        reconciler = _select_reconciler(
+            self.method,
+            tags,
+            middle_level=kwargs.get("middle_level"),
+            has_insample=has_insample,
+        )
+        reconciled = _apply_reconciler(
+            reconciler,
+            s_matrix,
+            y_hat,
+            tags,
+            y_insample=y_insample,
+            y_hat_insample=y_hat_insample,
         )
 
-    def _middle_out_matrix(
-        self,
-        fitted_values: np.ndarray | None,
-        residuals: np.ndarray | None,
-        **kwargs,
-    ) -> np.ndarray:
-        """Middle-out projection matrix."""
-        middle_level = kwargs.get("middle_level", 1)
-        return create_middle_out_matrix(self.structure, middle_level=middle_level)
-
-    def _ols_matrix(
-        self,
-        fitted_values: np.ndarray | None,
-        residuals: np.ndarray | None,
-        **kwargs,
-    ) -> np.ndarray:
-        """OLS (structural) projection matrix."""
-        return create_ols_matrix(self.structure)
-
-    def _wls_matrix(
-        self,
-        fitted_values: np.ndarray | None,
-        residuals: np.ndarray | None,
-        **kwargs,
-    ) -> np.ndarray:
-        """WLS projection matrix."""
-        weights = kwargs.get("weights")
-        if weights is None:
-            # Default to equal weights
-            weights = np.ones(len(self.structure.all_nodes))
-        return create_wls_matrix(self.structure, weights)
-
-    def _mint_matrix(
-        self,
-        fitted_values: np.ndarray | None,
-        residuals: np.ndarray | None,
-        **kwargs,
-    ) -> np.ndarray:
-        """MinT (minimum trace) optimal reconciliation.
-
-        Uses estimated variance-covariance matrix of forecast errors
-        to produce optimal reconciled forecasts.
-
-        P_mint = (S' W^(-1) S)^(-1) S' W^(-1)
-
-        where W is the variance-covariance matrix of base forecast errors.
-        """
-        if residuals is None:
-            # Fall back to OLS if no residuals provided
-            return self._ols_matrix(fitted_values, residuals, **kwargs)
-
-        # Estimate W from residuals
-        w = self._estimate_w(residuals)
-
-        # Add regularization for numerical stability
-        w = self._regularize_w(w)
-
-        s = self.structure.s_matrix.astype(float)
-        w_inv = np.linalg.inv(w)
-
-        # Solve for P_mint
-        s_w_inv_s = s.T @ w_inv @ s
-
-        # Check if invertible
-        if np.linalg.matrix_rank(s_w_inv_s) < s_w_inv_s.shape[0]:
-            # Use pseudo-inverse if singular
-            p_matrix = np.linalg.pinv(s_w_inv_s) @ s.T @ w_inv
-        else:
-            p_matrix = np.linalg.inv(s_w_inv_s) @ s.T @ w_inv
-
-        return p_matrix
-
-    def _estimate_w(self, residuals: np.ndarray) -> np.ndarray:
-        """Estimate variance-covariance matrix from residuals.
-
-        Args:
-            residuals: Residuals of shape (n_nodes, n_obs)
-
-        Returns:
-            Estimated W matrix of shape (n_nodes, n_nodes)
-        """
-        # Sample covariance matrix
-        if residuals.ndim == 1:
-            # Single observation per series
-            return np.diag(residuals ** 2)
-
-        return np.cov(residuals)
-
-    def _regularize_w(
-        self,
-        w: np.ndarray,
-        lambda_reg: float = 0.01,
-    ) -> np.ndarray:
-        """Regularize covariance matrix for numerical stability.
-
-        Args:
-            w: Covariance matrix
-            lambda_reg: Regularization parameter
-
-        Returns:
-            Regularized matrix
-        """
-        # Add small diagonal term for stability
-        return w + lambda_reg * np.eye(w.shape[0]) * np.trace(w) / w.shape[0]
+        reconciled = reconciled[hf_to_order]
+        if was_1d:
+            return reconciled[:, 0]
+        return reconciled
 
 
 def reconcile_forecasts(
     base_forecasts: pd.DataFrame,
     structure: HierarchyStructure,
-    method: ReconciliationMethod,
-    fitted_values: pd.DataFrame | None = None,
-    residuals: pd.DataFrame | None = None,
-    **kwargs,
+    method: ReconciliationMethod | str = ReconciliationMethod.BOTTOM_UP,
 ) -> pd.DataFrame:
-    """High-level function for hierarchical reconciliation.
+    """Reconcile forecast DataFrame to ensure hierarchy coherence."""
+    if isinstance(method, str):
+        method = ReconciliationMethod(method)
 
-    Args:
-        base_forecasts: DataFrame with columns [unique_id, ds, yhat, ...]
-        structure: Hierarchy structure
-        method: Reconciliation method
-        fitted_values: Optional fitted values for MinT
-        residuals: Optional residuals for MinT
-        **kwargs: Additional method-specific parameters
+    df = base_forecasts.copy()
+    id_col = "unique_id"
+    ds_col = "ds"
+    if not pd.api.types.is_datetime64_any_dtype(df[ds_col]):
+        df[ds_col] = pd.to_datetime(df[ds_col])
 
-    Returns:
-        Reconciled forecasts DataFrame
-    """
-    # Prefer hierarchicalforecast if available (fallback to internal on error)
-    hf_result = _try_hierarchicalforecast(
-        base_forecasts=base_forecasts,
-        structure=structure,
-        method=method,
-        fitted_values=fitted_values,
-        residuals=residuals,
-        **kwargs,
-    )
-    if hf_result is not None:
-        return hf_result
+    value_cols = [
+        c
+        for c in df.columns
+        if c not in {id_col, ds_col} and pd.api.types.is_numeric_dtype(df[c])
+    ]
+    if not value_cols:
+        raise ValueError("No numeric forecast columns to reconcile.")
 
-    reconciler = Reconciler(method, structure)
+    ds_values = sorted(pd.to_datetime(df[ds_col]).unique())
+    hf_order = _build_hf_order(structure)
+    tags = _build_tags(structure, hf_order)
+    s_matrix = _build_s_matrix(structure, hf_order)
+    reconciler = _select_reconciler(method, tags)
 
-    # Convert DataFrame to matrix format
-    # Assume base_forecasts is in long format with unique_id, ds, yhat
-    pivot_df = base_forecasts.pivot(index="unique_id", columns="ds", values="yhat")
-
-    # Ensure ordering matches structure
-    pivot_df = pivot_df.reindex(structure.all_nodes)
-
-    # Convert to numpy
-    forecast_matrix = pivot_df.values  # (n_nodes, horizon)
-
-    # Convert fitted_values and residuals if provided
-    fitted_matrix = None
-    if fitted_values is not None:
-        fitted_pivot = fitted_values.pivot(
-            index="unique_id", columns="ds", values="yhat"
+    reconciled_frames: list[pd.DataFrame] = []
+    for col in value_cols:
+        pivot = (
+            df.pivot_table(index=id_col, columns=ds_col, values=col, aggfunc="mean")
+            .reindex(index=hf_order, columns=ds_values)
         )
-        fitted_pivot = fitted_pivot.reindex(structure.all_nodes)
-        fitted_matrix = fitted_pivot.values
-
-    residual_matrix = None
-    if residuals is not None:
-        resid_pivot = residuals.pivot(
-            index="unique_id", columns="ds", values="residual"
+        if pivot.isna().any().any():
+            raise ValueError(f"Missing forecasts for reconciliation in column '{col}'.")
+        y_hat = pivot.to_numpy(dtype=float)
+        reconciled = _apply_reconciler(reconciler, s_matrix, y_hat, tags)
+        rec_df = (
+            pd.DataFrame(reconciled, index=hf_order, columns=ds_values)
+            .reset_index()
+            .melt(id_vars="index", var_name=ds_col, value_name=col)
+            .rename(columns={"index": id_col})
         )
-        resid_pivot = resid_pivot.reindex(structure.all_nodes)
-        residual_matrix = resid_pivot.values
+        reconciled_frames.append(rec_df)
 
-    # Reconcile
-    reconciled_matrix = reconciler.reconcile(
-        forecast_matrix,
-        fitted_values=fitted_matrix,
-        residuals=residual_matrix,
-        **kwargs,
-    )
+    # Merge reconciled columns back together
+    result = reconciled_frames[0]
+    for frame in reconciled_frames[1:]:
+        result = result.merge(frame, on=[id_col, ds_col], how="left")
 
-    # Convert back to DataFrame
-    reconciled_df = pd.DataFrame(
-        reconciled_matrix,
-        index=pivot_df.index,
-        columns=pivot_df.columns,
-    ).reset_index()
-
-    # Melt back to long format
-    reconciled_df = reconciled_df.melt(
-        id_vars="unique_id",
-        var_name="ds",
-        value_name="yhat",
-    )
-
-    # Add reconciliation method as metadata
-    reconciled_df["reconciliation_method"] = method.value
-
-    return reconciled_df
+    return result.sort_values([id_col, ds_col]).reset_index(drop=True)
 
 
-def _try_hierarchicalforecast(
-    base_forecasts: pd.DataFrame,
-    structure: HierarchyStructure,
-    method: ReconciliationMethod,
-    fitted_values: pd.DataFrame | None = None,
-    residuals: pd.DataFrame | None = None,
-    **kwargs,
-) -> pd.DataFrame | None:
-    """Attempt reconciliation using hierarchicalforecast if available."""
-    try:
-        from hierarchicalforecast.core import HierarchicalReconciliation
-        from hierarchicalforecast.methods import BottomUp, MiddleOut, MinTrace, TopDown
-    except Exception:
-        return None
-
-    try:
-        tags = {
-            f"level_{level}": structure.get_nodes_at_level(level)
-            for level in range(structure.get_num_levels())
-        }
-
-        reconcilers = []
-        if method == ReconciliationMethod.BOTTOM_UP:
-            reconcilers = [BottomUp()]
-        elif method == ReconciliationMethod.TOP_DOWN:
-            reconcilers = [TopDown()]
-        elif method == ReconciliationMethod.MIDDLE_OUT:
-            middle_level = kwargs.get("middle_level", 1)
-            reconcilers = [MiddleOut(middle_level=middle_level)]
-        elif method == ReconciliationMethod.OLS:
-            reconcilers = [MinTrace(method="ols")]
-        elif method == ReconciliationMethod.WLS:
-            reconcilers = [MinTrace(method="wls")]
-        elif method == ReconciliationMethod.MIN_TRACE:
-            reconcilers = [MinTrace(method="mint_shrink")]
-        else:
-            return None
-
-        hrec = HierarchicalReconciliation(reconcilers=reconcilers)
-
-        s_matrix = pd.DataFrame(
-            structure.s_matrix,
-            index=structure.all_nodes,
-            columns=structure.bottom_nodes,
-        )
-
-        y_insample = None
-        if fitted_values is not None:
-            y_insample = fitted_values.rename(columns={"yhat": "y"})
-
-        y_hat_df = base_forecasts.copy()
-
-        reconciled = hrec.reconcile(
-            Y_hat_df=y_hat_df,
-            S=s_matrix,
-            tags=tags,
-            y_insample=y_insample,
-        )
-
-        # Extract the reconciled forecast column
-        value_cols = [c for c in reconciled.columns if c not in {"unique_id", "ds"}]
-        if not value_cols:
-            return None
-        point_col = value_cols[0]
-        reconciled = reconciled.rename(columns={point_col: "yhat"})
-        reconciled["reconciliation_method"] = method.value
-        return reconciled[["unique_id", "ds", "yhat", "reconciliation_method"]]
-    except Exception:
-        return None
+__all__ = ["ReconciliationMethod", "Reconciler", "reconcile_forecasts"]

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from tsagentkit.contracts import TaskSpec
     from tsagentkit.contracts import Provenance
-    from tsagentkit.router import Plan
+    from tsagentkit.router import PlanSpec
 
 
 def compute_data_signature(df: pd.DataFrame) -> str:
@@ -60,12 +60,14 @@ def compute_config_signature(config: dict[str, Any]) -> str:
 def create_provenance(
     data: pd.DataFrame,
     task_spec: TaskSpec,
-    plan: Plan,
+    plan: PlanSpec,
     model_config: dict[str, Any] | None = None,
     qa_repairs: list[dict[str, Any]] | None = None,
     fallbacks_triggered: list[dict[str, Any]] | None = None,
     feature_matrix: Any | None = None,
     drift_report: Any | None = None,
+    column_map: dict[str, str] | None = None,
+    original_panel_contract: dict[str, Any] | None = None,
 ) -> "Provenance":
     """Create a provenance record for a forecasting run.
 
@@ -102,12 +104,19 @@ def create_provenance(
         if drift_report.drift_detected:
             metadata["drifting_features"] = drift_report.get_drifting_features()
 
+    if column_map:
+        metadata["column_map"] = column_map
+    if original_panel_contract:
+        metadata["original_panel_contract"] = original_panel_contract
+
+    from tsagentkit.router import compute_plan_signature
+
     return Provenance(
         run_id=str(uuid4()),
         timestamp=datetime.now(timezone.utc).isoformat(),
         data_signature=compute_data_signature(data),
         task_signature=task_spec.model_hash(),
-        plan_signature=plan.signature,
+        plan_signature=compute_plan_signature(plan),
         model_signature=compute_config_signature(model_config or {}),
         qa_repairs=qa_repairs or [],
         fallbacks_triggered=fallbacks_triggered or [],

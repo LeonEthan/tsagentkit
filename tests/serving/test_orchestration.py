@@ -22,7 +22,7 @@ class TestRunForecast:
     @pytest.fixture
     def sample_spec(self) -> TaskSpec:
         """Create sample task spec."""
-        return TaskSpec(horizon=7, freq="D")
+        return TaskSpec(h=7, freq="D")
 
     def test_quick_mode(self, sample_data: pd.DataFrame, sample_spec: TaskSpec) -> None:
         """Test quick mode execution."""
@@ -96,7 +96,7 @@ class TestRunForecast:
             "y": [1.0, 2.0, None],
             "promo": [0, 1, 1],
         })
-        spec = TaskSpec(horizon=1, freq="D", covariate_policy="observed")
+        spec = TaskSpec(h=1, freq="D", covariate_policy="observed")
 
         from tsagentkit.contracts import ECovariateLeakage
 
@@ -130,18 +130,14 @@ class TestRunForecast:
         assert "fit" in event_names
         assert "predict" in event_names
 
-    def test_repair_strategy_from_task_spec(self) -> None:
-        """Repairs should use TaskSpec repair_strategy when provided."""
+    def test_repair_strategy_from_run_forecast(self) -> None:
+        """Repairs should use provided repair_strategy when supplied."""
         df = pd.DataFrame({
             "unique_id": ["A", "A", "A"],
             "ds": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
             "y": [1.0, None, 3.0],
         })
-        spec = TaskSpec(
-            horizon=1,
-            freq="D",
-            repair_strategy={"interpolate_missing": True, "missing_method": "linear"},
-        )
+        spec = TaskSpec(h=1, freq="D")
 
         from tsagentkit.models import fit, predict
 
@@ -151,6 +147,7 @@ class TestRunForecast:
             mode="quick",
             fit_func=fit,
             predict_func=predict,
+            repair_strategy={"missing_method": "ffill"},
         )
 
         assert result.qa_report is not None

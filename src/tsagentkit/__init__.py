@@ -5,7 +5,7 @@ external coding agents (LLMs/AI agents) performing time-series forecasting tasks
 
 Basic usage:
     >>> from tsagentkit import TaskSpec, validate_contract, run_forecast
-    >>> spec = TaskSpec(horizon=7, freq="D")
+    >>> spec = TaskSpec(h=7, freq="D")
     >>> result = run_forecast(data, spec)
 """
 
@@ -33,7 +33,9 @@ from tsagentkit.backtest import (
     mase,
 )
 from tsagentkit.router import (
-    Plan,
+    PlanSpec,
+    compute_plan_signature,
+    get_candidate_models,
     make_plan,
     FallbackLadder,
     execute_with_fallback,
@@ -51,6 +53,9 @@ from tsagentkit.series import (
     build_dataset,
 )
 from tsagentkit.qa import run_qa
+from tsagentkit.calibration import apply_calibrator, fit_calibrator
+from tsagentkit.anomaly import detect_anomalies
+from tsagentkit.eval import evaluate_forecasts, MetricFrame, ScoreSummary
 from tsagentkit.serving import MonitoringConfig, run_forecast
 
 # Structured logging (v1.0)
@@ -85,8 +90,17 @@ __all__ = [
     "build_dataset",
     # QA
     "run_qa",
+    # Calibration + Anomaly + Eval
+    "fit_calibrator",
+    "apply_calibrator",
+    "detect_anomalies",
+    "evaluate_forecasts",
+    "MetricFrame",
+    "ScoreSummary",
     # Router
-    "Plan",
+    "PlanSpec",
+    "compute_plan_signature",
+    "get_candidate_models",
     "make_plan",
     "FallbackLadder",
     "execute_with_fallback",

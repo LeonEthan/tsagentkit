@@ -11,8 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from tsagentkit.contracts import TaskSpec, validate_contract
-from tsagentkit.contracts.results import ValidationReport
+from tsagentkit.contracts import PanelContract, TaskSpec, validate_contract
 
 from .sparsity import SparsityProfile, compute_sparsity_profile
 
@@ -41,7 +40,7 @@ class TSDataset:
         ...     "ds": pd.date_range("2024-01-01", periods=4, freq="D"),
         ...     "y": [1.0, 2.0, 3.0, 4.0],
         ... })
-        >>> spec = TaskSpec(horizon=7, freq="D")
+        >>> spec = TaskSpec(h=7, freq="D")
         >>> dataset = TSDataset.from_dataframe(df, spec)
     """
 
@@ -62,6 +61,30 @@ class TSDataset:
         # Ensure datetime type
         if not pd.api.types.is_datetime64_any_dtype(self.df["ds"]):
             raise ValueError("Column 'ds' must be datetime type")
+
+    @staticmethod
+    def _normalize_panel_columns(
+        df: pd.DataFrame,
+        contract: PanelContract,
+    ) -> tuple[pd.DataFrame, dict[str, str] | None]:
+        default_contract = PanelContract()
+        mapping = {
+            contract.unique_id_col: default_contract.unique_id_col,
+            contract.ds_col: default_contract.ds_col,
+            contract.y_col: default_contract.y_col,
+        }
+        if mapping == {
+            default_contract.unique_id_col: default_contract.unique_id_col,
+            default_contract.ds_col: default_contract.ds_col,
+            default_contract.y_col: default_contract.y_col,
+        }:
+            return df, None
+
+        missing = [src for src in mapping if src not in df.columns]
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+
+        return df.rename(columns=mapping), mapping
 
     @classmethod
     def from_dataframe(
@@ -86,12 +109,23 @@ class TSDataset:
             ValueError: If validation fails
         """
         df = data.copy()
+        contract = task_spec.panel_contract
 
         # Validate if requested
         if validate:
-            report = validate_contract(df)
+            report, df = validate_contract(
+                df,
+                panel_contract=contract,
+                apply_aggregation=True,
+                return_data=True,
+            )
             if not report.valid:
                 report.raise_if_errors()
+
+        # Normalize to canonical column names
+        df, column_map = cls._normalize_panel_columns(df, contract)
+        if column_map:
+            task_spec = task_spec.model_copy(update={"panel_contract": PanelContract()})
 
         # Ensure datetime
         if not pd.api.types.is_datetime64_any_dtype(df["ds"]):
@@ -109,6 +143,10 @@ class TSDataset:
             df=df,
             task_spec=task_spec,
             sparsity_profile=sparsity,
+            metadata={
+                "panel_contract": contract.model_dump() if hasattr(contract, "model_dump") else {},
+                "column_map": column_map or {},
+            },
         )
 
     @property

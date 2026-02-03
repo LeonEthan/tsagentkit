@@ -10,8 +10,10 @@ tsagentkit's temporal integrity and leakage prevention rules.
 
 ## Inputs
 - `data`: pandas DataFrame with `unique_id`, `ds`, `y`
-- `task_spec`: `TaskSpec` (horizon, freq, optional quantiles/covariate policy/repair_strategy)
-- Optional: custom `fit_func` (fit(dataset, plan)), `predict_func` (predict(dataset, artifact, spec)), `monitoring_config`
+- `task_spec`: `TaskSpec` (h, freq, optional quantiles/covariate policy)
+- Optional: `repair_strategy` passed to `run_forecast` or `run_qa`
+- Optional: custom `fit_func` (fit(dataset, plan)), `predict_func` (predict(dataset, artifact, spec)),
+  `monitoring_config`, `calibrator_spec`, `anomaly_spec`
 
 ## Workflow
 1. `validate_contract` to enforce schema and ordering.
@@ -53,16 +55,16 @@ if not report.valid:
     report.raise_if_errors()
 
 spec = TaskSpec(
-    horizon=7,
+    h=7,
     freq="D",
     quantiles=[0.1, 0.5, 0.9],
-    repair_strategy={
-        "interpolate_missing": True,
-        "winsorize_outliers": True,
-        "missing_method": "linear",
-        "outlier_z": 3.0,
-    },
 )
+
+repair_strategy = {
+    "winsorize": {"window": 30, "lower_q": 0.01, "upper_q": 0.99},
+    "missing_method": "ffill",
+    "outlier_z": 3.0,
+}
 ```
 
 ### series
@@ -93,7 +95,7 @@ print(dataset.date_range)
 from tsagentkit import make_plan
 
 plan = make_plan(dataset, spec)
-print(plan.primary_model, plan.fallback_chain)
+print(plan.candidate_models)
 ```
 
 ### backtest

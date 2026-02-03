@@ -59,10 +59,9 @@ df = pd.concat([store_a, store_b, store_c], ignore_index=True)
 
 # Define forecasting task
 spec = TaskSpec(
-    horizon=14,           # Forecast 2 weeks ahead
+    h=14,                 # Forecast 2 weeks ahead
     freq="D",             # Daily frequency
     quantiles=[0.1, 0.5, 0.9],  # 80% prediction interval
-    season_length=7,      # Weekly seasonality
 )
 
 # Quick mode: Skip backtest, faster for prototyping
@@ -134,9 +133,8 @@ df = df.sample(frac=0.95).sort_values(["unique_id", "ds"]).reset_index(drop=True
 
 # Define task
 spec = TaskSpec(
-    horizon=24,           # 1 day ahead
+    h=24,                 # 1 day ahead
     freq="H",             # Hourly
-    season_length=24,     # Daily seasonality
 )
 
 # Standard mode: Full pipeline with backtest
@@ -210,7 +208,7 @@ df = pd.DataFrame({
     "y": part_a + part_b + part_c,
 })
 
-spec = TaskSpec(horizon=30, freq="D")
+spec = TaskSpec(h=30, freq="D")
 
 # Create dataset and check sparsity
 dataset = TSDataset.from_dataframe(df, spec)
@@ -223,9 +221,10 @@ for uid in dataset.series_ids:
 
 # Create plan (router detects intermittent automatically)
 plan = make_plan(dataset, spec)
-print(f"\nPlan: {plan.to_signature()}")
-print(f"Strategy: {plan.strategy}")
-print(f"Config: {plan.config}")
+from tsagentkit.router import compute_plan_signature
+print(f"\nPlan name: {plan.plan_name}")
+print(f"Candidates: {plan.candidate_models}")
+print(f"Plan signature: {compute_plan_signature(plan)}")
 
 # Run forecast
 result = run_forecast(df, spec)
@@ -324,7 +323,7 @@ hierarchy = HierarchyStructure(
     bottom_nodes=["laptops", "phones", "shirts", "pants"],
 )
 
-spec = TaskSpec(horizon=14, freq="D")
+spec = TaskSpec(h=14, freq="D")
 
 # Run forecast with hierarchy
 result = run_forecast(df, spec, hierarchy=hierarchy)
@@ -346,10 +345,10 @@ print(f"  Total: {total_sum:.1f}")
 print(f"  Electronics + Clothing: {elec_sum + cloth_sum:.1f}")
 print(f"  Coherent: {abs(total_sum - (elec_sum + cloth_sum)) < 0.1}")
 
-# Check plan includes hierarchical config
-print(f"\nPlan config:")
-print(f"  Hierarchical: {result.plan.get('hierarchical', False)}")
-print(f"  Reconciliation method: {result.plan.get('reconciliation_method', 'N/A')}")
+# Check plan summary
+print(f"\nPlan summary:")
+print(f"  Plan name: {result.plan.get('plan_name', 'N/A')}")
+print(f"  Candidates: {result.plan.get('candidate_models', [])}")
 ```
 
 ---
@@ -380,7 +379,7 @@ df = pd.DataFrame({
     "y": list(np.cumsum(np.random.randn(len(dates))) + 100) * 2,
 })
 
-spec = TaskSpec(horizon=14, freq="D")
+spec = TaskSpec(h=14, freq="D")
 dataset = TSDataset.from_dataframe(df, spec)
 
 # Check TSFM availability
@@ -394,13 +393,11 @@ for name in ["chronos", "moirai", "timesfm"]:
 plan = make_plan(
     dataset,
     spec,
-    strategy="tsfm_first",
     tsfm_preference=["chronos", "moirai", "timesfm"],
 )
 
 print(f"\nPlan created:")
-print(f"  Primary: {plan.primary_model}")
-print(f"  Fallback chain: {plan.fallback_chain[:5]}...")  # First 5
+print(f"  Candidates: {plan.candidate_models[:5]}...")  # First 5
 
 # Run forecast (will use TSFM if available, else fall back)
 result = run_forecast(df, spec)
@@ -481,7 +478,7 @@ class NaiveModel:
 # Custom fit function
 def my_fit(dataset, plan):
     """Custom fit function."""
-    season_length = plan.config.get("season_length", 1)
+    season_length = dataset.task_spec.season_length or 1
 
     model = NaiveModel(season_length=season_length)
     model.fit(dataset.df)
@@ -533,7 +530,7 @@ def my_predict(dataset, artifact, spec):
     )
 
 # Run with custom functions
-spec = TaskSpec(horizon=7, freq="D", season_length=1)
+spec = TaskSpec(h=7, freq="D")
 result = run_forecast(
     df,
     spec,
@@ -578,7 +575,7 @@ df = pd.DataFrame({
     "y": trend + seasonal + np.random.normal(0, 5, len(dates)),
 })
 
-spec = TaskSpec(horizon=14, freq="D", season_length=7)
+spec = TaskSpec(h=14, freq="D")
 dataset = TSDataset.from_dataframe(df, spec)
 plan = make_plan(dataset, spec)
 
@@ -716,7 +713,7 @@ valid_df = pd.DataFrame({
     "y": list(range(30)) + list(range(50, 80)),
 })
 
-spec = TaskSpec(horizon=7, freq="D")
+spec = TaskSpec(h=7, freq="D")
 
 try:
     result = run_forecast(valid_df, spec, mode="quick")

@@ -291,15 +291,15 @@ class TestProvenanceIntegration:
 
     def test_provenance_with_features(self, mock_feature_matrix):
         """Test provenance includes feature info."""
-        from tsagentkit.router import Plan
+        from tsagentkit.router import PlanSpec
 
         data = pd.DataFrame({
             "unique_id": ["A"],
             "ds": pd.to_datetime(["2024-01-01"]),
             "y": [1.0],
         })
-        task_spec = TaskSpec(horizon=7, freq="D")
-        plan = Plan(primary_model="SeasonalNaive", config={})
+        task_spec = TaskSpec(h=7, freq="D")
+        plan = PlanSpec(plan_name="default", candidate_models=["SeasonalNaive"])
 
         provenance = create_provenance(
             data=data,
@@ -315,15 +315,15 @@ class TestProvenanceIntegration:
 
     def test_provenance_with_drift(self, mock_drift_report):
         """Test provenance includes drift info."""
-        from tsagentkit.router import Plan
+        from tsagentkit.router import PlanSpec
 
         data = pd.DataFrame({
             "unique_id": ["A"],
             "ds": pd.to_datetime(["2024-01-01"]),
             "y": [1.0],
         })
-        task_spec = TaskSpec(horizon=7, freq="D")
-        plan = Plan(primary_model="SeasonalNaive", config={})
+        task_spec = TaskSpec(h=7, freq="D")
+        plan = PlanSpec(plan_name="default", candidate_models=["SeasonalNaive"])
 
         provenance = create_provenance(
             data=data,
@@ -369,7 +369,7 @@ class TestEndToEndV02:
         # This would be called in a real scenario
         # run_forecast(
         #     data=current_data,
-        #     task_spec=TaskSpec(horizon=7, freq="D"),
+        #     task_spec=TaskSpec(h=7, freq="D"),
         #     monitoring_config=monitoring_config,
         #     reference_data=reference_data,
         # )
@@ -398,10 +398,10 @@ class TestEndToEndV02:
         matrix = factory.create_features(MockTSDataset(data))
 
         # Create provenance with features
-        from tsagentkit.router import Plan
+        from tsagentkit.router import PlanSpec
 
-        task_spec = TaskSpec(horizon=7, freq="D")
-        plan = Plan(primary_model="SeasonalNaive", config={})
+        task_spec = TaskSpec(h=7, freq="D")
+        plan = PlanSpec(plan_name="default", candidate_models=["SeasonalNaive"])
 
         provenance = create_provenance(
             data=data,

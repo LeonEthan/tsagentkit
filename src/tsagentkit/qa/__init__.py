@@ -1,7 +1,6 @@
-"""QA module stub for tsagentkit.
+"""QA checks and PIT-safe repairs for tsagentkit."""
 
-This is a minimal stub for v0.1. Full QA implementation in Phase 1.
-"""
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -9,27 +8,28 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
-from tsagentkit.contracts import ECovariateLeakage, TaskSpec
-from tsagentkit.features.covariates import CovariateManager, infer_covariate_config
+from tsagentkit.contracts import (
+    ECovariateIncompleteKnown,
+    ECovariateLeakage,
+    ECovariateStaticInvalid,
+    EQARepairPeeksFuture,
+    TaskSpec,
+)
+from tsagentkit.covariates import align_covariates
 
 
 @dataclass(frozen=True)
 class QAReport:
-    """Quality assurance report.
-
-    Placeholder for full QA implementation.
-    """
+    """Quality assurance report."""
 
     issues: list[dict[str, Any]] = field(default_factory=list)
     repairs: list[dict[str, Any]] = field(default_factory=list)
     leakage_detected: bool = False
 
     def has_critical_issues(self) -> bool:
-        """Check if there are critical issues."""
         return any(issue.get("severity") == "critical" for issue in self.issues)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
         return {
             "issues": self.issues,
             "repairs": self.repairs,
@@ -48,48 +48,58 @@ def run_qa(
 ) -> QAReport:
     """Run QA checks for missing values, gaps, outliers, and leakage."""
     repair_strategy = repair_strategy or {}
-    missing_method = repair_strategy.get("missing_method", "linear")
-    interpolate_missing = repair_strategy.get("interpolate_missing", True)
-    winsorize_outliers = repair_strategy.get("winsorize_outliers", True)
+    missing_method = repair_strategy.get("missing_method", "ffill")
+    winsorize_cfg = repair_strategy.get("winsorize", {"window": 30, "lower_q": 0.01, "upper_q": 0.99})
+    median_cfg = repair_strategy.get("median_filter", {"window": 7})
     outlier_z = float(repair_strategy.get("outlier_z", outlier_z))
 
     issues: list[dict[str, Any]] = []
     repairs: list[dict[str, Any]] = []
     leakage_detected = False
 
-    # Identify future rows (y missing after last observed)
-    last_observed = None
-    if "y" in data.columns and data["y"].notna().any():
-        last_observed = data.loc[data["y"].notna(), "ds"].max()
-    future_mask = data["y"].isna()
-    if last_observed is not None:
-        future_mask = future_mask & (data["ds"] > last_observed)
+    contract = task_spec.panel_contract
+    uid_col = contract.unique_id_col
+    ds_col = contract.ds_col
+    y_col = contract.y_col
+
+    df = data
+    if not pd.api.types.is_datetime64_any_dtype(df[ds_col]):
+        df[ds_col] = pd.to_datetime(df[ds_col])
+
+    # Per-series last observed
+    last_observed = (
+        df[df[y_col].notna()]
+        .groupby(uid_col)[ds_col]
+        .max()
+        .to_dict()
+    )
 
     # Missing values in observed history only
-    missing_mask = data["y"].isna()
-    if last_observed is not None:
-        missing_mask = missing_mask & (data["ds"] <= last_observed)
+    missing_mask = df[y_col].isna()
+    if last_observed:
+        mask = df[uid_col].map(last_observed)
+        missing_mask = missing_mask & (df[ds_col] <= mask)
     missing_count = int(missing_mask.sum())
     if missing_count > 0:
         issues.append(
             {
                 "type": "missing_values",
-                "column": "y",
+                "column": y_col,
                 "count": missing_count,
                 "severity": "critical" if mode == "strict" else "warning",
             }
         )
 
-    # Gaps
+    # Gaps per series
     gap_count = 0
     gap_ratio = 0.0
-    for uid in data["unique_id"].unique():
-        series = data[data["unique_id"] == uid].sort_values("ds")
+    for uid in df[uid_col].unique():
+        series = df[df[uid_col] == uid].sort_values(ds_col)
         if series.empty:
             continue
         full_range = pd.date_range(
-            start=series["ds"].min(),
-            end=series["ds"].max(),
+            start=series[ds_col].min(),
+            end=series[ds_col].max(),
             freq=task_spec.freq,
         )
         missing = len(full_range) - len(series)
@@ -102,13 +112,13 @@ def run_qa(
             {
                 "type": "gaps",
                 "count": gap_count,
-                "ratio": gap_ratio / max(data["unique_id"].nunique(), 1),
+                "ratio": gap_ratio / max(df[uid_col].nunique(), 1),
                 "severity": "warning",
             }
         )
 
     # Zero density
-    zero_ratio = float(np.mean(data["y"] == 0)) if len(data) > 0 else 0.0
+    zero_ratio = float(np.mean(df[y_col] == 0)) if len(df) > 0 else 0.0
     if zero_ratio > zero_threshold:
         issues.append(
             {
@@ -121,8 +131,8 @@ def run_qa(
 
     # Outliers (z-score per series)
     outlier_count = 0
-    for uid in data["unique_id"].unique():
-        series = data[data["unique_id"] == uid]["y"].astype(float)
+    for uid in df[uid_col].unique():
+        series = df[df[uid_col] == uid][y_col].astype(float)
         if series.empty:
             continue
         mean = series.mean()
@@ -142,58 +152,62 @@ def run_qa(
             }
         )
 
-    # Leakage detection for observed covariates
-    covariate_config = infer_covariate_config(data, task_spec.covariate_policy)
-    if covariate_config.known or covariate_config.observed:
-        if covariate_config.known and future_mask.any():
-            for col in covariate_config.known:
-                missing_future = int(data.loc[future_mask, col].isna().sum())
-                if missing_future > 0:
-                    issues.append(
-                        {
-                            "type": "known_covariate_missing",
-                            "column": col,
-                            "count": missing_future,
-                            "severity": "warning",
-                        }
-                    )
+    # Monotonicity check per series
+    monotonic_violations = 0
+    for uid in df[uid_col].unique():
+        series = df[df[uid_col] == uid]
+        if not series[ds_col].is_monotonic_increasing:
+            monotonic_violations += 1
+    if monotonic_violations > 0:
+        issues.append(
+            {
+                "type": "ds_not_monotonic",
+                "count": monotonic_violations,
+                "severity": "critical" if mode == "strict" else "warning",
+            }
+        )
 
-        if covariate_config.observed:
-            manager = CovariateManager(
-                known_covariates=covariate_config.known,
-                observed_covariates=covariate_config.observed,
+    # Minimum history length check
+    min_history = task_spec.backtest.min_train_size
+    if min_history:
+        lengths = df[df[y_col].notna()].groupby(uid_col).size()
+        short = lengths[lengths < min_history]
+        if not short.empty:
+            issues.append(
+                {
+                    "type": "min_history",
+                    "count": int(short.shape[0]),
+                    "min_train_size": min_history,
+                    "severity": "critical" if mode == "strict" else "warning",
+                }
             )
-            if future_mask.any():
-                forecast_start = data.loc[future_mask, "ds"].min()
-            else:
-                forecast_start = data["ds"].max() + pd.tseries.frequencies.to_offset(
-                    task_spec.freq
-                )
-            try:
-                manager.validate_for_prediction(
-                    data,
-                    forecast_start=forecast_start,
-                    horizon=task_spec.horizon,
-                )
-            except ECovariateLeakage as exc:
-                leakage_detected = True
-                issues.append(
-                    {
-                        "type": "covariate_leakage",
-                        "columns": covariate_config.observed,
-                        "severity": "critical" if mode == "strict" else "warning",
-                        "error": str(exc),
-                    }
-                )
-                raise
 
+    # Covariate guardrails
+    try:
+        align_covariates(df, task_spec)
+    except (ECovariateLeakage, ECovariateIncompleteKnown, ECovariateStaticInvalid) as exc:
+        leakage_detected = isinstance(exc, ECovariateLeakage)
+        issues.append(
+            {
+                "type": "covariate_guardrail",
+                "error": str(exc),
+                "severity": "critical",
+            }
+        )
+        raise
+
+    repairs: list[dict[str, Any]] = []
     if apply_repairs:
         repairs = _apply_repairs(
-            data,
+            df,
+            uid_col=uid_col,
+            ds_col=ds_col,
+            y_col=y_col,
+            last_observed=last_observed,
             missing_method=missing_method,
-            interpolate_missing=interpolate_missing,
-            winsorize_outliers=winsorize_outliers,
-            outlier_z=outlier_z,
+            winsorize_cfg=winsorize_cfg,
+            median_cfg=median_cfg,
+            strict=(mode == "strict"),
         )
 
     return QAReport(
@@ -205,60 +219,79 @@ def run_qa(
 
 def _apply_repairs(
     data: pd.DataFrame,
+    uid_col: str,
+    ds_col: str,
+    y_col: str,
+    last_observed: dict[str, Any],
     missing_method: str,
-    interpolate_missing: bool,
-    winsorize_outliers: bool,
-    outlier_z: float,
+    winsorize_cfg: dict[str, Any],
+    median_cfg: dict[str, Any],
+    strict: bool,
 ) -> list[dict[str, Any]]:
+    if y_col in data.columns:
+        data[y_col] = data[y_col].astype(float)
+
     repairs: list[dict[str, Any]] = []
     missing_filled = 0
     outliers_clipped = 0
+    median_applied = 0
 
-    if "y" not in data.columns:
-        return repairs
-
-    for uid in data["unique_id"].unique():
-        series_idx = data["unique_id"] == uid
-        series = data.loc[series_idx].sort_values("ds").copy()
-        if series.empty or not series["y"].notna().any():
+    for uid in data[uid_col].unique():
+        series_idx = data[uid_col] == uid
+        series = data.loc[series_idx].sort_values(ds_col).copy()
+        if series.empty or not series[y_col].notna().any():
             continue
 
-        last_observed = series.loc[series["y"].notna(), "ds"].max()
-        observed_mask = series["ds"] <= last_observed
+        last_obs = last_observed.get(uid)
+        observed_mask = series[ds_col] <= last_obs if last_obs is not None else pd.Series(False, index=series.index)
 
-        if interpolate_missing:
-            missing_mask = series["y"].isna() & observed_mask
-            if missing_mask.any():
-                series.loc[observed_mask, "y"] = (
-                    series.loc[observed_mask, "y"]
-                    .astype(float)
-                    .interpolate(method=missing_method, limit_direction="both")
+        if missing_method in {"ffill", "bfill"}:
+            if missing_method == "bfill" and strict:
+                raise EQARepairPeeksFuture(
+                    "bfill is non-causal in strict mode.",
+                    context={"missing_method": missing_method},
                 )
+            missing_mask = series[y_col].isna() & observed_mask
+            if missing_mask.any():
+                if missing_method == "ffill":
+                    filled = series.loc[observed_mask, y_col].ffill()
+                else:
+                    filled = series.loc[observed_mask, y_col].bfill()
+                series.loc[observed_mask, y_col] = filled
                 missing_filled += int(missing_mask.sum())
 
-        if winsorize_outliers:
-            observed_values = series.loc[observed_mask, "y"].astype(float)
-            if observed_values.notna().any():
-                mean = observed_values.mean()
-                std = observed_values.std()
-                if std and not np.isnan(std):
-                    z_scores = (observed_values - mean) / std
-                    out_mask = z_scores.abs() > outlier_z
-                    if out_mask.any():
-                        clipped = observed_values.clip(
-                            lower=mean - outlier_z * std,
-                            upper=mean + outlier_z * std,
-                        )
-                        series.loc[observed_mask, "y"] = clipped
-                        outliers_clipped += int(out_mask.sum())
+        # Winsorize using rolling historical quantiles (left-closed window)
+        if winsorize_cfg:
+            window = int(winsorize_cfg.get("window", 30))
+            lower_q = float(winsorize_cfg.get("lower_q", 0.01))
+            upper_q = float(winsorize_cfg.get("upper_q", 0.99))
+            observed_values = series.loc[observed_mask, y_col].astype(float)
+            shifted = observed_values.shift(1)
+            lower = shifted.rolling(window, min_periods=1).quantile(lower_q)
+            upper = shifted.rolling(window, min_periods=1).quantile(upper_q)
+            clipped = observed_values.copy()
+            clipped = clipped.where(lower.isna() | (clipped >= lower), lower)
+            clipped = clipped.where(upper.isna() | (clipped <= upper), upper)
+            outliers_clipped += int((clipped != observed_values).sum())
+            series.loc[observed_mask, y_col] = clipped
 
-        data.loc[series.index, "y"] = series["y"].values
+        # Median filter using historical window (left-closed)
+        if median_cfg:
+            window = int(median_cfg.get("window", 7))
+            observed_values = series.loc[observed_mask, y_col].astype(float)
+            shifted = observed_values.shift(1)
+            median = shifted.rolling(window, min_periods=1).median()
+            filled = observed_values.where(median.isna(), median)
+            median_applied += int((filled != observed_values).sum())
+            series.loc[observed_mask, y_col] = filled
+
+        data.loc[series.index, y_col] = series[y_col].values
 
     if missing_filled > 0:
         repairs.append(
             {
                 "type": "missing_values",
-                "column": "y",
+                "column": y_col,
                 "count": missing_filled,
                 "method": missing_method,
                 "scope": "observed_history",
@@ -268,11 +301,20 @@ def _apply_repairs(
     if outliers_clipped > 0:
         repairs.append(
             {
-                "type": "outliers",
-                "column": "y",
+                "type": "winsorize",
+                "column": y_col,
                 "count": outliers_clipped,
-                "method": "winsorize",
-                "z_threshold": outlier_z,
+                "method": "rolling_quantiles",
+            }
+        )
+
+    if median_applied > 0:
+        repairs.append(
+            {
+                "type": "median_filter",
+                "column": y_col,
+                "count": median_applied,
+                "method": "rolling_median",
             }
         )
 

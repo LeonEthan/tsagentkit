@@ -6,62 +6,61 @@ schema for time series forecasting.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pandas as pd
 
 from .errors import (
     EContractDuplicateKey,
-    EContractInvalidFrequency,
+    EContractInvalid,
     EContractInvalidType,
     EContractMissingColumn,
     EContractUnsorted,
+    EFreqInferFail,
 )
 from .results import ValidationReport
-
-if TYPE_CHECKING:
-    pass
+from .task_spec import PanelContract
 
 
-def validate_contract(data: Any) -> ValidationReport:
+def validate_contract(
+    data: Any,
+    panel_contract: PanelContract | None = None,
+    apply_aggregation: bool = False,
+    return_data: bool = False,
+) -> ValidationReport | tuple[ValidationReport, pd.DataFrame]:
     """Validate input data against the required schema.
-
-    Checks that the data:
-    1. Is a DataFrame or convertible to one
-    2. Has required columns: unique_id, ds, y
-    3. Has correct types for each column
-    4. Has no duplicate (unique_id, ds) pairs
-    5. Is sorted by (unique_id, ds)
-    6. Has a valid/inferrable frequency
 
     Args:
         data: Input data (DataFrame or convertible)
+        panel_contract: Optional PanelContract specifying column names and aggregation
+        apply_aggregation: Whether to aggregate duplicates when allowed by contract
+        return_data: If True, return (ValidationReport, normalized_df)
 
     Returns:
-        ValidationReport with results and any errors/warnings
-
-    Raises:
-        EContractMissingColumn: If required columns are missing
-        EContractInvalidType: If columns have wrong types
-        EContractDuplicateKey: If duplicate keys exist
-        EContractUnsorted: If data is not properly sorted
+        ValidationReport (and optionally normalized DataFrame)
     """
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     stats: dict[str, Any] = {}
 
+    contract = panel_contract or PanelContract()
+    uid_col = contract.unique_id_col
+    ds_col = contract.ds_col
+    y_col = contract.y_col
+
     # Convert to DataFrame if needed
     df = _convert_to_dataframe(data)
     if df is None:
         errors.append({
-            "code": "E_CONTRACT_INVALID_INPUT",
+            "code": EContractInvalid.error_code,
             "message": "Data must be a DataFrame or convertible to DataFrame",
             "context": {"type": type(data).__name__},
         })
-        return ValidationReport(valid=False, errors=errors, warnings=warnings)
+        report = ValidationReport(valid=False, errors=errors, warnings=warnings)
+        return (report, pd.DataFrame()) if return_data else report
 
     # Check required columns
-    required_cols = {"unique_id", "ds", "y"}
+    required_cols = {uid_col, ds_col, y_col}
     missing_cols = required_cols - set(df.columns)
     if missing_cols:
         errors.append({
@@ -72,55 +71,56 @@ def validate_contract(data: Any) -> ValidationReport:
                 "available": sorted(df.columns.tolist()),
             },
         })
-        # Can't continue without required columns
-        return ValidationReport(
-            valid=False, errors=errors, warnings=warnings, stats={"num_rows": len(df)}
+        report = ValidationReport(
+            valid=False,
+            errors=errors,
+            warnings=warnings,
+            stats={"num_rows": len(df)},
         )
+        return (report, df) if return_data else report
 
-    # Check column types
-    type_errors = _validate_column_types(df)
+    # Normalize types
+    type_errors = _validate_column_types(df, uid_col, ds_col, y_col)
     errors.extend(type_errors)
 
-    # Check for duplicates
-    duplicate_errors = _validate_no_duplicates(df)
+    # Aggregate duplicates if allowed
+    if contract.aggregation != "reject" and apply_aggregation:
+        df, agg_warnings = _aggregate_duplicates(df, uid_col, ds_col, y_col, contract.aggregation)
+        warnings.extend(agg_warnings)
+
+    # Check for duplicates (post-aggregation if any)
+    duplicate_errors = _validate_no_duplicates(df, uid_col, ds_col, contract.aggregation)
     errors.extend(duplicate_errors)
 
     # Check sorting
-    sort_errors = _validate_sorted(df)
+    sort_errors = _validate_sorted(df, uid_col, ds_col)
     errors.extend(sort_errors)
 
     # Try to infer frequency
-    freq_warnings, freq_stats = _validate_frequency(df)
+    freq_warnings, freq_stats = _validate_frequency(df, uid_col, ds_col)
     warnings.extend(freq_warnings)
     stats.update(freq_stats)
 
     # Collect statistics (only if y is numeric)
-    if not any(e["code"] == EContractInvalidType.error_code and
-               e.get("context", {}).get("column") == "y"
-               for e in errors):
-        stats.update(_compute_stats(df))
+    if not any(
+        e["code"] == EContractInvalidType.error_code
+        and e.get("context", {}).get("column") == y_col
+        for e in errors
+    ):
+        stats.update(_compute_stats(df, uid_col, ds_col, y_col))
 
     valid = len(errors) == 0
-    return ValidationReport(
-        valid=valid, errors=errors, warnings=warnings, stats=stats
-    )
+    report = ValidationReport(valid=valid, errors=errors, warnings=warnings, stats=stats)
+
+    return (report, df) if return_data else report
 
 
 def _convert_to_dataframe(data: Any) -> pd.DataFrame | None:
-    """Convert input data to DataFrame.
-
-    Args:
-        data: Input data of various types
-
-    Returns:
-        DataFrame or None if conversion fails
-    """
     if isinstance(data, pd.DataFrame):
         return data.copy()
 
-    # Try common conversions
     try:
-        if hasattr(data, "to_pandas"):  # Polars, Arrow, etc.
+        if hasattr(data, "to_pandas"):
             return data.to_pandas()
         if isinstance(data, dict):
             return pd.DataFrame(data)
@@ -132,151 +132,167 @@ def _convert_to_dataframe(data: Any) -> pd.DataFrame | None:
     return None
 
 
-def _validate_column_types(df: pd.DataFrame) -> list[dict[str, Any]]:
-    """Validate that columns have correct types.
-
-    Args:
-        df: Input DataFrame
-
-    Returns:
-        List of error dictionaries
-    """
+def _validate_column_types(
+    df: pd.DataFrame,
+    uid_col: str,
+    ds_col: str,
+    y_col: str,
+) -> list[dict[str, Any]]:
     errors: list[dict[str, Any]] = []
 
-    # unique_id should be string or convertible to string
-    if not pd.api.types.is_string_dtype(df["unique_id"]):
-        # Try to convert
+    if not pd.api.types.is_string_dtype(df[uid_col]):
         try:
-            df["unique_id"] = df["unique_id"].astype(str)
+            df[uid_col] = df[uid_col].astype(str)
         except Exception as e:
             errors.append({
                 "code": EContractInvalidType.error_code,
-                "message": "Column 'unique_id' must be convertible to string",
+                "message": f"Column '{uid_col}' must be convertible to string",
                 "context": {
-                    "column": "unique_id",
-                    "actual_type": str(df["unique_id"].dtype),
+                    "column": uid_col,
+                    "actual_type": str(df[uid_col].dtype),
                     "error": str(e),
                 },
             })
 
-    # ds should be datetime
-    if not pd.api.types.is_datetime64_any_dtype(df["ds"]):
+    if not pd.api.types.is_datetime64_any_dtype(df[ds_col]):
         try:
-            df["ds"] = pd.to_datetime(df["ds"], format="mixed")
+            df[ds_col] = pd.to_datetime(df[ds_col], format="mixed")
         except Exception as e:
             errors.append({
                 "code": EContractInvalidType.error_code,
-                "message": "Column 'ds' must be convertible to datetime",
+                "message": f"Column '{ds_col}' must be convertible to datetime",
                 "context": {
-                    "column": "ds",
-                    "actual_type": str(df["ds"].dtype),
+                    "column": ds_col,
+                    "actual_type": str(df[ds_col].dtype),
                     "error": str(e),
                 },
             })
 
-    # y should be numeric (skip if empty)
-    if len(df) > 0 and not pd.api.types.is_numeric_dtype(df["y"]):
+    if len(df) > 0 and not pd.api.types.is_numeric_dtype(df[y_col]):
         errors.append({
             "code": EContractInvalidType.error_code,
-            "message": "Column 'y' must be numeric",
+            "message": f"Column '{y_col}' must be numeric",
             "context": {
-                "column": "y",
-                "actual_type": str(df["y"].dtype),
+                "column": y_col,
+                "actual_type": str(df[y_col].dtype),
             },
         })
 
     return errors
 
 
-def _validate_no_duplicates(df: pd.DataFrame) -> list[dict[str, Any]]:
-    """Check for duplicate (unique_id, ds) pairs.
+def _aggregate_duplicates(
+    df: pd.DataFrame,
+    uid_col: str,
+    ds_col: str,
+    y_col: str,
+    aggregation: str,
+) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    warnings: list[dict[str, Any]] = []
 
-    Args:
-        df: Input DataFrame
+    duplicates = df.duplicated(subset=[uid_col, ds_col], keep=False)
+    if not duplicates.any():
+        return df, warnings
 
-    Returns:
-        List of error dictionaries
-    """
+    if aggregation == "reject":
+        return df, warnings
+
+    agg_map = {
+        "sum": "sum",
+        "mean": "mean",
+        "median": "median",
+        "last": "last",
+    }
+    if aggregation not in agg_map:
+        return df, warnings
+
+    grouped = df.groupby([uid_col, ds_col], as_index=False)
+    df = grouped.agg({y_col: agg_map[aggregation]})
+
+    warnings.append({
+        "code": "W_CONTRACT_AGGREGATED",
+        "message": f"Aggregated duplicate keys using '{aggregation}'",
+        "context": {"aggregation": aggregation},
+    })
+
+    return df, warnings
+
+
+def _validate_no_duplicates(
+    df: pd.DataFrame,
+    uid_col: str,
+    ds_col: str,
+    aggregation: str,
+) -> list[dict[str, Any]]:
     errors: list[dict[str, Any]] = []
 
-    # Check for duplicates
-    duplicates = df.duplicated(subset=["unique_id", "ds"], keep=False)
+    duplicates = df.duplicated(subset=[uid_col, ds_col], keep=False)
     if duplicates.any():
         dup_df = df[duplicates]
-        dup_keys = dup_df[["unique_id", "ds"]].drop_duplicates()
+        dup_keys = dup_df[[uid_col, ds_col]].drop_duplicates()
 
         errors.append({
             "code": EContractDuplicateKey.error_code,
-            "message": f"Found {len(dup_keys)} duplicate (unique_id, ds) pairs",
+            "message": f"Found {len(dup_keys)} duplicate ({uid_col}, {ds_col}) pairs",
             "context": {
                 "num_duplicates": int(duplicates.sum()),
                 "duplicate_keys": dup_keys.head(10).to_dict("records"),
+                "aggregation": aggregation,
             },
         })
 
     return errors
 
 
-def _validate_sorted(df: pd.DataFrame) -> list[dict[str, Any]]:
-    """Check if data is sorted by (unique_id, ds).
-
-    Args:
-        df: Input DataFrame
-
-    Returns:
-        List of error dictionaries
-    """
+def _validate_sorted(
+    df: pd.DataFrame,
+    uid_col: str,
+    ds_col: str,
+) -> list[dict[str, Any]]:
     errors: list[dict[str, Any]] = []
 
-    # Check if sorted
-    expected_order = df.sort_values(["unique_id", "ds"]).index
+    expected_order = df.sort_values([uid_col, ds_col]).index
     if not df.index.equals(expected_order):
         errors.append({
             "code": EContractUnsorted.error_code,
-            "message": "Data must be sorted by (unique_id, ds)",
+            "message": f"Data must be sorted by ({uid_col}, {ds_col})",
             "context": {
-                "suggestion": "Use df.sort_values(['unique_id', 'ds']) to fix",
+                "suggestion": f"Use df.sort_values(['{uid_col}', '{ds_col}']) to fix",
             },
         })
 
     return errors
 
 
-def _validate_frequency(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Try to infer and validate frequency.
-
-    Args:
-        df: Input DataFrame
-
-    Returns:
-        Tuple of (warnings list, stats dict)
-    """
+def _validate_frequency(
+    df: pd.DataFrame,
+    uid_col: str,
+    ds_col: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     warnings: list[dict[str, Any]] = []
     stats: dict[str, Any] = {}
 
-    # Try to infer frequency from each series
     freq_counts: dict[str, int] = {}
 
-    for uid in df["unique_id"].unique():
-        series = df[df["unique_id"] == uid].sort_values("ds")
+    for uid in df[uid_col].unique():
+        series = df[df[uid_col] == uid].sort_values(ds_col)
         if len(series) < 2:
             continue
 
         try:
-            freq = pd.infer_freq(series["ds"])
+            freq = pd.infer_freq(series[ds_col])
             if freq:
                 freq_counts[freq] = freq_counts.get(freq, 0) + 1
         except Exception:
             pass
 
     if freq_counts:
-        # Take most common frequency
         inferred_freq = max(freq_counts, key=freq_counts.get)
         stats["inferred_freq"] = inferred_freq
         stats["freq_counts"] = freq_counts
     else:
         warnings.append({
-            "code": EContractInvalidFrequency.error_code,
+            "code": EFreqInferFail.error_code,
             "message": "Could not infer frequency from data",
             "context": {
                 "suggestion": "Specify frequency explicitly in TaskSpec",
@@ -286,37 +302,32 @@ def _validate_frequency(df: pd.DataFrame) -> tuple[list[dict[str, Any]], dict[st
     return warnings, stats
 
 
-def _compute_stats(df: pd.DataFrame) -> dict[str, Any]:
-    """Compute basic statistics about the data.
-
-    Args:
-        df: Input DataFrame
-
-    Returns:
-        Dictionary of statistics
-    """
+def _compute_stats(
+    df: pd.DataFrame,
+    uid_col: str,
+    ds_col: str,
+    y_col: str,
+) -> dict[str, Any]:
     stats: dict[str, Any] = {
         "num_rows": len(df),
-        "num_series": df["unique_id"].nunique(),
+        "num_series": df[uid_col].nunique(),
     }
 
-    # Date range (only if ds is datetime)
-    if pd.api.types.is_datetime64_any_dtype(df["ds"]):
+    if pd.api.types.is_datetime64_any_dtype(df[ds_col]):
         stats["date_range"] = {
-            "start": df["ds"].min().isoformat() if not df["ds"].empty else None,
-            "end": df["ds"].max().isoformat() if not df["ds"].empty else None,
+            "start": df[ds_col].min().isoformat() if not df[ds_col].empty else None,
+            "end": df[ds_col].max().isoformat() if not df[ds_col].empty else None,
         }
     else:
         stats["date_range"] = {"start": None, "end": None}
 
-    # Y stats (only if numeric and not empty)
-    if len(df) > 0 and pd.api.types.is_numeric_dtype(df["y"]):
+    if len(df) > 0 and pd.api.types.is_numeric_dtype(df[y_col]):
         stats["y_stats"] = {
-            "mean": float(df["y"].mean()),
-            "std": float(df["y"].std()),
-            "min": float(df["y"].min()),
-            "max": float(df["y"].max()),
-            "missing": int(df["y"].isna().sum()),
+            "mean": float(df[y_col].mean()),
+            "std": float(df[y_col].std()),
+            "min": float(df[y_col].min()),
+            "max": float(df[y_col].max()),
+            "missing": int(df[y_col].isna().sum()),
         }
     else:
         stats["y_stats"] = {
@@ -324,12 +335,11 @@ def _compute_stats(df: pd.DataFrame) -> dict[str, Any]:
             "std": None,
             "min": None,
             "max": None,
-            "missing": int(df["y"].isna().sum()) if "y" in df.columns else 0,
+            "missing": int(df[y_col].isna().sum()) if y_col in df.columns else 0,
         }
 
-    # Series lengths (only if we have data)
     if len(df) > 0:
-        series_lengths = df.groupby("unique_id").size()
+        series_lengths = df.groupby(uid_col).size()
         stats["series_lengths"] = {
             "min": int(series_lengths.min()),
             "max": int(series_lengths.max()),

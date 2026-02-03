@@ -18,7 +18,7 @@ def test_observed_covariate_leakage_detected() -> None:
             "promo": [0, 1, 1],
         }
     )
-    spec = TaskSpec(horizon=1, freq="D", covariate_policy="observed")
+    spec = TaskSpec(h=1, freq="D", covariate_policy="observed")
 
     from tsagentkit.contracts import ECovariateLeakage
 
@@ -35,7 +35,7 @@ def test_known_covariates_do_not_trigger_leakage() -> None:
             "promo": [0, 1, 1],
         }
     )
-    spec = TaskSpec(horizon=1, freq="D", covariate_policy="known")
+    spec = TaskSpec(h=1, freq="D", covariate_policy="known")
 
     report = run_qa(df, spec, mode="standard")
 
@@ -53,7 +53,7 @@ def test_auto_covariate_inference_uses_future_values() -> None:
             "observed_cov": [1.0, 2.0, None],
         }
     )
-    spec = TaskSpec(horizon=1, freq="D", covariate_policy="auto")
+    spec = TaskSpec(h=1, freq="D", covariate_policy="auto")
 
     report = run_qa(df, spec, mode="standard")
 
@@ -68,7 +68,7 @@ def test_apply_repairs_interpolates_missing_values() -> None:
             "y": [1.0, None, 3.0],
         }
     )
-    spec = TaskSpec(horizon=1, freq="D")
+    spec = TaskSpec(h=1, freq="D")
 
     report = run_qa(df, spec, mode="standard", apply_repairs=True)
 
@@ -84,9 +84,9 @@ def test_apply_repairs_winsorizes_outliers() -> None:
             "y": [0.0, 0.0, 10.0],
         }
     )
-    spec = TaskSpec(horizon=1, freq="D")
+    spec = TaskSpec(h=1, freq="D")
 
-    report = run_qa(df, spec, mode="standard", apply_repairs=True, outlier_z=1.0)
+    report = run_qa(df, spec, mode="standard", apply_repairs=True)
 
     assert df["y"].max() < 10.0
-    assert any(r["type"] == "outliers" for r in report.repairs)
+    assert any(r["type"] == "winsorize" for r in report.repairs)
