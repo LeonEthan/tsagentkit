@@ -34,7 +34,7 @@ class TestFeaturesIntegration:
 
     def test_feature_factory_integration(self, sample_data):
         """Test FeatureFactory with full feature set."""
-        config = FeatureConfig(
+        config = FeatureConfig(engine="native", 
             lags=[1, 7],
             calendar_features=["dayofweek", "month"],
             rolling_windows={7: ["mean"], 14: ["std"]},
@@ -61,7 +61,7 @@ class TestFeaturesIntegration:
 
     def test_feature_versioning_consistency(self, sample_data):
         """Test that same config produces same hash."""
-        config = FeatureConfig(lags=[1, 7, 14])
+        config = FeatureConfig(engine="native", lags=[1, 7, 14])
         factory1 = FeatureFactory(config)
         factory2 = FeatureFactory(config)
 
@@ -291,15 +291,15 @@ class TestProvenanceIntegration:
 
     def test_provenance_with_features(self, mock_feature_matrix):
         """Test provenance includes feature info."""
-        from tsagentkit.router import Plan
+        from tsagentkit.router import PlanSpec
 
         data = pd.DataFrame({
             "unique_id": ["A"],
             "ds": pd.to_datetime(["2024-01-01"]),
             "y": [1.0],
         })
-        task_spec = TaskSpec(horizon=7, freq="D")
-        plan = Plan(primary_model="SeasonalNaive", config={})
+        task_spec = TaskSpec(h=7, freq="D")
+        plan = PlanSpec(plan_name="default", candidate_models=["SeasonalNaive"])
 
         provenance = create_provenance(
             data=data,
@@ -308,22 +308,22 @@ class TestProvenanceIntegration:
             feature_matrix=mock_feature_matrix,
         )
 
-        assert "feature_signature" in provenance
-        assert "feature_config_hash" in provenance
-        assert "n_features" in provenance
-        assert provenance["feature_signature"] == mock_feature_matrix.signature
+        assert "feature_signature" in provenance.metadata
+        assert "feature_config_hash" in provenance.metadata
+        assert "n_features" in provenance.metadata
+        assert provenance.metadata["feature_signature"] == mock_feature_matrix.signature
 
     def test_provenance_with_drift(self, mock_drift_report):
         """Test provenance includes drift info."""
-        from tsagentkit.router import Plan
+        from tsagentkit.router import PlanSpec
 
         data = pd.DataFrame({
             "unique_id": ["A"],
             "ds": pd.to_datetime(["2024-01-01"]),
             "y": [1.0],
         })
-        task_spec = TaskSpec(horizon=7, freq="D")
-        plan = Plan(primary_model="SeasonalNaive", config={})
+        task_spec = TaskSpec(h=7, freq="D")
+        plan = PlanSpec(plan_name="default", candidate_models=["SeasonalNaive"])
 
         provenance = create_provenance(
             data=data,
@@ -332,11 +332,11 @@ class TestProvenanceIntegration:
             drift_report=mock_drift_report,
         )
 
-        assert "drift_detected" in provenance
-        assert "drift_score" in provenance
-        assert "drift_threshold" in provenance
-        assert "drifting_features" in provenance
-        assert provenance["drift_detected"] is True
+        assert "drift_detected" in provenance.metadata
+        assert "drift_score" in provenance.metadata
+        assert "drift_threshold" in provenance.metadata
+        assert "drifting_features" in provenance.metadata
+        assert provenance.metadata["drift_detected"] is True
 
 
 class TestEndToEndV02:
@@ -369,7 +369,7 @@ class TestEndToEndV02:
         # This would be called in a real scenario
         # run_forecast(
         #     data=current_data,
-        #     task_spec=TaskSpec(horizon=7, freq="D"),
+        #     task_spec=TaskSpec(h=7, freq="D"),
         #     monitoring_config=monitoring_config,
         #     reference_data=reference_data,
         # )
@@ -388,7 +388,7 @@ class TestEndToEndV02:
         })
 
         # Create features
-        config = FeatureConfig(lags=[1, 7])
+        config = FeatureConfig(engine="native", lags=[1, 7])
         factory = FeatureFactory(config)
 
         class MockTSDataset:
@@ -398,10 +398,10 @@ class TestEndToEndV02:
         matrix = factory.create_features(MockTSDataset(data))
 
         # Create provenance with features
-        from tsagentkit.router import Plan
+        from tsagentkit.router import PlanSpec
 
-        task_spec = TaskSpec(horizon=7, freq="D")
-        plan = Plan(primary_model="SeasonalNaive", config={})
+        task_spec = TaskSpec(h=7, freq="D")
+        plan = PlanSpec(plan_name="default", candidate_models=["SeasonalNaive"])
 
         provenance = create_provenance(
             data=data,
@@ -410,5 +410,5 @@ class TestEndToEndV02:
             feature_matrix=matrix,
         )
 
-        assert provenance["feature_signature"] == matrix.signature
-        assert provenance["n_features"] == 2  # lag_1 and lag_7
+        assert provenance.metadata["feature_signature"] == matrix.signature
+        assert provenance.metadata["n_features"] == 2  # lag_1 and lag_7

@@ -1,6 +1,8 @@
 """Backtest module for tsagentkit.
 
-Provides rolling window backtesting and metrics calculation.
+Provides rolling window backtesting and report structures. Legacy metric
+helpers are still exported for compatibility but are deprecated; prefer
+``tsagentkit.eval.evaluate_forecasts`` for new evaluation flows.
 """
 
 from .engine import cross_validation_split, rolling_backtest
@@ -12,9 +14,16 @@ from .metrics import (
     pinball_loss,
     rmse,
     smape,
+    wql,
     wape,
 )
-from .report import BacktestReport, SeriesMetrics, WindowResult
+from .report import (
+    BacktestReport,
+    SegmentMetrics,
+    SeriesMetrics,
+    TemporalMetrics,
+    WindowResult,
+)
 
 __all__ = [
     # Engine
@@ -24,6 +33,8 @@ __all__ = [
     "BacktestReport",
     "WindowResult",
     "SeriesMetrics",
+    "SegmentMetrics",
+    "TemporalMetrics",
     # Metrics
     "wape",
     "smape",
@@ -31,6 +42,7 @@ __all__ = [
     "mae",
     "rmse",
     "pinball_loss",
+    "wql",
     "compute_all_metrics",
     "compute_metrics_by_series",
 ]

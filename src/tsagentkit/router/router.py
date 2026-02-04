@@ -1,310 +1,272 @@
-"""Model selection and routing logic.
-
-Routes TSDatasets to appropriate models based on data characteristics.
-"""
+"""Deterministic routing logic aligned to the PRD PlanSpec."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tsagentkit.contracts import TaskSpec
-from tsagentkit.hierarchy import ReconciliationMethod
+import numpy as np
+import pandas as pd
 
-from .fallback import FallbackLadder
-from .plan import Plan
+from tsagentkit.contracts import PlanSpec, RouteDecision, RouterConfig, RouterThresholds, TaskSpec
 
 if TYPE_CHECKING:
     from tsagentkit.qa import QAReport
-    from tsagentkit.series import SparsityClass, SparsityProfile, TSDataset
+    from tsagentkit.series import TSDataset
 
 
 def make_plan(
     dataset: TSDataset,
     task_spec: TaskSpec,
     qa: QAReport | None = None,
-    strategy: str = "auto",
+    router_config: RouterConfig | None = None,
     use_tsfm: bool = True,
     tsfm_preference: list[str] | None = None,
-) -> Plan:
-    """Create an execution plan for a dataset.
-
-    Analyzes the dataset characteristics and selects appropriate models
-    with fallback chains.
-
-    Args:
-        dataset: TSDataset to create plan for
-        task_spec: Task specification
-        qa: Optional QA report for data quality considerations
-        strategy: Routing strategy ("auto", "baseline_only", "tsfm_first")
-        use_tsfm: Whether to consider TSFMs (default: True)
-        tsfm_preference: Ordered list of preferred TSFMs
+) -> tuple[PlanSpec, RouteDecision]:
+    """Create a deterministic PlanSpec and RouteDecision for a dataset.
 
     Returns:
-        Plan with model selection and fallback chain
-
-    Raises:
-        ValueError: If unknown strategy specified
+        Tuple of (PlanSpec, RouteDecision) containing the execution plan
+        and detailed routing decision information.
     """
-    # Get sparsity profile
-    sparsity = dataset.sparsity_profile
+    thresholds = (router_config or RouterConfig()).thresholds
+    stats, buckets = _compute_router_stats(dataset, task_spec, thresholds)
 
-    # Determine primary model and fallbacks based on strategy
-    if strategy == "auto":
-        return _make_auto_plan(
-            dataset, task_spec, sparsity, use_tsfm, tsfm_preference
-        )
-    elif strategy == "baseline_only":
-        return _make_baseline_plan(task_spec, sparsity)
-    elif strategy == "tsfm_first":
-        # TSFM-first strategy (for v1.0)
-        return _make_tsfm_plan(
-            dataset, task_spec, sparsity, tsfm_preference
-        )
-    else:
-        raise ValueError(f"Unknown strategy: {strategy}")
-
-
-def _make_auto_plan(
-    dataset: TSDataset,
-    task_spec: TaskSpec,
-    sparsity: SparsityProfile | None,
-    use_tsfm: bool = True,
-    tsfm_preference: list[str] | None = None,
-) -> Plan:
-    """Create plan with automatic model selection.
-
-    For v1.0, this includes TSFM support and hierarchical forecasting.
-    """
-    # Analyze data characteristics
-    has_intermittent = sparsity.has_intermittent() if sparsity else False
-    has_cold_start = sparsity.has_cold_start() if sparsity else False
-
-    # Get season length from task spec or default
-    season_length = task_spec.season_length or 1
-
-    # Check TSFM availability
-    available_tsfms = []
-    if use_tsfm:
+    # Determine TSFM availability
+    available_tsfms: list[str] = []
+    if use_tsfm and _tsfm_allowed(dataset, thresholds):
         from tsagentkit.models.adapters import AdapterRegistry
 
-        for tsfm_name in (tsfm_preference or ["chronos", "moirai", "timesfm"]):
-            is_avail, _ = AdapterRegistry.check_availability(tsfm_name)
+        for name in (tsfm_preference or ["chronos", "moirai", "timesfm"]):
+            is_avail, _ = AdapterRegistry.check_availability(name)
             if is_avail:
-                available_tsfms.append(tsfm_name)
+                available_tsfms.append(name)
 
-    # Hierarchy-aware planning
-    if dataset.is_hierarchical():
-        return _make_hierarchical_plan(
-            dataset, task_spec, sparsity, available_tsfms
-        )
-
-    # Select primary model based on data characteristics
-    if available_tsfms and not has_intermittent and not has_cold_start:
-        # Use TSFM for regular series when available
-        primary = f"tsfm-{available_tsfms[0]}"
-        fallback_chain = [f"tsfm-{t}" for t in available_tsfms[1:]] + \
-                         FallbackLadder.STANDARD_LADDER
-    elif has_intermittent:
-        primary = "SeasonalNaive"
-        fallback_chain = FallbackLadder.INTERMITTENT_LADDER[1:]
-    elif has_cold_start:
-        primary = "HistoricAverage"
-        fallback_chain = FallbackLadder.COLD_START_LADDER[1:]
+    # Build candidate model list
+    if "intermittent" in buckets:
+        candidates = ["Croston", "Naive"]
+    elif "short_history" in buckets:
+        candidates = ["HistoricAverage", "Naive"]
     else:
-        # Regular series: Use SeasonalNaive as primary
-        primary = "SeasonalNaive"
-        fallback_chain = FallbackLadder.STANDARD_LADDER[1:]
+        candidates = ["SeasonalNaive", "HistoricAverage", "Naive"]
 
-    # Build config
-    config = {
-        "season_length": season_length,
-        "horizon": task_spec.horizon,
-    }
+    if available_tsfms and "intermittent" not in buckets:
+        tsfm_models = [f"tsfm-{name}" for name in available_tsfms]
+        candidates = tsfm_models + candidates
 
-    if task_spec.quantiles:
-        config["quantiles"] = task_spec.quantiles
-
-    return Plan(
-        primary_model=primary,
-        fallback_chain=fallback_chain,
-        config=config,
-        strategy="auto",
+    plan = PlanSpec(
+        plan_name="default",
+        candidate_models=candidates,
+        use_static=True,
+        use_past=True,
+        use_future_known=True,
+        min_train_size=thresholds.min_train_size,
+        max_train_size=thresholds.max_points_per_series_for_tsfm,
+        interval_mode=task_spec.forecast_contract.interval_mode,
+        levels=task_spec.forecast_contract.levels,
+        quantiles=task_spec.forecast_contract.quantiles,
+        allow_drop_covariates=True,
+        allow_baseline=True,
     )
 
-
-def _make_hierarchical_plan(
-    dataset: TSDataset,
-    task_spec: TaskSpec,
-    sparsity: SparsityProfile | None,
-    available_tsfms: list[str],
-) -> Plan:
-    """Create plan for hierarchical forecasting.
-
-    Args:
-        dataset: Time series dataset with hierarchy
-        task_spec: Task specification
-        sparsity: Optional sparsity profile
-        available_tsfms: List of available TSFM names
-
-    Returns:
-        Plan with hierarchical reconciliation strategy
-    """
-    hierarchy = dataset.hierarchy
-    assert hierarchy is not None  # Checked by caller
-
-    # Determine reconciliation strategy
-    n_levels = hierarchy.get_num_levels()
-
-    # For deep hierarchies, use MinT; for shallow, bottom-up may suffice
-    if n_levels > 2:
-        reconciliation_method = ReconciliationMethod.MIN_TRACE
-    else:
-        reconciliation_method = ReconciliationMethod.BOTTOM_UP
-
-    # Build model selection
+    # Build RouteDecision for audit trail
+    reasons = [
+        f"selected_models: {candidates}",
+        f"buckets: {buckets}",
+        f"tsfm_available: {bool(available_tsfms)}",
+    ]
     if available_tsfms:
-        primary = f"tsfm-{available_tsfms[0]}"
-        fallback_chain = [f"tsfm-{t}" for t in available_tsfms[1:]] + \
-                         ["theta", "seasonal_naive"]
-    else:
-        primary = "seasonal_naive"
-        fallback_chain = ["theta", "historic_average"]
+        reasons.append(f"tsfm_models: {available_tsfms}")
 
-    config = {
-        "hierarchical": True,
-        "reconciliation_method": reconciliation_method.value,
-        "hierarchy_levels": n_levels,
-        "season_length": task_spec.season_length or 1,
-        "horizon": task_spec.horizon,
-    }
-
-    if task_spec.quantiles:
-        config["quantiles"] = task_spec.quantiles
-
-    return Plan(
-        primary_model=primary,
-        fallback_chain=fallback_chain,
-        config=config,
-        strategy="hierarchical",
+    route_decision = RouteDecision(
+        stats=stats,
+        buckets=buckets,
+        selected_plan=plan,
+        reasons=reasons,
     )
 
-
-def _make_baseline_plan(
-    task_spec: TaskSpec,
-    sparsity: SparsityProfile | None,
-) -> Plan:
-    """Create plan using only baseline models."""
-    has_intermittent = sparsity.has_intermittent() if sparsity else False
-    has_cold_start = sparsity.has_cold_start() if sparsity else False
-
-    season_length = task_spec.season_length or 1
-
-    if has_intermittent:
-        primary = "SeasonalNaive"
-        fallback_chain = ["HistoricAverage", "Naive"]
-    elif has_cold_start:
-        primary = "HistoricAverage"
-        fallback_chain = ["Naive"]
-    else:
-        primary = "SeasonalNaive"
-        fallback_chain = ["HistoricAverage", "Naive"]
-
-    config = {
-        "season_length": season_length,
-        "horizon": task_spec.horizon,
-    }
-
-    if task_spec.quantiles:
-        config["quantiles"] = task_spec.quantiles
-
-    return Plan(
-        primary_model=primary,
-        fallback_chain=fallback_chain,
-        config=config,
-        strategy="baseline_only",
-    )
-
-
-def _make_tsfm_plan(
-    dataset: TSDataset,
-    task_spec: TaskSpec,
-    sparsity: SparsityProfile | None,
-    tsfm_preference: list[str] | None = None,
-) -> Plan:
-    """Create plan with TSFM-first strategy.
-
-    For v1.0, this attempts TSFM models first with fallback to baselines.
-    """
-    from tsagentkit.models.adapters import AdapterRegistry
-
-    # Check available TSFMs
-    available_tsfms = []
-    for tsfm_name in (tsfm_preference or ["chronos", "moirai", "timesfm"]):
-        is_avail, _ = AdapterRegistry.check_availability(tsfm_name)
-        if is_avail:
-            available_tsfms.append(tsfm_name)
-
-    # Get season length
-    season_length = task_spec.season_length or 1
-
-    if available_tsfms:
-        # Use first available TSFM as primary
-        primary = f"tsfm-{available_tsfms[0]}"
-        # Remaining TSFMs + baseline fallbacks
-        fallback_chain = [f"tsfm-{t}" for t in available_tsfms[1:]]
-
-        # Add baseline fallbacks based on data characteristics
-        has_intermittent = sparsity.has_intermittent() if sparsity else False
-        if has_intermittent:
-            fallback_chain.extend(FallbackLadder.INTERMITTENT_LADDER)
-        else:
-            fallback_chain.extend(FallbackLadder.STANDARD_LADDER)
-    else:
-        # No TSFMs available, fall back to standard plan
-        return _make_auto_plan(dataset, task_spec, sparsity, use_tsfm=False)
-
-    config = {
-        "season_length": season_length,
-        "horizon": task_spec.horizon,
-        "tsfm_models": available_tsfms,
-    }
-
-    if task_spec.quantiles:
-        config["quantiles"] = task_spec.quantiles
-
-    return Plan(
-        primary_model=primary,
-        fallback_chain=fallback_chain,
-        config=config,
-        strategy="tsfm_first",
-    )
+    return plan, route_decision
 
 
 def get_model_for_series(
     unique_id: str,
-    sparsity: SparsityProfile | None,
-    default_model: str = "SeasonalNaive",
+    dataset: TSDataset,
+    task_spec: TaskSpec,
+    thresholds: RouterThresholds | None = None,
 ) -> str:
-    """Get recommended model for a specific series.
+    """Get recommended model for a specific series."""
+    thresholds = thresholds or RouterThresholds()
+    series_df = dataset.get_series(unique_id)
+    stats, buckets = _compute_series_stats(series_df, task_spec, thresholds)
 
-    Args:
-        unique_id: Series identifier
-        sparsity: Sparsity profile
-        default_model: Default model if no specific recommendation
-
-    Returns:
-        Model name for the series
-    """
-    if sparsity is None:
-        return default_model
-
-    classification = sparsity.get_classification(unique_id)
-
-    if classification.value == "intermittent":
-        return "SeasonalNaive"
-    elif classification.value == "cold_start":
+    if "intermittent" in buckets:
+        return "Croston"
+    if "short_history" in buckets:
         return "HistoricAverage"
-    elif classification.value == "sparse":
-        return "SeasonalNaive"
-    else:
-        return default_model
+    return "SeasonalNaive"
+
+
+def _compute_router_stats(
+    dataset: TSDataset,
+    task_spec: TaskSpec,
+    thresholds: RouterThresholds,
+) -> tuple[dict[str, float], list[str]]:
+    df = dataset.df
+    stats: dict[str, float] = {}
+    buckets: list[str] = []
+
+    lengths = df.groupby("unique_id").size()
+    min_len = int(lengths.min()) if not lengths.empty else 0
+    stats["min_series_length"] = float(min_len)
+    if min_len < thresholds.min_train_size:
+        buckets.append("short_history")
+
+    missing_ratio = _compute_missing_ratio(df, task_spec)
+    stats["missing_ratio"] = float(missing_ratio)
+    if missing_ratio > thresholds.max_missing_ratio:
+        buckets.append("sparse")
+
+    uid_col = task_spec.panel_contract.unique_id_col
+    ds_col = task_spec.panel_contract.ds_col
+    y_col = task_spec.panel_contract.y_col
+
+    intermittency = _compute_intermittency(df, thresholds, uid_col, ds_col, y_col)
+    stats.update(intermittency)
+    if intermittency.get("intermittent_series_ratio", 0.0) > 0:
+        buckets.append("intermittent")
+
+    season_conf = _seasonality_confidence(df, task_spec, uid_col, y_col)
+    stats["seasonality_confidence"] = float(season_conf)
+    if season_conf >= thresholds.min_seasonality_conf:
+        buckets.append("seasonal_candidate")
+
+    return stats, buckets
+
+
+def _compute_series_stats(
+    series_df: pd.DataFrame,
+    task_spec: TaskSpec,
+    thresholds: RouterThresholds,
+) -> tuple[dict[str, float], list[str]]:
+    stats: dict[str, float] = {}
+    buckets: list[str] = []
+
+    length = len(series_df)
+    stats["series_length"] = float(length)
+    if length < thresholds.min_train_size:
+        buckets.append("short_history")
+
+    missing_ratio = _compute_missing_ratio(series_df, task_spec)
+    stats["missing_ratio"] = float(missing_ratio)
+    if missing_ratio > thresholds.max_missing_ratio:
+        buckets.append("sparse")
+
+    uid_col = task_spec.panel_contract.unique_id_col
+    ds_col = task_spec.panel_contract.ds_col
+    y_col = task_spec.panel_contract.y_col
+
+    intermittency = _compute_intermittency(series_df, thresholds, uid_col, ds_col, y_col)
+    stats.update(intermittency)
+    if intermittency.get("intermittent_series_ratio", 0.0) > 0:
+        buckets.append("intermittent")
+
+    season_conf = _seasonality_confidence(series_df, task_spec, uid_col, y_col)
+    stats["seasonality_confidence"] = float(season_conf)
+    if season_conf >= thresholds.min_seasonality_conf:
+        buckets.append("seasonal_candidate")
+
+    return stats, buckets
+
+
+def _compute_missing_ratio(df: pd.DataFrame, task_spec: TaskSpec) -> float:
+    if df.empty:
+        return 0.0
+    uid_col = task_spec.panel_contract.unique_id_col
+    ds_col = task_spec.panel_contract.ds_col
+
+    ratios = []
+    for uid in df[uid_col].unique():
+        series = df[df[uid_col] == uid].sort_values(ds_col)
+        if series.empty:
+            continue
+        full_range = pd.date_range(
+            start=series[ds_col].min(),
+            end=series[ds_col].max(),
+            freq=task_spec.freq,
+        )
+        missing = len(full_range) - len(series)
+        ratio = missing / max(len(full_range), 1)
+        ratios.append(ratio)
+    return float(np.mean(ratios)) if ratios else 0.0
+
+
+def _compute_intermittency(
+    df: pd.DataFrame,
+    thresholds: RouterThresholds,
+    uid_col: str,
+    ds_col: str,
+    y_col: str,
+) -> dict[str, float]:
+    intermittent = 0
+    total = 0
+
+    for uid in df[uid_col].unique():
+        series = df[df[uid_col] == uid].sort_values(ds_col)
+        y = series[y_col].values
+        total += 1
+
+        non_zero_idx = np.where(y > 0)[0]
+        if len(non_zero_idx) <= 1:
+            adi = float("inf")
+            cv2 = float("inf")
+        else:
+            intervals = np.diff(non_zero_idx)
+            adi = float(np.mean(intervals)) if len(intervals) > 0 else float("inf")
+            non_zero_vals = y[non_zero_idx]
+            mean = np.mean(non_zero_vals) if len(non_zero_vals) > 0 else 0.0
+            std = np.std(non_zero_vals) if len(non_zero_vals) > 0 else 0.0
+            cv2 = float((std / mean) ** 2) if mean != 0 else float("inf")
+
+        if adi >= thresholds.max_intermittency_adi and cv2 >= thresholds.max_intermittency_cv2:
+            intermittent += 1
+
+    ratio = intermittent / total if total > 0 else 0.0
+    return {
+        "intermittent_series_ratio": ratio,
+        "intermittent_series_count": float(intermittent),
+    }
+
+
+def _seasonality_confidence(
+    df: pd.DataFrame,
+    task_spec: TaskSpec,
+    uid_col: str,
+    y_col: str,
+) -> float:
+    season_length = task_spec.season_length
+    if season_length is None or season_length <= 1:
+        return 0.0
+    confs: list[float] = []
+    for uid in df[uid_col].unique():
+        series = df[df[uid_col] == uid][y_col].values
+        if len(series) <= season_length:
+            continue
+        series = series - np.mean(series)
+        denom = np.dot(series, series)
+        if denom == 0:
+            continue
+        lagged = np.roll(series, season_length)
+        corr = np.dot(series[season_length:], lagged[season_length:]) / denom
+        confs.append(abs(float(corr)))
+    return float(np.mean(confs)) if confs else 0.0
+
+
+def _tsfm_allowed(dataset: TSDataset, thresholds: RouterThresholds) -> bool:
+    if dataset.n_series > thresholds.max_series_count_for_tsfm:
+        return False
+    max_points = dataset.df.groupby("unique_id").size().max()
+    if max_points > thresholds.max_points_per_series_for_tsfm:
+        return False
+    return True
+
+
+__all__ = ["make_plan", "get_model_for_series", "RouteDecision"]

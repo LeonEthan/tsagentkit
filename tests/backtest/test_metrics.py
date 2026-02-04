@@ -34,11 +34,10 @@ class TestWape:
         assert wape(y_true, y_pred) == pytest.approx(1 / 3)
 
     def test_zero_sum_raises(self) -> None:
-        """Test that WAPE raises when sum of y_true is zero."""
+        """Test that WAPE returns NaN when sum of y_true is zero."""
         y_true = np.array([0.0, 0.0, 0.0])
         y_pred = np.array([1.0, 1.0, 1.0])
-        with pytest.raises(ValueError, match="zero"):
-            wape(y_true, y_pred)
+        assert np.isnan(wape(y_true, y_pred))
 
 
 class TestSmape:
@@ -54,21 +53,15 @@ class TestSmape:
         """Test SMAPE with typical values."""
         y_true = np.array([100.0, 200.0])
         y_pred = np.array([110.0, 190.0])
-        # Error 1: |100-110| / ((100+110)/2) = 10/105 = 0.095
-        # Error 2: |200-190| / ((200+190)/2) = 10/195 = 0.051
-        # Mean: (0.095 + 0.051) / 2 = 0.073
         result = smape(y_true, y_pred)
-        assert result > 0.0
-        assert result < 0.1
+        assert result == pytest.approx(0.03663, rel=1e-2)
 
     def test_handles_zero(self) -> None:
         """Test SMAPE handles zero values."""
         y_true = np.array([0.0, 1.0])
         y_pred = np.array([0.0, 2.0])
-        # First item: both zero, denominator 0, skipped
-        # Second item: |1-2| / ((1+2)/2) = 1/1.5 = 0.667
         result = smape(y_true, y_pred)
-        assert result == pytest.approx(2 / 3)
+        assert result == pytest.approx(1 / 6)
 
 
 class TestMase:
@@ -101,12 +94,11 @@ class TestMase:
         assert result > 1.0  # Worse than naive
 
     def test_zero_naive_mae_raises(self) -> None:
-        """Test that MASE raises when naive MAE is zero."""
+        """Test that MASE returns NaN when naive MAE is zero."""
         y_true = np.array([1.0, 2.0])
         y_pred = np.array([1.5, 2.5])
         y_train = np.array([1.0, 1.0, 1.0, 1.0])  # Zero naive error
-        with pytest.raises(ValueError, match="zero"):
-            mase(y_true, y_pred, y_train)
+        assert np.isnan(mase(y_true, y_pred, y_train))
 
     def test_seasonal_naive(self) -> None:
         """Test MASE with seasonal naive."""

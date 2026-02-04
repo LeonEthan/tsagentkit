@@ -6,9 +6,53 @@ Defines the data structures for forecast outputs including provenance tracking.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any
 
-import pandas as pd
+_QUANTILE_PATTERN = re.compile(r"^q[_]?([0-9]+(?:\.[0-9]+)?)$")
+
+
+def _parse_quantile_column(col: str) -> float | None:
+    match = _QUANTILE_PATTERN.match(col)
+    if not match:
+        return None
+    value = float(match.group(1))
+    if value > 1:
+        value = value / 100.0
+    if not 0 < value < 1:
+        return None
+    return value
+
+
+def _is_datetime_like(series: Any) -> bool:
+    try:
+        import pandas as pd  # Optional import for accurate dtype checks.
+
+        return bool(pd.api.types.is_datetime64_any_dtype(series))
+    except Exception:
+        dtype = getattr(series, "dtype", None)
+        kind = getattr(dtype, "kind", None)
+        return kind == "M"
+
+
+@dataclass(frozen=True)
+class ForecastFrame:
+    """Forecast frame in long format.
+
+    Expected columns: unique_id, ds, model, yhat (+ intervals/quantiles).
+    """
+
+    df: Any
+
+
+@dataclass(frozen=True)
+class CVFrame:
+    """Cross-validation frame in long format.
+
+    Expected columns: unique_id, ds, cutoff, model, y, yhat (+ intervals/quantiles).
+    """
+
+    df: Any
 
 
 @dataclass(frozen=True)
@@ -68,26 +112,26 @@ class ForecastResult:
     provenance information for reproducibility.
 
     Attributes:
-        df: DataFrame with columns [unique_id, ds, yhat] + quantile columns
+        df: DataFrame with columns [unique_id, ds, model, yhat] + quantile columns
         provenance: Full provenance information
         model_name: Name of the model that produced this forecast
         horizon: Forecast horizon
     """
 
-    df: pd.DataFrame
+    df: Any
     provenance: Provenance
     model_name: str
     horizon: int
 
     def __post_init__(self) -> None:
         """Validate the dataframe structure."""
-        required_cols = {"unique_id", "ds", "yhat"}
+        required_cols = {"unique_id", "ds", "model", "yhat"}
         missing = required_cols - set(self.df.columns)
         if missing:
             raise ValueError(f"ForecastResult df missing columns: {missing}")
 
         # Validate types
-        if not pd.api.types.is_datetime64_any_dtype(self.df["ds"]):
+        if not _is_datetime_like(self.df["ds"]):
             raise ValueError("Column 'ds' must be datetime")
 
     def get_quantile_columns(self) -> list[str]:
@@ -96,7 +140,7 @@ class ForecastResult:
         Returns:
             List of column names starting with 'q' (quantile columns)
         """
-        return [c for c in self.df.columns if c.startswith("q") and c != "q"]
+        return [c for c in self.df.columns if _parse_quantile_column(c) is not None]
 
     def get_series(self, unique_id: str) -> pd.DataFrame:
         """Get forecast for a specific series.
@@ -211,6 +255,57 @@ class ModelArtifact:
 
 
 @dataclass(frozen=True)
+class RepairReport:
+    """Detailed repair report for audit trail.
+
+    Provides comprehensive information about data repairs applied
+    during QA, ensuring full traceability and PIT safety verification.
+
+    Attributes:
+        repair_type: Type of repair ("missing_values", "winsorize", "median_filter")
+        column: Column that was repaired
+        count: Number of values repaired
+        method: Method used for repair
+        scope: Scope of repair ("observed_history", "future")
+        before_sample: Sample statistics before repair (optional)
+        after_sample: Sample statistics after repair (optional)
+        time_range: Time range of repair as (start, end) ISO strings (optional)
+        pit_safe: Whether repair is PIT-safe
+        validation_passed: Whether validation passed
+    """
+
+    repair_type: str
+    column: str
+    count: int
+    method: str
+    scope: str = "observed_history"
+
+    # PIT safety information
+    before_sample: dict[str, Any] | None = None
+    after_sample: dict[str, Any] | None = None
+    time_range: tuple[str, str] | None = None
+
+    # Validation
+    pit_safe: bool = True
+    validation_passed: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "repair_type": self.repair_type,
+            "column": self.column,
+            "count": self.count,
+            "method": self.method,
+            "scope": self.scope,
+            "pit_safe": self.pit_safe,
+            "validation_passed": self.validation_passed,
+            "before_sample": self.before_sample,
+            "after_sample": self.after_sample,
+            "time_range": self.time_range,
+        }
+
+
+@dataclass(frozen=True)
 class RunArtifact:
     """Complete artifact from a forecasting run.
 
@@ -228,11 +323,16 @@ class RunArtifact:
     """
 
     forecast: ForecastResult
-    plan: dict[str, Any]
+    plan: dict[str, Any] | None = None
+    task_spec: dict[str, Any] | None = None
+    plan_spec: dict[str, Any] | None = None
+    validation_report: dict[str, Any] | None = None
     backtest_report: dict[str, Any] | None = None
     qa_report: dict[str, Any] | None = None
     model_artifact: ModelArtifact | None = None
     provenance: Provenance | None = None
+    calibration_artifact: dict[str, Any] | None = None
+    anomaly_report: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -240,6 +340,9 @@ class RunArtifact:
         return {
             "forecast": self.forecast.to_dict() if self.forecast else None,
             "plan": self.plan,
+            "task_spec": self.task_spec,
+            "plan_spec": self.plan_spec,
+            "validation_report": self.validation_report,
             "backtest_report": self.backtest_report,
             "qa_report": self.qa_report,
             "model_artifact": {
@@ -248,5 +351,66 @@ class RunArtifact:
                 "fit_timestamp": self.model_artifact.fit_timestamp,
             } if self.model_artifact else None,
             "provenance": self.provenance.to_dict() if self.provenance else None,
+            "calibration_artifact": self.calibration_artifact,
+            "anomaly_report": self.anomaly_report,
             "metadata": self.metadata,
         }
+
+    def summary(self) -> str:
+        """Generate a human-readable summary."""
+        model_name = self.forecast.model_name if self.forecast else "N/A"
+        forecast_rows = len(self.forecast.df) if self.forecast else 0
+
+        plan_desc = "N/A"
+        if isinstance(self.plan, dict):
+            candidates = self.plan.get("candidate_models")
+            if candidates:
+                chain = "->".join(candidates)
+                plan_desc = f"Plan({chain})"
+            else:
+                primary = self.plan.get("primary_model")
+                fallback = self.plan.get("fallback_chain", [])
+                if primary:
+                    chain = "->".join([primary] + list(fallback)) if fallback else primary
+                    plan_desc = f"Plan({chain})"
+                else:
+                    plan_desc = str(self.plan.get("signature") or self.plan)
+        else:
+            plan_desc = str(self.plan)
+
+        lines = [
+            "Run Artifact Summary",
+            "=" * 40,
+            f"Model: {model_name}",
+            f"Plan: {plan_desc}",
+            f"Forecast rows: {forecast_rows}",
+        ]
+
+        if self.backtest_report:
+            n_windows = self.backtest_report.get("n_windows")
+            if n_windows is not None:
+                lines.append(f"Backtest windows: {n_windows}")
+            metrics = self.backtest_report.get("aggregate_metrics", {})
+            if metrics:
+                lines.append("Aggregate Metrics:")
+                for name, value in sorted(metrics.items()):
+                    lines.append(f"  {name}: {value:.4f}")
+
+        if self.provenance:
+            lines.append("\nProvenance:")
+            lines.append(f"  Data signature: {self.provenance.data_signature}")
+            lines.append(f"  Timestamp: {self.provenance.timestamp}")
+
+        return "\n".join(lines)
+
+
+__all__ = [
+    "CVFrame",
+    "ForecastFrame",
+    "ForecastResult",
+    "ModelArtifact",
+    "Provenance",
+    "RepairReport",
+    "RunArtifact",
+    "ValidationReport",
+]

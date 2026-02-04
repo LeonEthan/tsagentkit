@@ -1,207 +1,198 @@
 """Metrics calculation for time series forecasting.
 
-Implements common forecasting metrics: WAPE, SMAPE, MASE, Pinball Loss.
+Deprecated: use ``tsagentkit.eval.evaluate_forecasts`` (utilsforecast-backed)
+for new evaluation paths. This module is retained for backward compatibility
+and will be removed in a future phase.
 """
 
 from __future__ import annotations
 
+from typing import Iterable
+import warnings
+
 import numpy as np
 import pandas as pd
 
+from tsagentkit.eval import evaluate_forecasts
+from tsagentkit.utils import quantile_col_name
 
-def wape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Weighted Absolute Percentage Error.
-
-    Also known as MAPE (Mean Absolute Percentage Error) but weighted
-    by the sum of actuals rather than per-observation.
-
-    Args:
-        y_true: Actual values
-        y_pred: Predicted values
-
-    Returns:
-        WAPE as a float (0-1 scale, multiply by 100 for percentage)
-
-    Raises:
-        ValueError: If sum of y_true is zero
-    """
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-
-    if np.sum(np.abs(y_true)) == 0:
-        raise ValueError("Cannot compute WAPE: sum of y_true is zero")
-
-    return np.sum(np.abs(y_true - y_pred)) / np.sum(np.abs(y_true))
+_DEPRECATION_MESSAGE = (
+    "tsagentkit.backtest.metrics is deprecated; "
+    "use tsagentkit.eval.evaluate_forecasts instead."
+)
 
 
-def smape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Symmetric Mean Absolute Percentage Error.
+def _warn_deprecated(name: str) -> None:
+    warnings.warn(
+        f"{name} is deprecated. {_DEPRECATION_MESSAGE}",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
-    A symmetric version of MAPE that handles zero values better.
 
-    Args:
-        y_true: Actual values
-        y_pred: Predicted values
+def _as_array(values: Iterable[float]) -> np.ndarray:
+    return np.asarray(values, dtype=float)
 
-    Returns:
-        SMAPE as a float (0-1 scale, multiply by 100 for percentage)
-    """
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
 
-    denominator = (np.abs(y_true) + np.abs(y_pred)) / 2
-    mask = denominator != 0
+def _build_eval_frame(
+    y_true: Iterable[float],
+    y_pred: Iterable[float],
+    y_quantiles: dict[float, Iterable[float]] | None = None,
+) -> pd.DataFrame:
+    y_true_arr = _as_array(y_true)
+    y_pred_arr = _as_array(y_pred)
+    if y_true_arr.shape != y_pred_arr.shape:
+        raise ValueError("y_true and y_pred must have the same shape.")
 
-    if not np.any(mask):
-        return 0.0
+    n = y_true_arr.shape[0]
+    df = pd.DataFrame(
+        {
+            "unique_id": ["series"] * n,
+            "ds": pd.date_range("2000-01-01", periods=n, freq="D"),
+            "y": y_true_arr,
+            "yhat": y_pred_arr,
+            "model": "model",
+        }
+    )
 
-    return np.mean(np.abs(y_true[mask] - y_pred[mask]) / denominator[mask])
+    if y_quantiles:
+        for q, values in y_quantiles.items():
+            q_values = _as_array(values)
+            if q_values.shape != y_true_arr.shape:
+                raise ValueError("Quantile predictions must match y_true shape.")
+            df[quantile_col_name(float(q))] = q_values
+
+    return df
+
+
+def _build_train_frame(
+    y_train: Iterable[float],
+) -> pd.DataFrame:
+    y_train_arr = _as_array(y_train)
+    n = y_train_arr.shape[0]
+    return pd.DataFrame(
+        {
+            "unique_id": ["series"] * n,
+            "ds": pd.date_range("1999-01-01", periods=n, freq="D"),
+            "y": y_train_arr,
+        }
+    )
+
+
+def _summary_to_metrics(summary_df: pd.DataFrame, model_name: str = "model") -> dict[str, float]:
+    if summary_df.empty:
+        return {}
+    df = summary_df
+    if "model" in df.columns:
+        df = df[df["model"] == model_name]
+    if df.empty or "metric" not in df.columns or "value" not in df.columns:
+        return {}
+    return {row["metric"]: float(row["value"]) for _, row in df.iterrows()}
+
+
+def wape(y_true: Iterable[float], y_pred: Iterable[float]) -> float:
+    """Weighted Absolute Percentage Error (utilsforecast ND)."""
+    _warn_deprecated("wape")
+    df = _build_eval_frame(y_true, y_pred)
+    _, summary = evaluate_forecasts(df)
+    metrics = _summary_to_metrics(summary.df)
+    return float(metrics.get("wape", np.nan))
+
+
+def smape(y_true: Iterable[float], y_pred: Iterable[float]) -> float:
+    """Symmetric Mean Absolute Percentage Error."""
+    _warn_deprecated("smape")
+    df = _build_eval_frame(y_true, y_pred)
+    _, summary = evaluate_forecasts(df)
+    metrics = _summary_to_metrics(summary.df)
+    return float(metrics.get("smape", np.nan))
 
 
 def mase(
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    y_train: np.ndarray,
+    y_true: Iterable[float],
+    y_pred: Iterable[float],
+    y_train: Iterable[float],
     season_length: int = 1,
 ) -> float:
-    """Mean Absolute Scaled Error.
-
-    Scales the forecast error by the in-sample MAE of the naive
-    seasonal forecast.
-
-    Args:
-        y_true: Actual values (test set)
-        y_pred: Predicted values
-        y_train: Training values for scaling
-        season_length: Seasonal period for naive forecast
-
-    Returns:
-        MASE value (1.0 means same error as naive seasonal)
-
-    Raises:
-        ValueError: If naive forecast MAE is zero
-    """
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-    y_train = np.asarray(y_train)
-
-    # Compute forecast MAE
-    mae_forecast = np.mean(np.abs(y_true - y_pred))
-
-    # Compute naive seasonal forecast MAE on training data
-    if len(y_train) <= season_length:
-        # Not enough data for seasonal naive, use regular naive
-        naive_errors = np.abs(y_train[1:] - y_train[:-1])
-    else:
-        naive_errors = np.abs(y_train[season_length:] - y_train[:-season_length])
-
-    mae_naive = np.mean(naive_errors)
-
-    if mae_naive == 0:
-        raise ValueError("Cannot compute MASE: naive forecast MAE is zero")
-
-    return mae_forecast / mae_naive
+    """Mean Absolute Scaled Error."""
+    _warn_deprecated("mase")
+    df = _build_eval_frame(y_true, y_pred)
+    train_df = _build_train_frame(y_train)
+    _, summary = evaluate_forecasts(df, train_df=train_df, season_length=season_length)
+    metrics = _summary_to_metrics(summary.df)
+    value = float(metrics.get("mase", np.nan))
+    if np.isinf(value):
+        return float("nan")
+    return value
 
 
 def pinball_loss(
-    y_true: np.ndarray,
-    y_quantile: np.ndarray,
+    y_true: Iterable[float],
+    y_quantile: Iterable[float],
     tau: float,
 ) -> float:
-    """Pinball Loss for quantile forecasts.
-
-    Also known as Quantile Loss. Lower is better.
-
-    Args:
-        y_true: Actual values
-        y_quantile: Predicted quantile values
-        tau: Quantile level (0-1)
-
-    Returns:
-        Average pinball loss
-    """
-    y_true = np.asarray(y_true)
-    y_quantile = np.asarray(y_quantile)
-
-    errors = y_true - y_quantile
-    loss = np.where(errors >= 0, tau * errors, (tau - 1) * errors)
-
-    return np.mean(loss)
+    """Pinball Loss for quantile forecasts."""
+    _warn_deprecated("pinball_loss")
+    df = _build_eval_frame(y_true, y_quantile, y_quantiles={tau: y_quantile})
+    _, summary = evaluate_forecasts(df)
+    metrics = _summary_to_metrics(summary.df)
+    return float(metrics.get(f"pinball_{tau:.3f}", np.nan))
 
 
-def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Mean Absolute Error.
-
-    Args:
-        y_true: Actual values
-        y_pred: Predicted values
-
-    Returns:
-        MAE value
-    """
-    return float(np.mean(np.abs(np.asarray(y_true) - np.asarray(y_pred))))
+def wql(y_true: Iterable[float], y_quantiles: dict[float, Iterable[float]]) -> float:
+    """Weighted Quantile Loss (average pinball loss across quantiles)."""
+    _warn_deprecated("wql")
+    df = _build_eval_frame(y_true, y_true, y_quantiles=y_quantiles)
+    _, summary = evaluate_forecasts(df)
+    metrics = _summary_to_metrics(summary.df)
+    return float(metrics.get("wql", np.nan))
 
 
-def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Root Mean Squared Error.
+def mae(y_true: Iterable[float], y_pred: Iterable[float]) -> float:
+    """Mean Absolute Error."""
+    _warn_deprecated("mae")
+    df = _build_eval_frame(y_true, y_pred)
+    _, summary = evaluate_forecasts(df)
+    metrics = _summary_to_metrics(summary.df)
+    return float(metrics.get("mae", np.nan))
 
-    Args:
-        y_true: Actual values
-        y_pred: Predicted values
 
-    Returns:
-        RMSE value
-    """
-    return float(np.sqrt(np.mean((np.asarray(y_true) - np.asarray(y_pred)) ** 2)))
+def rmse(y_true: Iterable[float], y_pred: Iterable[float]) -> float:
+    """Root Mean Squared Error."""
+    _warn_deprecated("rmse")
+    df = _build_eval_frame(y_true, y_pred)
+    _, summary = evaluate_forecasts(df)
+    metrics = _summary_to_metrics(summary.df)
+    return float(metrics.get("rmse", np.nan))
 
 
 def compute_all_metrics(
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    y_train: np.ndarray | None = None,
+    y_true: Iterable[float],
+    y_pred: Iterable[float],
+    y_train: Iterable[float] | None = None,
     season_length: int = 1,
-    y_quantiles: dict[float, np.ndarray] | None = None,
+    y_quantiles: dict[float, Iterable[float]] | None = None,
 ) -> dict[str, float]:
-    """Compute all standard metrics.
+    """Compute all standard metrics via utilsforecast.evaluate."""
+    _warn_deprecated("compute_all_metrics")
+    df = _build_eval_frame(y_true, y_pred, y_quantiles=y_quantiles)
+    train_df = _build_train_frame(y_train) if y_train is not None else None
+    _, summary = evaluate_forecasts(
+        df,
+        train_df=train_df,
+        season_length=season_length if train_df is not None else None,
+    )
+    metrics = _summary_to_metrics(summary.df)
 
-    Args:
-        y_true: Actual values
-        y_pred: Predicted values (point forecast)
-        y_train: Training values for MASE
-        season_length: Seasonal period for MASE
-        y_quantiles: Optional dict of {quantile: predictions}
+    if "mase" not in metrics:
+        metrics["mase"] = float("nan")
 
-    Returns:
-        Dictionary of metric name to value
-    """
-    metrics: dict[str, float] = {
-        "mae": mae(y_true, y_pred),
-        "rmse": rmse(y_true, y_pred),
-    }
-
-    # WAPE
-    try:
-        metrics["wape"] = wape(y_true, y_pred)
-    except ValueError:
-        metrics["wape"] = np.nan
-
-    # SMAPE
-    metrics["smape"] = smape(y_true, y_pred)
-
-    # MASE
-    if y_train is not None and len(y_train) > 0:
-        try:
-            metrics["mase"] = mase(y_true, y_pred, y_train, season_length)
-        except ValueError:
-            metrics["mase"] = np.nan
-    else:
-        metrics["mase"] = np.nan
-
-    # Pinball loss for each quantile
     if y_quantiles:
-        for q, y_q in y_quantiles.items():
-            key = f"pinball_{q:.2f}"
-            metrics[key] = pinball_loss(y_true, y_q, q)
+        for q in y_quantiles:
+            source_key = f"pinball_{q:.3f}"
+            target_key = f"pinball_{q:.2f}"
+            if source_key in metrics and target_key not in metrics:
+                metrics[target_key] = metrics[source_key]
 
     return metrics
 
@@ -212,36 +203,42 @@ def compute_metrics_by_series(
     actual_col: str = "y",
     pred_col: str = "yhat",
 ) -> dict[str, dict[str, float]]:
-    """Compute metrics for each series separately.
+    """Compute metrics for each series separately via utilsforecast.evaluate."""
+    _warn_deprecated("compute_metrics_by_series")
+    if df.empty:
+        return {}
 
-    Args:
-        df: DataFrame with actuals and predictions
-        id_col: Column name for series identifier
-        actual_col: Column name for actual values
-        pred_col: Column name for predicted values
+    working = df.copy()
+    if "model" not in working.columns:
+        working["model"] = "model"
+    if "ds" not in working.columns:
+        working["ds"] = working.groupby(id_col).cumcount()
 
-    Returns:
-        Dict mapping series_id to metrics dict
-    """
-    results: dict[str, dict[str, float]] = {}
+    metric_frame, _ = evaluate_forecasts(
+        working,
+        id_col=id_col,
+        ds_col="ds",
+        target_col=actual_col,
+        model_col="model",
+        pred_col=pred_col,
+        cutoff_col=None,
+    )
 
-    for uid in df[id_col].unique():
-        series_df = df[df[id_col] == uid]
-        y_true = series_df[actual_col].values
-        y_pred = series_df[pred_col].values
+    metrics_df = metric_frame.df
+    if metrics_df is None or metrics_df.empty:
+        return {}
 
-        metrics: dict[str, float] = {
-            "mae": mae(y_true, y_pred),
-            "rmse": rmse(y_true, y_pred),
+    if "model" in metrics_df.columns:
+        metrics_df = metrics_df[metrics_df["model"] == "model"]
+
+    if id_col not in metrics_df.columns or "metric" not in metrics_df.columns:
+        return {}
+
+    grouped = metrics_df.groupby([id_col, "metric"])["value"].mean().reset_index()
+    result: dict[str, dict[str, float]] = {}
+    for uid, group in grouped.groupby(id_col):
+        result[str(uid)] = {
+            row["metric"]: float(row["value"]) for _, row in group.iterrows()
         }
 
-        try:
-            metrics["wape"] = wape(y_true, y_pred)
-        except ValueError:
-            metrics["wape"] = np.nan
-
-        metrics["smape"] = smape(y_true, y_pred)
-
-        results[uid] = metrics
-
-    return results
+    return result

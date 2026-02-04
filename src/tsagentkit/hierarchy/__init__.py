@@ -21,7 +21,6 @@ Example:
 
 from __future__ import annotations
 
-from .aggregation import create_bottom_up_matrix, create_middle_out_matrix, create_top_down_matrix
 from .evaluator import CoherenceViolation, HierarchyEvaluationReport, HierarchyEvaluator
 from .reconciliation import Reconciler, ReconciliationMethod, reconcile_forecasts
 from .structure import HierarchyStructure
@@ -29,10 +28,6 @@ from .structure import HierarchyStructure
 __all__ = [
     # Structure
     "HierarchyStructure",
-    # Aggregation
-    "create_bottom_up_matrix",
-    "create_top_down_matrix",
-    "create_middle_out_matrix",
     # Reconciliation
     "Reconciler",
     "ReconciliationMethod",

@@ -6,26 +6,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `tsagentkit` is a Python library that serves as a robust execution engine for external coding agents (LLMs/AI agents) performing time-series forecasting tasks. It provides strict guardrails to enforce proper time-series practices (preventing data leakage, enforcing temporal integrity, etc.).
 
-The project is currently in the documentation-only phase. Implementation has not yet begun.
+**Version**: 1.0.0 (Released)
 
 ## Python Environment
 
 - Python version: 3.11
 - Dependencies: Listed in `pyproject.toml`.
-- Always use `uv` to manage dependencies. 
+- Always use `uv` to manage dependencies.
   - Add packages to `pyproject.toml` as needed.
   - Use `uv sync` to install dependencies.
   - Use `uv run <command>` to run commands with the correct environment.
 
-## Planned Architecture
+## Architecture
 
-The codebase will follow this workflow pipeline:
+The codebase follows this workflow pipeline:
 
 ```
 validate -> QA -> series -> route -> backtest -> fit -> predict -> package
 ```
 
-### Module Structure (Planned)
+### Module Structure
 
 | Module | Responsibility | Key Output |
 |--------|---------------|------------|
@@ -35,10 +35,11 @@ validate -> QA -> series -> route -> backtest -> fit -> predict -> package
 | `features/` | Feature engineering, covariate alignment | `FeatureMatrix`, signatures |
 | `router/` | Model selection, fallback strategies | `Plan` |
 | `models/` | Model adapters and baselines | `ModelArtifact`, `ForecastResult` |
-| `backtest/` | Rolling window backtesting | `BacktestReport` |
+| `backtest/` | Rolling window backtesting | `BacktestReport`, `SegmentMetrics`, `TemporalMetrics` |
 | `serving/` | Batch inference | `RunArtifact` |
 | `monitoring/` | Drift detection, retrain triggers | `DriftReport` |
 | `skill/` | Documentation and recipes for AI agents | Recipes, tool maps |
+| `hierarchy/` | Hierarchical forecasting | `HierarchyStructure`, reconciliation methods |
 
 ### Key Design Principles
 
@@ -55,11 +56,59 @@ validate -> QA -> series -> route -> backtest -> fit -> predict -> package
 
 ## Build, Test, and Development Commands
 
-No build or test commands are defined yet because the repository is documentation-only.
+### Running Tests
 
-Once code is added:
-- Prefer single-entry commands (e.g., `python -m pytest`) over custom scripts
-- Document new commands in this file and the README
+```bash
+# Run all tests
+uv run python -m pytest
+
+# Run tests with coverage
+uv run python -m pytest --cov=src/tsagentkit --cov-report=term-missing
+
+# Run specific test file
+uv run python -m pytest tests/contracts/test_task_spec.py -v
+
+# Run tests for a specific module
+uv run python -m pytest tests/backtest/ -v
+```
+
+### Type Checking
+
+```bash
+# Run mypy type checker
+uv run mypy src/tsagentkit
+```
+
+### Code Formatting and Linting
+
+```bash
+# Format code with ruff
+uv run ruff format src/
+
+# Check code with ruff
+uv run ruff check src/
+
+# Fix auto-fixable issues
+uv run ruff check src/ --fix
+```
+
+### Running Examples
+
+```bash
+# Run a quick forecast example
+uv run python -c "
+import pandas as pd
+from tsagentkit import TaskSpec, run_forecast
+
+df = pd.DataFrame({
+    'unique_id': ['A'] * 30,
+    'ds': pd.date_range('2024-01-01', periods=30),
+    'y': range(30)
+})
+result = run_forecast(df, TaskSpec(h=7, freq='D'))
+print(result.summary())
+"
+```
 
 ## Coding Conventions
 
@@ -70,8 +119,7 @@ Once code is added:
 
 ## Testing Guidelines
 
-When introducing tests:
-- Place them in a top-level `tests/` directory that mirrors the package structure (e.g., `tests/contracts/`)
+- Place tests in a top-level `tests/` directory that mirrors the package structure (e.g., `tests/contracts/`)
 - Prefer deterministic, time-order-safe cases (no random splits; see `E_SPLIT_RANDOM_FORBIDDEN` in the PRD)
 - Name tests descriptively (e.g., `test_router_fallback_ladder`)
 
@@ -79,9 +127,43 @@ When introducing tests:
 
 - `docs/PRD.md`: Technical requirements and architecture document
 - `AGENTS.md`: Repository guidelines for AI agents
+- `skill/README.md`: Agent documentation with module guide
+- `skill/tool_map.md`: Complete API reference
+- `skill/recipes.md`: Runnable end-to-end examples
 
 ## Version Roadmap
 
-- **v0.1**: Minimum loop (contracts, qa, series, basic router, baseline models, rolling backtest)
-- **v0.2**: Enhanced robustness (monitoring, advanced router, feature hashing)
-- **v1.0**: Ecosystem (external adapters, hierarchical reconciliation)
+- **v0.1** ✅: Minimum loop (contracts, qa, series, basic router, baseline models, rolling backtest)
+- **v0.2** ✅: Enhanced robustness (monitoring, advanced router, feature hashing)
+- **v1.0** ✅: Ecosystem (external adapters, hierarchical reconciliation, structured logging)
+
+## Quick Reference
+
+### Common Imports
+
+```python
+from tsagentkit import (
+    TaskSpec,               # Define forecasting tasks
+    validate_contract,      # Validate input data
+    run_forecast,           # Main entry point
+    TSDataset,              # Time series dataset
+    Plan,                   # Execution plan
+    BacktestReport,         # Backtest results
+    # Errors
+    ESplitRandomForbidden,
+    ECovariateLeakage,
+)
+```
+
+### Main Entry Point
+
+```python
+from tsagentkit import TaskSpec, run_forecast
+
+spec = TaskSpec(h=7, freq="D", quantiles=[0.1, 0.5, 0.9])
+result = run_forecast(data, spec, mode="standard")
+
+# Access results
+forecast_df = result.forecast.df
+backtest_metrics = result.backtest_report.aggregate_metrics
+```

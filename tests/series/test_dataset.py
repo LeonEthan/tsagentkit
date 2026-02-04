@@ -23,7 +23,7 @@ class TestTSDatasetCreation:
     @pytest.fixture
     def sample_spec(self) -> TaskSpec:
         """Create a sample TaskSpec."""
-        return TaskSpec(horizon=7, freq="D")
+        return TaskSpec(h=7, freq="D")
 
     def test_from_dataframe_valid(self, sample_df: pd.DataFrame, sample_spec: TaskSpec) -> None:
         """Test creating TSDataset from valid DataFrame."""
@@ -89,7 +89,7 @@ class TestTSDatasetProperties:
             "ds": list(pd.date_range("2024-01-01", periods=3, freq="D")) * 2,
             "y": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
         })
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
         return TSDataset.from_dataframe(df, spec)
 
     def test_n_series(self, dataset: TSDataset) -> None:
@@ -123,7 +123,7 @@ class TestTSDatasetMethods:
             "ds": list(pd.date_range("2024-01-01", periods=3, freq="D")) * 2,
             "y": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
         })
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
         return TSDataset.from_dataframe(df, spec)
 
     def test_get_series(self, dataset: TSDataset) -> None:
@@ -182,7 +182,7 @@ class TestTSDatasetImmutability:
             "ds": pd.date_range("2024-01-01", periods=1),
             "y": [1.0],
         })
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
         dataset = TSDataset.from_dataframe(df, spec)
 
         # Attempting to modify should fail
@@ -196,7 +196,7 @@ class TestTSDatasetImmutability:
             "ds": pd.date_range("2024-01-01", periods=4, freq="D"),
             "y": [1.0, 2.0, 3.0, 4.0],
         })
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
         dataset = TSDataset.from_dataframe(df, spec)
 
         # filter_series returns new instance
@@ -224,7 +224,7 @@ class TestBuildDataset:
             "ds": pd.date_range("2024-01-01", periods=4, freq="D"),
             "y": [1.0, 2.0, 3.0, 4.0],
         })
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
 
         dataset = build_dataset(df, spec)
         assert isinstance(dataset, TSDataset)
@@ -238,7 +238,7 @@ class TestBuildDataset:
             "ds": pd.date_range("2024-01-01", periods=4, freq="D"),
             "y": [1.0, 2.0, 3.0, 4.0],
         })
-        spec = TaskSpec(horizon=7, freq="D")
+        spec = TaskSpec(h=7, freq="D")
 
         dataset = build_dataset(df, spec, validate=False)
         assert isinstance(dataset, TSDataset)

@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .base import TSFMAdapter
+from tsagentkit.utils import quantile_col_name
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import ForecastResult, ModelArtifact
@@ -304,13 +305,14 @@ class TimesFMAdapter(TSFMAdapter):
                 # Add quantile columns if available
                 if quantile_forecasts and quantiles:
                     for q in quantiles:
-                        row[f"q{int(q * 100)}"] = float(
+                        row[quantile_col_name(q)] = float(
                             quantile_forecasts[q][i, h]
                         )
 
                 result_rows.append(row)
 
         result_df = pd.DataFrame(result_rows)
+        result_df["model"] = f"timesfm-{self.config.model_size}"
         provenance = self._create_provenance(dataset, horizon, quantiles)
 
         return ForecastResult(

@@ -56,6 +56,7 @@ class MockAdapter(TSFMAdapter):
         df = pd.DataFrame({
             "unique_id": ["A"] * horizon,
             "ds": pd.date_range("2024-01-01", periods=horizon, freq="D"),
+            "model": ["mock"] * horizon,
             "yhat": [1.0] * horizon,
         })
 
@@ -183,7 +184,7 @@ class TestTSFMAdapter:
             "ds": pd.date_range("2024-01-01", periods=10, freq="D"),
             "y": [1.0] * 10,
         })
-        task_spec = TaskSpec(horizon=7, freq="D")
+        task_spec = TaskSpec(h=7, freq="D")
         dataset = TSDataset.from_dataframe(df, task_spec, validate=False)
 
         config = AdapterConfig(model_name="test")

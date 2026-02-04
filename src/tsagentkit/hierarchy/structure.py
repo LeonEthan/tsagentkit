@@ -342,6 +342,37 @@ class HierarchyStructure:
             return 0
         return max(self.get_level(node) for node in self.all_nodes) + 1
 
+    def node_order(self) -> list[str]:
+        """Return nodes ordered with aggregates first and bottom nodes last."""
+        order: list[str] = []
+        for level in range(self.get_num_levels()):
+            order.extend(self.get_nodes_at_level(level))
+        bottom = [n for n in self.bottom_nodes if n in order]
+        order = [n for n in order if n not in bottom] + bottom
+        return order
+
+    def to_s_df(self, id_col: str = "unique_id") -> pd.DataFrame:
+        """Return summation matrix as S_df (rows ordered aggregates -> bottom)."""
+        s_df = pd.DataFrame(
+            self.s_matrix,
+            index=self.all_nodes,
+            columns=self.bottom_nodes,
+        )
+        ordered = self.node_order()
+        s_df = s_df.reindex(index=ordered)
+        s_df = s_df.reset_index().rename(columns={"index": id_col})
+        return s_df
+
+    def to_tags(self, level_prefix: str = "level_") -> dict[str, np.ndarray]:
+        """Return hierarchical tags mapping level -> node names."""
+        tags: dict[str, np.ndarray] = {}
+        order = self.node_order()
+        for level in range(self.get_num_levels()):
+            level_nodes = [n for n in order if self.get_level(n) == level]
+            if level_nodes:
+                tags[f"{level_prefix}{level}"] = np.array(level_nodes, dtype=object)
+        return tags
+
 
 def _get_all_nodes_from_graph(
     aggregation_graph: dict[str, list[str]],

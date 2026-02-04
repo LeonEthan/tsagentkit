@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .base import TSFMAdapter
+from tsagentkit.utils import quantile_col_name
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import ForecastResult, ModelArtifact
@@ -272,11 +273,12 @@ class MoiraiAdapter(TSFMAdapter):
                     "yhat": float(point_forecast[h]),
                 }
                 for q in quantiles or []:
-                    row[f"q{int(q * 100)}"] = float(quantile_values[q][h])
+                    row[quantile_col_name(q)] = float(quantile_values[q][h])
 
                 result_rows.append(row)
 
         result_df = pd.DataFrame(result_rows)
+        result_df["model"] = f"moirai-{self.config.model_size}"
         provenance = self._create_provenance(dataset, horizon, quantiles)
 
         return ForecastResult(

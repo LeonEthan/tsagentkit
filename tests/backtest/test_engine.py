@@ -7,8 +7,33 @@ import pytest
 from tsagentkit import TaskSpec
 from tsagentkit.backtest import cross_validation_split, rolling_backtest
 from tsagentkit.contracts import ESplitRandomForbidden
-from tsagentkit.router import Plan
+from tsagentkit.contracts import ModelArtifact
+from tsagentkit.router import PlanSpec
 from tsagentkit.series import TSDataset
+
+
+def _fit_stub(dataset: TSDataset, plan: PlanSpec):
+    return ModelArtifact(model={}, model_name=plan.candidate_models[0])
+
+
+def _predict_stub(dataset: TSDataset, model, spec: TaskSpec) -> pd.DataFrame:
+    rows = []
+    freq = spec.freq
+    step = pd.tseries.frequencies.to_offset(freq)
+    for uid, last_date in dataset.df.groupby("unique_id")["ds"].max().items():
+        for h in range(1, spec.horizon + 1):
+            rows.append(
+                {
+                    "unique_id": uid,
+                    "ds": last_date + h * step,
+                    "yhat": 1.0,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _predict_fail_stub(dataset: TSDataset, model, spec: TaskSpec) -> pd.DataFrame:
+    raise RuntimeError("predict failed")
 
 
 @pytest.fixture
@@ -19,18 +44,14 @@ def sample_dataset() -> TSDataset:
         "ds": list(pd.date_range("2024-01-01", periods=50, freq="D")) * 2,
         "y": list(range(50)) * 2,
     })
-    spec = TaskSpec(horizon=7, freq="D")
+    spec = TaskSpec(h=7, freq="D")
     return TSDataset.from_dataframe(df, spec)
 
 
 @pytest.fixture
-def sample_plan() -> Plan:
+def sample_plan() -> PlanSpec:
     """Create a sample plan."""
-    return Plan(
-        primary_model="Naive",
-        fallback_chain=[],
-        config={"season_length": 7},
-    )
+    return PlanSpec(plan_name="default", candidate_models=["Naive"])
 
 
 class TestValidateTemporalOrdering:
@@ -132,77 +153,78 @@ class TestCrossValidationSplit:
 class TestRollingBacktest:
     """Tests for rolling_backtest function."""
 
-    def test_returns_backtest_report(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
+    def test_returns_backtest_report(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
         """Test that rolling_backtest returns a BacktestReport."""
         from tsagentkit.backtest import BacktestReport
-
-        def fit_func(model, data, config):
-            return {"type": "naive"}
-
-        def predict_func(model, data, horizon):
-            # Return predictions matching test data size
-            return pd.DataFrame({
-                "unique_id": data["unique_id"],
-                "ds": data["ds"],
-                "yhat": [1.0] * len(data),
-            })
 
         report = rolling_backtest(
             dataset=sample_dataset,
             spec=sample_dataset.task_spec,
             plan=sample_plan,
-            fit_func=fit_func,
-            predict_func=predict_func,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
             n_windows=3,
         )
 
         assert isinstance(report, BacktestReport)
 
-    def test_report_has_windows(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
+    def test_report_has_windows(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
         """Test that report contains window results."""
-        def fit_func(model, data, config):
-            return {"type": "naive"}
-
-        def predict_func(model, data, horizon):
-            # Return predictions matching test data size
-            return pd.DataFrame({
-                "unique_id": data["unique_id"],
-                "ds": data["ds"],
-                "yhat": [1.0] * len(data),
-            })
-
         report = rolling_backtest(
             dataset=sample_dataset,
             spec=sample_dataset.task_spec,
             plan=sample_plan,
-            fit_func=fit_func,
-            predict_func=predict_func,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
             n_windows=3,
         )
 
         assert report.n_windows > 0
         assert len(report.window_results) > 0
 
-    def test_report_has_aggregate_metrics(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
+    def test_report_has_aggregate_metrics(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
         """Test that report contains aggregate metrics."""
-        def fit_func(model, data, config):
-            return {"type": "naive"}
-
-        def predict_func(model, data, horizon):
-            result = data[["unique_id", "ds", "y"]].copy()
-            result["yhat"] = result["y"]  # Perfect forecast
-            return result
-
         report = rolling_backtest(
             dataset=sample_dataset,
             spec=sample_dataset.task_spec,
             plan=sample_plan,
-            fit_func=fit_func,
-            predict_func=predict_func,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
             n_windows=2,
         )
 
         assert "mae" in report.aggregate_metrics
+
+    def test_report_has_decision_summary(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
+        """Report metadata should include a decision summary."""
+        report = rolling_backtest(
+            dataset=sample_dataset,
+            spec=sample_dataset.task_spec,
+            plan=sample_plan,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
+            n_windows=1,
+        )
+
+        decision = report.metadata.get("decision_summary", {})
+        assert decision.get("plan_name") == sample_plan.plan_name
+        assert decision.get("primary_model") == sample_plan.candidate_models[0]
+
+    def test_predict_errors_include_model_and_stage(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
+        """Predict failures should be recorded with model/stage details."""
+        report = rolling_backtest(
+            dataset=sample_dataset,
+            spec=sample_dataset.task_spec,
+            plan=sample_plan,
+            fit_func=_fit_stub,
+            predict_func=_predict_fail_stub,
+            n_windows=1,
+        )
+
+        assert any(
+            e.get("stage") == "predict" and e.get("model") == sample_plan.candidate_models[0]
+            for e in report.errors
+        )
 
 
 class TestRollingBacktestRealWorldData:
@@ -226,83 +248,48 @@ class TestRollingBacktestRealWorldData:
     def test_backtest_runs_on_air_passengers(self) -> None:
         """Ensure rolling backtest works on real-world data."""
         df = self._air_passengers_dataframe()
-        spec = TaskSpec(horizon=3, freq="MS", season_length=12)
+        spec = TaskSpec(h=3, freq="MS")
         dataset = TSDataset.from_dataframe(df, spec)
-        plan = Plan(
-            primary_model="Naive",
-            fallback_chain=[],
-            config={"season_length": 12},
-        )
-
-        def fit_func(model, data, config):
-            return {"type": model}
-
-        def predict_func(model, data, horizon):
-            result = data[["unique_id", "ds", "y"]].copy()
-            result["yhat"] = result["y"]
-            return result
+        plan = PlanSpec(plan_name="default", candidate_models=["Naive"])
 
         report = rolling_backtest(
             dataset=dataset,
             spec=spec,
             plan=plan,
-            fit_func=fit_func,
-            predict_func=predict_func,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
             n_windows=3,
         )
 
         assert report.n_windows == 3
         assert len(report.window_results) == 3
         assert report.errors == []
-        assert report.aggregate_metrics["mae"] <= 1e-9
         assert report.aggregate_metrics["mae"] >= 0
 
-    def test_expanding_strategy(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
+    def test_expanding_strategy(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
         """Test expanding window strategy."""
-        def fit_func(model, data, config):
-            return {"type": "naive"}
-
-        def predict_func(model, data, horizon):
-            # Return predictions matching test data size
-            return pd.DataFrame({
-                "unique_id": data["unique_id"],
-                "ds": data["ds"],
-                "yhat": [1.0] * len(data),
-            })
-
         report = rolling_backtest(
             dataset=sample_dataset,
             spec=sample_dataset.task_spec,
             plan=sample_plan,
-            fit_func=fit_func,
-            predict_func=predict_func,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
             n_windows=2,
             window_strategy="expanding",
         )
 
         assert report.strategy == "expanding"
 
-    def test_insufficient_data_raises(self, sample_dataset: TSDataset, sample_plan: Plan) -> None:
+    def test_insufficient_data_raises(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
         """Test that insufficient data raises error."""
         from tsagentkit.contracts import EBacktestInsufficientData
-
-        def fit_func(model, data, config):
-            return {"type": "naive"}
-
-        def predict_func(model, data, horizon):
-            # Return predictions matching test data size
-            return pd.DataFrame({
-                "unique_id": data["unique_id"],
-                "ds": data["ds"],
-                "yhat": [1.0] * len(data),
-            })
 
         with pytest.raises(EBacktestInsufficientData):
             rolling_backtest(
                 dataset=sample_dataset,
                 spec=sample_dataset.task_spec,
                 plan=sample_plan,
-                fit_func=fit_func,
-                predict_func=predict_func,
+                fit_func=_fit_stub,
+                predict_func=_predict_stub,
                 n_windows=100,  # Way too many
             )

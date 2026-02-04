@@ -5,11 +5,11 @@ external coding agents (LLMs/AI agents) performing time-series forecasting tasks
 
 Basic usage:
     >>> from tsagentkit import TaskSpec, validate_contract, run_forecast
-    >>> spec = TaskSpec(horizon=7, freq="D")
+    >>> spec = TaskSpec(h=7, freq="D")
     >>> result = run_forecast(data, spec)
 """
 
-__version__ = "0.2.0"
+__version__ = "1.0.0"
 
 # Import commonly used items from contracts
 from tsagentkit.contracts import (
@@ -33,7 +33,9 @@ from tsagentkit.backtest import (
     mase,
 )
 from tsagentkit.router import (
-    Plan,
+    PlanSpec,
+    compute_plan_signature,
+    get_candidate_models,
     make_plan,
     FallbackLadder,
     execute_with_fallback,
@@ -50,7 +52,18 @@ from tsagentkit.series import (
     SparsityClass,
     build_dataset,
 )
+from tsagentkit.qa import run_qa
+from tsagentkit.calibration import apply_calibrator, fit_calibrator
+from tsagentkit.anomaly import detect_anomalies
+from tsagentkit.eval import evaluate_forecasts, MetricFrame, ScoreSummary
 from tsagentkit.serving import MonitoringConfig, run_forecast
+
+# Structured logging (v1.0)
+from tsagentkit.serving.provenance import (
+    StructuredLogger,
+    format_event_json,
+    log_event,
+)
 
 # v0.2 imports (optional - use directly from submodules)
 # from tsagentkit.features import FeatureFactory, FeatureMatrix, compute_feature_hash
@@ -75,8 +88,19 @@ __all__ = [
     "SparsityProfile",
     "SparsityClass",
     "build_dataset",
+    # QA
+    "run_qa",
+    # Calibration + Anomaly + Eval
+    "fit_calibrator",
+    "apply_calibrator",
+    "detect_anomalies",
+    "evaluate_forecasts",
+    "MetricFrame",
+    "ScoreSummary",
     # Router
-    "Plan",
+    "PlanSpec",
+    "compute_plan_signature",
+    "get_candidate_models",
     "make_plan",
     "FallbackLadder",
     "execute_with_fallback",
@@ -95,4 +119,8 @@ __all__ = [
     # Serving
     "run_forecast",
     "MonitoringConfig",
+    # Structured Logging (v1.0)
+    "log_event",
+    "format_event_json",
+    "StructuredLogger",
 ]

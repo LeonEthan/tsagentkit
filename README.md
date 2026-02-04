@@ -14,6 +14,52 @@ A robust execution engine for AI agents performing time-series forecasting. Prov
 - **Provenance Tracking**: Complete audit trail with signatures for reproducibility
 - **Monitoring**: Drift detection and automated retrain triggers
 
+## v1.0 Feature Matrix
+
+| Category | Feature | Status | Notes |
+|----------|---------|--------|-------|
+| **Core** | Input validation | ✅ | `validate_contract()` with schema checking |
+| | Task specification | ✅ | `TaskSpec` with h, freq, quantiles |
+| | Deterministic signatures | ✅ | `TaskSpec.model_hash()` for reproducibility |
+| **QA** | Data quality checks | ✅ | `run_qa()` with multiple modes |
+| | Leakage detection | ✅ | Future covariate leakage protection |
+| | Auto-repair | ✅ | Repair strategies for common issues |
+| **Series** | TSDataset | ✅ | Immutable dataset with validation |
+| | Sparsity detection | ✅ | Regular, intermittent, cold-start, sparse |
+| | Time alignment | ✅ | Resampling and temporal operations |
+| **Routing** | Auto model selection | ✅ | Based on data characteristics |
+| | Fallback ladder | ✅ | TSFM → Baselines → Naive |
+| | Intermittent handling | ✅ | Croston method for sparse demand |
+| | Bucketing (v0.2) | ✅ | Data bucketing for complex routing |
+| **Models** | Baseline models | ✅ | SeasonalNaive, ETS, Theta, HistoricAverage, etc. |
+| | Chronos adapter | ✅ | Amazon TSFM support |
+| | Moirai adapter | ✅ | Salesforce TSFM support |
+| | TimesFM adapter | ✅ | Google TSFM support |
+| | Model caching | ✅ | `TSFMModelCache` for efficient loading |
+| **Backtest** | Rolling windows | ✅ | Expanding and sliding strategies |
+| | Temporal integrity | ✅ | Strict ordering validation |
+| | Segment diagnostics | ✅ | Metrics by sparsity class |
+| | Temporal diagnostics | ✅ | Hour/day error patterns |
+| **Hierarchical** | Structure definition | ✅ | `HierarchyStructure` with S-matrix |
+| | 6 reconciliation methods | ✅ | Bottom-up, top-down, OLS, WLS, MinT, etc. |
+| | Auto reconciliation | ✅ | In `run_forecast()` pipeline |
+| | Coherence validation | ✅ | `is_coherent()` checks |
+| **Serving** | `run_forecast()` | ✅ | Complete pipeline orchestration |
+| | Mode support | ✅ | quick, standard, strict |
+| | Feature engineering | ✅ | Optional `FeatureConfig` integration |
+| | Structured logging | ✅ | JSON event logging with `StructuredLogger` |
+| **Monitoring** | Drift detection | ✅ | PSI and Kolmogorov-Smirnov methods |
+| | Stability monitoring | ✅ | Prediction jitter detection |
+| | Retrain triggers | ✅ | Automated trigger evaluation |
+| **Provenance** | Data signatures | ✅ | SHA-256 based data hashing |
+| | Config signatures | ✅ | Deterministic config hashing |
+| | Full traceability | ✅ | Complete audit trail in `Provenance` |
+| **Skill** | Agent documentation | ✅ | `skill/README.md` with module guide |
+| | Tool map | ✅ | Complete API reference |
+| | Recipes | ✅ | 8 runnable end-to-end examples |
+| **Errors** | Structured errors | ✅ | All errors with codes and context |
+| | Guardrails | ✅ | `E_SPLIT_RANDOM_FORBIDDEN`, `ECovariateLeakage` |
+
 ## Installation
 
 ```bash
@@ -59,7 +105,7 @@ df = pd.DataFrame({
 })
 
 # Create task spec
-spec = TaskSpec(horizon=7, freq="D")
+spec = TaskSpec(h=7, freq="D")
 
 # Run forecast (uses best available model)
 artifact = run_forecast(df, spec, mode="standard")
@@ -100,10 +146,10 @@ plan = make_plan(dataset, spec)
 from tsagentkit.serving import get_tsfm_model
 
 # Load cached TSFM model
-adapter = get_tsfm_model("chronos", pipeline="base")
+adapter = get_tsfm_model("chronos", model_size="base")
 
 # Generate forecast
-forecast = adapter.fit_predict(dataset, spec)
+result = adapter.predict(dataset, horizon=spec.horizon)
 ```
 
 ## Architecture
@@ -153,26 +199,29 @@ tsagentkit provides unified adapters for major Time-Series Foundation Models:
 
 ### Chronos (Amazon)
 ```python
-from tsagentkit.models.adapters import ChronosAdapter
+from tsagentkit.models.adapters import AdapterConfig, ChronosAdapter
 
-adapter = ChronosAdapter(pipeline="base", device="auto")
+config = AdapterConfig(model_name="chronos", model_size="base")
+adapter = ChronosAdapter(config)
 ```
 
 ### Moirai (Salesforce)
 ```python
-from tsagentkit.models.adapters import MoiraiAdapter
+from tsagentkit.models.adapters import AdapterConfig, MoiraiAdapter
 
-adapter = MoiraiAdapter(model_size="base", device="auto")
+config = AdapterConfig(model_name="moirai", model_size="base")
+adapter = MoiraiAdapter(config)
 ```
 
 ### TimesFM (Google)
 ```python
-from tsagentkit.models.adapters import TimesFMAdapter
+from tsagentkit.models.adapters import AdapterConfig, TimesFMAdapter
 
-adapter = TimesFMAdapter(checkpoint_path="google/timesfm-1.0-200m")
+config = AdapterConfig(model_name="timesfm", model_size="base")
+adapter = TimesFMAdapter(config)
 ```
 
-See [docs/adapters/](docs/adapters/) for detailed configuration.
+See `docs/README.md` and adapter docstrings for configuration details.
 
 ## Hierarchical Reconciliation
 
@@ -197,7 +246,7 @@ reconciled = reconcile_forecasts(
 )
 ```
 
-See [docs/hierarchical/RECONCILIATION.md](docs/hierarchical/RECONCILIATION.md) for full guide.
+See `docs/ARCHITECTURE.md` for hierarchy contract details (`S_df`/`tags`).
 
 ## Guardrails
 
@@ -220,9 +269,8 @@ except ESplitRandomForbidden as e:
 
 Pre-built recipes for AI agents:
 
-- [TSFM Model Selection](docs/recipes/RECIPE_TSFM_SELECTION.md)
-- [Hierarchical Forecasting](docs/recipes/RECIPE_HIERARCHICAL_FORECASTING.md)
-- [Troubleshooting](docs/recipes/RECIPE_TROUBLESHOOTING.md)
+- `skill/recipes.md`
+- `skill/README.md`
 
 ## Development
 
@@ -256,9 +304,7 @@ tsagentkit/
 │   ├── serving/       # Inference orchestration
 │   └── monitoring/    # Drift detection
 ├── docs/              # Documentation
-│   ├── adapters/      # TSFM adapter guides
-│   ├── hierarchical/  # Reconciliation guide
-│   └── recipes/       # Agent recipes
+│   └── README.md      # Documentation index
 └── tests/             # Test suite
 ```
 

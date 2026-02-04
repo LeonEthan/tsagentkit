@@ -1,194 +1,301 @@
-"""Task specification for forecasting tasks.
+"""Pydantic specs for tsagentkit contracts and configuration.
 
-Defines the TaskSpec class which specifies all parameters for a forecasting run.
-Must be JSON-serializable and hashable for provenance tracking.
+These models are the JSON-serializable configuration and artifact contracts
+used by agents and orchestration layers. They mirror docs/PRD.md Appendix B.
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class TaskSpec(BaseModel):
-    """Specification for a forecasting task.
+# ---------------------------
+# Common
+# ---------------------------
 
-    This class defines all parameters needed to execute a forecasting pipeline.
-    It is designed to be JSON-serializable and hashable for provenance tracking.
+class BaseSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    Attributes:
-        horizon: Number of steps to forecast
-        freq: Frequency of the time series (pandas freq string)
-        rolling_step: Step size for rolling backtest windows
-        quantiles: List of quantiles to forecast (optional)
-        covariate_policy: How to handle covariates ('ignore', 'known', 'auto')
-        season_length: Seasonal period (auto-detected if None)
-        valid_from: Start date for validation period (optional)
-        valid_until: End date for validation period (optional)
-        metadata: Additional user-defined metadata
 
-    Examples:
-        >>> spec = TaskSpec(horizon=7, freq="D")
-        >>> spec = TaskSpec(
-        ...     horizon=24,
-        ...     freq="H",
-        ...     quantiles=[0.1, 0.5, 0.9],
-        ...     covariate_policy="known"
-        ... )
-    """
+CovariateRole = Literal["static", "past", "future_known"]
+AggregationMode = Literal["reject", "sum", "mean", "median", "last"]
+MissingPolicy = Literal["error", "ffill", "bfill", "zero", "mean"]
+IntervalMode = Literal["level", "quantiles"]
+AnomalyMethod = Literal["interval_breach", "conformal", "mad_residual"]
+SeasonalityMethod = Literal["acf", "stl", "periodogram"]
+CovariatePolicy = Literal["ignore", "known", "observed", "auto", "spec"]
 
-    # Required fields
-    horizon: int = Field(
-        ...,
-        ge=1,
-        description="Number of steps to forecast",
-    )
-    freq: str = Field(
-        ...,
-        description="Frequency of the time series (pandas freq string, e.g., 'D', 'H', 'M')",
-    )
 
-    # Backtest configuration
-    rolling_step: int | None = Field(
-        default=None,
-        ge=1,
-        description="Step size for rolling backtest windows (defaults to horizon)",
-    )
+# ---------------------------
+# Data contracts (column-level)
+# ---------------------------
 
-    # Forecast configuration
-    quantiles: list[float] | None = Field(
-        default=None,
-        description="List of quantiles to forecast (e.g., [0.1, 0.5, 0.9])",
-    )
+class PanelContract(BaseSpec):
+    unique_id_col: str = "unique_id"
+    ds_col: str = "ds"
+    y_col: str = "y"
+    aggregation: AggregationMode = "reject"
 
-    # Covariate handling
-    covariate_policy: Literal["ignore", "known", "observed", "auto"] = Field(
-        default="ignore",
-        description="How to handle covariates: 'ignore' (don't use), "
-                    "'known' (all covariates known in advance), "
-                    "'observed' (covariates observed up to forecast time), "
-                    "'auto' (infer from data)",
-    )
 
-    # Seasonality
-    season_length: int | None = Field(
-        default=None,
-        ge=1,
-        description="Seasonal period (auto-detected from freq if None)",
-    )
+class ForecastContract(BaseSpec):
+    long_format: bool = True
+    model_col: str = "model"
+    yhat_col: str = "yhat"
+    cutoff_col: str = "cutoff"  # required for CV output
+    interval_mode: IntervalMode = "level"
+    levels: List[int] = Field(default_factory=lambda: [80, 95])
+    quantiles: List[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
 
-    # Validation period (optional)
-    valid_from: str | None = Field(
-        default=None,
-        description="Start date for validation period (ISO 8601 format)",
-    )
-    valid_until: str | None = Field(
-        default=None,
-        description="End date for validation period (ISO 8601 format)",
-    )
 
-    # Metadata
-    metadata: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Additional user-defined metadata (must be JSON-serializable)",
-    )
+class CovariateSpec(BaseSpec):
+    # Explicit typing strongly preferred for agent safety.
+    roles: Dict[str, CovariateRole] = Field(default_factory=dict)
+    missing_policy: MissingPolicy = "error"
+
+
+# ---------------------------
+# Task / execution specs
+# ---------------------------
+
+class BacktestSpec(BaseSpec):
+    h: Optional[int] = Field(None, gt=0)
+    n_windows: int = Field(5, gt=0)
+    step: int = Field(1, gt=0)
+    min_train_size: int = Field(56, gt=1)
+    regularize_grid: bool = True
+
+
+class TaskSpec(BaseSpec):
+    # Forecast horizon
+    h: int = Field(..., gt=0)
+
+    # Frequency handling
+    freq: Optional[str] = None
+    infer_freq: bool = True
+
+    # Contracts
+    panel_contract: PanelContract = Field(default_factory=PanelContract)
+    forecast_contract: ForecastContract = Field(default_factory=ForecastContract)
+
+    # Covariates
+    covariates: Optional[CovariateSpec] = None
+    covariate_policy: CovariatePolicy = "auto"
+
+    # Backtest defaults (can be overridden by the caller)
+    backtest: BacktestSpec = Field(default_factory=BacktestSpec)
 
     @model_validator(mode="before")
     @classmethod
-    def _set_defaults(cls, data: dict[str, Any]) -> dict[str, Any]:
-        """Set default values derived from other fields before validation."""
-        # Make a copy to avoid modifying the original
-        data = dict(data)
+    def _normalize_inputs(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
 
-        horizon = data.get("horizon")
-        freq = data.get("freq")
+        payload = dict(data)
 
-        # Set rolling_step default
-        if data.get("rolling_step") is None and horizon is not None:
-            data["rolling_step"] = horizon
+        # Backward-compat aliases
+        if "horizon" in payload and "h" not in payload:
+            payload["h"] = payload.pop("horizon")
+        if "rolling_step" in payload:
+            backtest = payload.get("backtest", {})
+            if isinstance(backtest, BacktestSpec):
+                backtest = backtest.model_dump()
+            if isinstance(backtest, dict):
+                backtest = dict(backtest)
+                if "step" not in backtest:
+                    backtest["step"] = payload.pop("rolling_step")
+                payload["backtest"] = backtest
 
-        # Infer season_length
-        if data.get("season_length") is None and freq is not None:
-            data["season_length"] = cls._infer_season_length(freq)
+        # Legacy quantiles/levels mapping to forecast_contract
+        if "quantiles" in payload or "levels" in payload:
+            fc = payload.get("forecast_contract", {})
+            if isinstance(fc, ForecastContract):
+                fc = fc.model_dump()
+            if isinstance(fc, dict):
+                fc = dict(fc)
+                if "quantiles" in payload:
+                    fc["quantiles"] = payload.pop("quantiles")
+                if "levels" in payload:
+                    fc["levels"] = payload.pop("levels")
+                payload["forecast_contract"] = fc
 
-        # Process quantiles
-        quantiles = data.get("quantiles")
-        if quantiles is not None:
-            # Ensure quantiles are sorted and unique
-            sorted_unique = sorted(set(quantiles))
-            data["quantiles"] = sorted_unique
-            # Validate quantile range
-            for q in sorted_unique:
-                if not 0 < q < 1:
-                    raise ValueError(f"Quantile {q} must be between 0 and 1")
-
-        return data
+        return payload
 
     @model_validator(mode="after")
-    def _validate_dates(self) -> TaskSpec:
-        """Validate that valid_from < valid_until if both provided."""
-        if self.valid_from and self.valid_until and self.valid_from >= self.valid_until:
-            raise ValueError("valid_from must be before valid_until")
+    def _apply_backtest_defaults(self) -> "TaskSpec":
+        if self.backtest.h is None:
+            object.__setattr__(self, "backtest", self.backtest.model_copy(update={"h": self.h}))
         return self
 
+    @property
+    def horizon(self) -> int:
+        return self.h
+
+    @property
+    def quantiles(self) -> List[float]:
+        return self.forecast_contract.quantiles
+
+    @property
+    def levels(self) -> List[int]:
+        return self.forecast_contract.levels
+
+    @property
+    def season_length(self) -> int | None:
+        return self._infer_season_length(self.freq)
+
     @staticmethod
-    def _infer_season_length(freq: str) -> int | None:
-        """Infer season length from frequency string.
-
-        Args:
-            freq: Pandas frequency string
-
-        Returns:
-            Inferred season length or None if cannot infer
-        """
-        # Common frequency to season length mappings
+    def _infer_season_length(freq: str | None) -> int | None:
+        if not freq:
+            return None
         freq_map: dict[str, int] = {
-            "D": 7,      # Daily -> weekly
-            "B": 5,      # Business days -> weekly
-            "H": 24,     # Hourly -> daily
-            "T": 60,     # Minutely -> hourly (simplified)
+            "D": 7,
+            "B": 5,
+            "H": 24,
+            "T": 60,
             "min": 60,
-            "M": 12,     # Monthly -> yearly
+            "M": 12,
             "MS": 12,
-            "Q": 4,      # Quarterly -> yearly
+            "Q": 4,
             "QS": 4,
-            "W": 52,     # Weekly -> yearly (approximate)
+            "W": 52,
         }
-
-        # Extract base frequency (remove numbers prefix)
         base_freq = freq.lstrip("0123456789")
         return freq_map.get(base_freq)
 
     def model_hash(self) -> str:
-        """Compute a hash of the task spec for provenance.
-
-        Returns:
-            SHA-256 hash of the JSON representation
-        """
         import hashlib
         import json
 
-        # Get JSON-serializable dict (excluding metadata for core hash)
-        data = self.model_dump(exclude={"metadata"}, exclude_none=True)
+        data = self.model_dump(exclude_none=True)
         json_str = json.dumps(data, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(json_str.encode()).hexdigest()[:16]
 
-    def to_signature(self) -> str:
-        """Create a human-readable signature for provenance.
 
-        Returns:
-            String signature like "TaskSpec(H=7,f=D,q=[0.1,0.5,0.9])"
-        """
-        parts = [f"H={self.horizon}", f"f={self.freq}"]
-        if self.quantiles:
-            q_str = ",".join(f"{q:.2f}" for q in self.quantiles)
-            parts.append(f"q=[{q_str}]")
-        if self.season_length:
-            parts.append(f"s={self.season_length}")
-        return f"TaskSpec({','.join(parts)})"
+# ---------------------------
+# Router / planning
+# ---------------------------
 
-    model_config = ConfigDict(
-        frozen=True,  # Makes the model hashable and immutable
-        extra="forbid",  # Prevent extra fields
-    )
+class RouterThresholds(BaseSpec):
+    min_train_size: int = Field(56, gt=1)
+    max_missing_ratio: float = Field(0.15, ge=0.0, le=1.0)
+
+    # Intermittency classification (heuristic, deterministic)
+    max_intermittency_adi: float = Field(1.32, gt=0.0)
+    max_intermittency_cv2: float = Field(0.49, ge=0.0)
+
+    # Seasonality
+    seasonality_method: SeasonalityMethod = "acf"
+    min_seasonality_conf: float = Field(0.70, ge=0.0, le=1.0)
+
+    # Practical routing guardrails
+    max_series_count_for_tsfm: int = Field(20000, gt=0)
+    max_points_per_series_for_tsfm: int = Field(5000, gt=0)
+
+
+class PlanSpec(BaseSpec):
+    plan_name: str
+    candidate_models: List[str] = Field(..., min_length=1)
+
+    # Covariate usage rules
+    use_static: bool = True
+    use_past: bool = True
+    use_future_known: bool = True
+
+    # Training policy
+    min_train_size: int = Field(56, gt=1)
+    max_train_size: Optional[int] = None  # if set, truncate oldest points deterministically
+
+    # Output policy
+    interval_mode: IntervalMode = "level"
+    levels: List[int] = Field(default_factory=lambda: [80, 95])
+    quantiles: List[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
+
+    # Fallback policy
+    allow_drop_covariates: bool = True
+    allow_baseline: bool = True
+
+
+class RouteDecision(BaseSpec):
+    # Series statistics used in routing (computed deterministically)
+    stats: Dict[str, Any] = Field(default_factory=dict)
+
+    # Bucket tags
+    buckets: List[str] = Field(default_factory=list)
+
+    # Which plan template was selected
+    selected_plan: PlanSpec
+
+    # Human-readable deterministic reasons (safe for logs)
+    reasons: List[str] = Field(default_factory=list)
+
+
+class RouterConfig(BaseSpec):
+    thresholds: RouterThresholds = Field(default_factory=RouterThresholds)
+
+    # Mapping bucket -> plan template name, resolved by registry
+    bucket_to_plan: Dict[str, str] = Field(default_factory=dict)
+
+    # Default plan when no bucket matches
+    default_plan: str = "default"
+
+
+# ---------------------------
+# Calibration + anomaly
+# ---------------------------
+
+class CalibratorSpec(BaseSpec):
+    method: Literal["none", "conformal"] = "conformal"
+    level: int = Field(99, ge=50, le=99)
+    by: Optional[Literal["unique_id", "global"]] = "unique_id"
+
+
+class AnomalySpec(BaseSpec):
+    method: AnomalyMethod = "conformal"
+    level: int = Field(99, ge=50, le=99)
+    score: Literal["margin", "normalized_margin", "zscore"] = "normalized_margin"
+
+
+# ---------------------------
+# Provenance artifacts (config-level, serializable)
+# ---------------------------
+
+class RunArtifactSpec(BaseSpec):
+    run_id: str
+    created_at: datetime
+
+    task_spec: TaskSpec
+    router_config: Optional[RouterConfig] = None
+    route_decision: Optional[RouteDecision] = None
+
+    # Identifiers / hashes for reproducibility (implementation-defined)
+    data_signature: Optional[str] = None
+    code_signature: Optional[str] = None
+
+    # Output references (implementation-defined; typically file paths or object-store keys)
+    outputs: Dict[str, str] = Field(default_factory=dict)
+
+
+__all__ = [
+    "AggregationMode",
+    "AnomalyMethod",
+    "AnomalySpec",
+    "BacktestSpec",
+    "BaseSpec",
+    "CalibratorSpec",
+    "CovariatePolicy",
+    "CovariateRole",
+    "CovariateSpec",
+    "ForecastContract",
+    "IntervalMode",
+    "MissingPolicy",
+    "PanelContract",
+    "PlanSpec",
+    "RouteDecision",
+    "RouterConfig",
+    "RouterThresholds",
+    "RunArtifactSpec",
+    "SeasonalityMethod",
+    "TaskSpec",
+]

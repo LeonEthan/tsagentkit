@@ -4,12 +4,13 @@ import pytest
 
 from tsagentkit.contracts import (
     EContractDuplicateKey,
-    EContractInvalidFrequency,
     EContractInvalidType,
     EContractMissingColumn,
     EContractUnsorted,
     ECovariateLeakage,
     EFallbackExhausted,
+    EDSNotMonotonic,
+    EFreqInferFail,
     EModelFitFailed,
     ESplitRandomForbidden,
     TSAgentKitError,
@@ -43,11 +44,10 @@ class TestSpecificErrors:
             (EContractMissingColumn, "E_CONTRACT_MISSING_COLUMN"),
             (EContractInvalidType, "E_CONTRACT_INVALID_TYPE"),
             (EContractDuplicateKey, "E_CONTRACT_DUPLICATE_KEY"),
-            (EContractUnsorted, "E_CONTRACT_UNSORTED"),
-            (EContractInvalidFrequency, "E_CONTRACT_INVALID_FREQUENCY"),
+            (EFreqInferFail, "E_FREQ_INFER_FAIL"),
             (ESplitRandomForbidden, "E_SPLIT_RANDOM_FORBIDDEN"),
             (ECovariateLeakage, "E_COVARIATE_LEAKAGE"),
-            (EModelFitFailed, "E_MODEL_FIT_FAILED"),
+            (EModelFitFailed, "E_MODEL_FIT_FAIL"),
             (EFallbackExhausted, "E_FALLBACK_EXHAUSTED"),
         ]
 
@@ -56,6 +56,16 @@ class TestSpecificErrors:
             err = err_class("Test message")
             assert err.error_code == expected_code
             assert expected_code in str(err)
+
+    def test_econtract_unsorted_consolidated(self) -> None:
+        """Test that EContractUnsorted maps to E_DS_NOT_MONOTONIC."""
+        # EContractUnsorted now uses E_DS_NOT_MONOTONIC
+        assert EContractUnsorted.error_code == "E_DS_NOT_MONOTONIC"
+
+        # EContractUnsorted inherits from EDSNotMonotonic
+        err = EContractUnsorted("Data not sorted")
+        assert isinstance(err, EDSNotMonotonic)
+        assert err.error_code == "E_DS_NOT_MONOTONIC"
 
     def test_inheritance(self) -> None:
         """Test that all errors inherit from TSAgentKitError."""

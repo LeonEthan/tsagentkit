@@ -10,53 +10,24 @@ Complete documentation for the tsagentkit time-series forecasting engine.
 
 ## TSFM Adapters
 
-Time-Series Foundation Model integration guides:
-
-- [Chronos Adapter](adapters/CHRONOS.md) - Amazon Chronos
-- [Moirai Adapter](adapters/MOIRAI.md) - Salesforce Moirai
-- [TimesFM Adapter](adapters/TIMESFM.md) - Google TimesFM
-
-### Quick Adapter Selection
-
-| Model | Best For | Multivariate | Speed |
-|-------|----------|--------------|-------|
-| Chronos | General purpose | No | Fast |
-| Moirai | Correlated series | Yes | Fast |
-| TimesFM | Long horizons | Limited | Fastest |
+Adapters are available under `src/tsagentkit/models/adapters/` with
+configuration via `AdapterConfig`. Refer to the module docstrings for
+model-specific options.
 
 ## Hierarchical Forecasting
 
-- [Reconciliation Guide](hierarchical/RECONCILIATION.md) - Complete hierarchical forecasting guide
-
-### Supported Methods
-
-1. Bottom-Up (BU)
-2. Top-Down (TD)
-3. Middle-Out
-4. OLS (Ordinary Least Squares)
-5. WLS (Weighted Least Squares)
-6. MinT (Minimum Trace)
+Reconciliation uses `hierarchicalforecast` with `S_df` and `tags`
+as the canonical hierarchy inputs.
 
 ## Agent Recipes
 
-Pre-built recipes for AI agents:
-
-- [TSFM Model Selection](recipes/RECIPE_TSFM_SELECTION.md)
-  - Decision trees for model selection
-  - Domain-specific recommendations
-  - Infrastructure constraints
-
-- [Hierarchical Forecasting](recipes/RECIPE_HIERARCHICAL_FORECASTING.md)
-  - Step-by-step hierarchical workflow
-  - Common patterns and solutions
-  - Integration with pipeline
-
-- [Troubleshooting](recipes/RECIPE_TROUBLESHOOTING.md)
-  - Common issues and solutions
-  - Diagnostic procedures
-  - Performance optimization
+Agent-facing recipes live in `skill/recipes.md` and `skill/README.md`.
 
 ## API Reference
+
+### Stability & Compatibility
+
+- [Stable API Contract](API_STABILITY.md) - Backward-compatibility guarantees
 
 ### Core Components
 
@@ -97,6 +68,37 @@ from tsagentkit.serving import (
     get_tsfm_model,
     clear_tsfm_cache,
 )
+```
+
+## Feature Engineering
+
+`FeatureFactory` supports multiple feature backends via `FeatureConfig.engine`:
+
+- `auto` (default): use `tsfeatures` if available, otherwise fallback to native features.
+- `tsfeatures`: use `tsfeatures` for statistical features (requires `tsfeatures`).
+- `native`: use the built-in point-in-time safe feature generator (legacy).
+
+Key configuration fields:
+
+- `tsfeatures_features`: list of `tsfeatures` function names to apply.
+- `tsfeatures_freq`: optional season length for `tsfeatures`.
+- `tsfeatures_dict_freqs`: optional mapping of pandas freq to season length.
+- `allow_fallback`: allow auto fallback to native when `tsfeatures` is unavailable.
+
+Example:
+
+```python
+from tsagentkit.features import FeatureConfig, FeatureFactory
+
+config = FeatureConfig(
+    engine="tsfeatures",
+    tsfeatures_features=["acf_features", "stl_features"],
+    tsfeatures_freq=7,
+    known_covariates=["holiday"],
+)
+
+factory = FeatureFactory(config)
+matrix = factory.create_features(dataset)
 ```
 
 ## Best Practices
@@ -149,6 +151,14 @@ from tsagentkit.serving import (
 ## Contributing
 
 See [AGENTS.md](../AGENTS.md) for contribution guidelines.
+
+## Architecture Checks
+
+To validate dependency boundaries during refactors:
+
+```bash
+uv run lint-imports --config importlinter.ini
+```
 
 ## Support
 
