@@ -395,13 +395,17 @@ def run_forecast(
 
     # Step 4: Make Plan
     step_start = time.time()
-    plan = make_plan(dataset, task_spec, qa_report)
+    plan, route_decision = make_plan(dataset, task_spec, qa_report)
     events.append(
         log_event(
             step_name="make_plan",
             status="success",
             duration_ms=(time.time() - step_start) * 1000,
-            artifacts_generated=["plan"],
+            artifacts_generated=["plan", "route_decision"],
+            context={
+                "buckets": route_decision.buckets,
+                "reasons": route_decision.reasons,
+            },
         )
     )
 
@@ -441,6 +445,7 @@ def run_forecast(
                 n_windows=n_windows,
                 step_size=task_spec.horizon,
                 min_train_size=min_train_size,
+                route_decision=route_decision,
             )
             events.append(
                 log_event(
@@ -694,6 +699,7 @@ def run_forecast(
             if hasattr(original_panel_contract, "model_dump")
             else None
         ),
+        route_decision=route_decision,
     )
 
     # Step 12: Package

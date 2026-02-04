@@ -165,11 +165,18 @@ class TestRunForecast:
 
     def test_predict_failure_triggers_fallback(self, sample_data: pd.DataFrame, monkeypatch) -> None:
         """Predict failures should trigger fallback to the next candidate."""
-        from tsagentkit.contracts import ModelArtifact
+        from tsagentkit.contracts import ModelArtifact, RouteDecision
         from tsagentkit.router import PlanSpec
 
         def fake_make_plan(dataset, task_spec, qa_report):
-            return PlanSpec(plan_name="default", candidate_models=["bad", "good"])
+            plan = PlanSpec(plan_name="default", candidate_models=["bad", "good"])
+            route_decision = RouteDecision(
+                stats={},
+                buckets=["test"],
+                selected_plan=plan,
+                reasons=["test fallback"],
+            )
+            return plan, route_decision
 
         monkeypatch.setattr(
             "tsagentkit.serving.orchestration.make_plan",
@@ -253,4 +260,4 @@ class TestRunForecast:
         )
 
         assert result.qa_report is not None
-        assert any(r["type"] == "missing_values" for r in result.qa_report.get("repairs", []))
+        assert any(r.get("repair_type") == "missing_values" for r in result.qa_report.get("repairs", []))

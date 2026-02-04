@@ -96,12 +96,29 @@ class FeatureFactory:
         )
 
     def _resolve_engine(self) -> str:
+        """Resolve feature engine based on configuration.
+
+        When engine is "auto", defaults to tsfeatures. If tsfeatures is not
+        available, raises ImportError unless allow_fallback is True.
+        """
         if self.config.engine == "auto":
             try:
                 import tsfeatures  # type: ignore  # noqa: F401
 
                 return "tsfeatures"
-            except Exception:
+            except Exception as exc:
+                if not self.config.allow_fallback:
+                    raise ImportError(
+                        "tsfeatures is required but not installed. "
+                        "Install with: pip install tsfeatures "
+                        "Or set allow_fallback=True to use native features."
+                    ) from exc
+                warnings.warn(
+                    "tsfeatures is not installed; falling back to native features. "
+                    "For reproducibility, install tsfeatures or explicitly set engine='native'.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 return "native"
         return self.config.engine
 

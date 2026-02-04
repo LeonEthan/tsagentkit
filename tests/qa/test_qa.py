@@ -73,7 +73,7 @@ def test_apply_repairs_interpolates_missing_values() -> None:
     report = run_qa(df, spec, mode="standard", apply_repairs=True)
 
     assert df["y"].isna().sum() == 0
-    assert any(r["type"] == "missing_values" for r in report.repairs)
+    assert any(r.repair_type == "missing_values" for r in report.repairs)
 
 
 def test_apply_repairs_winsorizes_outliers() -> None:
@@ -89,4 +89,4 @@ def test_apply_repairs_winsorizes_outliers() -> None:
     report = run_qa(df, spec, mode="standard", apply_repairs=True)
 
     assert df["y"].max() < 10.0
-    assert any(r["type"] == "winsorize" for r in report.repairs)
+    assert any(r.repair_type == "winsorize" for r in report.repairs)

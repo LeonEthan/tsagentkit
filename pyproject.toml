@@ -85,3 +85,86 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.importlinter]
+root_packages = ["tsagentkit"]
+
+# Layer 1: Core contracts (bottom layer)
+# These should not depend on any other layers
+[[tool.importlinter.contracts]]
+name = "Core contracts independence"
+type = "forbidden"
+source_modules = [
+    "tsagentkit.contracts",
+]
+forbidden_modules = [
+    "tsagentkit.serving",
+    "tsagentkit.models",
+    "tsagentkit.router",
+    "tsagentkit.backtest",
+    "tsagentkit.eval",
+    "tsagentkit.calibration",
+    "tsagentkit.anomaly",
+    "tsagentkit.monitoring",
+    "tsagentkit.qa",
+    "tsagentkit.hierarchy",
+    "tsagentkit.features",
+    "tsagentkit.covariates",
+    "tsagentkit.series",
+    "tsagentkit.time",
+]
+
+# Layer 2: Data utilities (no dependency on serving/models)
+[[tool.importlinter.contracts]]
+name = "Data utilities independence"
+type = "forbidden"
+source_modules = [
+    "tsagentkit.series",
+    "tsagentkit.time",
+    "tsagentkit.covariates",
+]
+forbidden_modules = [
+    "tsagentkit.serving",
+    "tsagentkit.models",
+]
+
+# Layer 3: Features (no dependency on serving/models)
+[[tool.importlinter.contracts]]
+name = "Features independence"
+type = "forbidden"
+source_modules = [
+    "tsagentkit.features",
+]
+forbidden_modules = [
+    "tsagentkit.serving",
+    "tsagentkit.models",
+]
+
+# Layer 4: Router/Backtest/Eval (no dependency on serving)
+[[tool.importlinter.contracts]]
+name = "Router and evaluation independence"
+type = "forbidden"
+source_modules = [
+    "tsagentkit.router",
+    "tsagentkit.backtest",
+    "tsagentkit.eval",
+    "tsagentkit.calibration",
+    "tsagentkit.anomaly",
+]
+forbidden_modules = [
+    "tsagentkit.serving",
+]
+
+# Layer 5: Models (no dependency on serving)
+[[tool.importlinter.contracts]]
+name = "Models independence"
+type = "forbidden"
+source_modules = [
+    "tsagentkit.models",
+]
+forbidden_modules = [
+    "tsagentkit.serving",
+]
+
+# Top layer: Serving is the only orchestrator
+# It can depend on all other modules

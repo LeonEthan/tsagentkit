@@ -11,7 +11,7 @@ import pandas as pd
 from tsagentkit.contracts import ECalibrationFail
 from tsagentkit.utils import extract_quantiles, quantile_col_name
 
-CalibrationMethod = Literal["none", "conformal_interval"]
+CalibrationMethod = Literal["none", "conformal"]
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ class CalibratorArtifact:
 
 def fit_calibrator(
     cv: pd.DataFrame,
-    method: CalibrationMethod = "conformal_interval",
+    method: CalibrationMethod = "conformal",
     level: int = 99,
     by: Literal["unique_id", "global"] = "unique_id",
     id_col: str = "unique_id",

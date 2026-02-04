@@ -12,7 +12,7 @@ import warnings
 from tsagentkit.contracts import EAnomalyFail
 from tsagentkit.utils import parse_quantile_column
 
-AnomalyMethod = Literal["interval_breach", "conformal_interval", "mad_residual"]
+AnomalyMethod = Literal["interval_breach", "conformal", "mad_residual"]
 AnomalyScore = Literal["margin", "normalized_margin", "zscore"]
 
 

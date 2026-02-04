@@ -38,6 +38,7 @@ from .results import (
     ForecastResult,
     ModelArtifact,
     Provenance,
+    RepairReport,
     RunArtifact,
     ValidationReport,
 )
@@ -103,6 +104,7 @@ __all__ = [
     "ForecastResult",
     "ModelArtifact",
     "Provenance",
+    "RepairReport",
     "RunArtifact",
     "ValidationReport",
     # Schema

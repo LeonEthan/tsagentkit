@@ -41,6 +41,7 @@ def rolling_backtest(
     min_train_size: int | None = None,
     step_size: int | None = None,
     reconcile: bool = True,
+    route_decision: Any | None = None,
 ) -> BacktestReport:
     """Execute rolling window backtest.
 
@@ -62,6 +63,7 @@ def rolling_backtest(
         min_train_size: Minimum training observations per series
         step_size: Step size between windows (default: spec.horizon)
         reconcile: Whether to reconcile forecasts for hierarchical data (default: True)
+        route_decision: Optional RouteDecision for including routing info in metadata (v1.0)
 
     Returns:
         BacktestReport with results from all windows
@@ -343,7 +345,9 @@ def rolling_backtest(
             "decision_summary": {
                 "plan_name": getattr(plan, "plan_name", None),
                 "primary_model": plan.candidate_models[0] if plan.candidate_models else None,
-                "reason": "rule_based_router",
+                "reasons": route_decision.reasons if route_decision else ["rule_based_router"],
+                "buckets": route_decision.buckets if route_decision else [],
+                "stats": route_decision.stats if route_decision else {},
             },
         },
         cv_frame=CVFrame(df=pd.concat(cv_frames, ignore_index=True)) if cv_frames else None,

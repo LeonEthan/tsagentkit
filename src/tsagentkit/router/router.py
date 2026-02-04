@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from tsagentkit.contracts import PlanSpec, RouterConfig, RouterThresholds, TaskSpec
+from tsagentkit.contracts import PlanSpec, RouteDecision, RouterConfig, RouterThresholds, TaskSpec
 
 if TYPE_CHECKING:
     from tsagentkit.qa import QAReport
@@ -21,8 +21,13 @@ def make_plan(
     router_config: RouterConfig | None = None,
     use_tsfm: bool = True,
     tsfm_preference: list[str] | None = None,
-) -> PlanSpec:
-    """Create a deterministic PlanSpec for a dataset."""
+) -> tuple[PlanSpec, RouteDecision]:
+    """Create a deterministic PlanSpec and RouteDecision for a dataset.
+
+    Returns:
+        Tuple of (PlanSpec, RouteDecision) containing the execution plan
+        and detailed routing decision information.
+    """
     thresholds = (router_config or RouterConfig()).thresholds
     stats, buckets = _compute_router_stats(dataset, task_spec, thresholds)
 
@@ -48,7 +53,7 @@ def make_plan(
         tsfm_models = [f"tsfm-{name}" for name in available_tsfms]
         candidates = tsfm_models + candidates
 
-    return PlanSpec(
+    plan = PlanSpec(
         plan_name="default",
         candidate_models=candidates,
         use_static=True,
@@ -62,6 +67,24 @@ def make_plan(
         allow_drop_covariates=True,
         allow_baseline=True,
     )
+
+    # Build RouteDecision for audit trail
+    reasons = [
+        f"selected_models: {candidates}",
+        f"buckets: {buckets}",
+        f"tsfm_available: {bool(available_tsfms)}",
+    ]
+    if available_tsfms:
+        reasons.append(f"tsfm_models: {available_tsfms}")
+
+    route_decision = RouteDecision(
+        stats=stats,
+        buckets=buckets,
+        selected_plan=plan,
+        reasons=reasons,
+    )
+
+    return plan, route_decision
 
 
 def get_model_for_series(
@@ -246,4 +269,4 @@ def _tsfm_allowed(dataset: TSDataset, thresholds: RouterThresholds) -> bool:
     return True
 
 
-__all__ = ["make_plan", "get_model_for_series"]
+__all__ = ["make_plan", "get_model_for_series", "RouteDecision"]

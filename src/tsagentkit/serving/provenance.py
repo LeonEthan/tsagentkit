@@ -27,12 +27,13 @@ def create_provenance(
     task_spec: TaskSpec,
     plan: PlanSpec,
     model_config: dict[str, Any] | None = None,
-    qa_repairs: list[dict[str, Any]] | None = None,
+    qa_repairs: list[Any] | None = None,
     fallbacks_triggered: list[dict[str, Any]] | None = None,
     feature_matrix: Any | None = None,
     drift_report: Any | None = None,
     column_map: dict[str, str] | None = None,
     original_panel_contract: dict[str, Any] | None = None,
+    route_decision: Any | None = None,
 ) -> "Provenance":
     """Create a provenance record for a forecasting run.
 
@@ -41,10 +42,11 @@ def create_provenance(
         task_spec: Task specification
         plan: Execution plan
         model_config: Model configuration
-        qa_repairs: List of QA repairs applied
+        qa_repairs: List of QA repairs applied (RepairReport objects)
         fallbacks_triggered: List of fallback events
         feature_matrix: Optional FeatureMatrix for feature signature (v0.2)
         drift_report: Optional DriftReport for drift info (v0.2)
+        route_decision: Optional RouteDecision for routing audit trail (v1.0)
 
     Returns:
         Provenance object with signatures and metadata
@@ -74,7 +76,23 @@ def create_provenance(
     if original_panel_contract:
         metadata["original_panel_contract"] = original_panel_contract
 
+    # v1.0: Add route decision for audit trail
+    if route_decision is not None:
+        metadata["route_decision"] = {
+            "buckets": route_decision.buckets,
+            "reasons": route_decision.reasons,
+            "stats": route_decision.stats,
+        }
+
     from tsagentkit.router import compute_plan_signature
+
+    # Convert RepairReport objects to dicts for serialization
+    repairs_serialized: list[dict[str, Any]] = []
+    for repair in (qa_repairs or []):
+        if hasattr(repair, "to_dict"):
+            repairs_serialized.append(repair.to_dict())
+        else:
+            repairs_serialized.append(repair)
 
     return Provenance(
         run_id=str(uuid4()),
@@ -83,7 +101,7 @@ def create_provenance(
         task_signature=task_spec.model_hash(),
         plan_signature=compute_plan_signature(plan),
         model_signature=compute_config_signature(model_config or {}),
-        qa_repairs=qa_repairs or [],
+        qa_repairs=repairs_serialized,
         fallbacks_triggered=fallbacks_triggered or [],
         metadata=metadata,
     )

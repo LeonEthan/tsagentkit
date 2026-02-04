@@ -49,7 +49,7 @@ class FeatureConfig:
     tsfeatures_features: list[str] = field(default_factory=list)
     tsfeatures_freq: int | None = None
     tsfeatures_dict_freqs: dict[str, int] = field(default_factory=dict)
-    allow_fallback: bool = True
+    allow_fallback: bool = False
 
     def __post_init__(self) -> None:
         """Validate configuration after creation."""

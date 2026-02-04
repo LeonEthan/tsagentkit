@@ -13,6 +13,7 @@ from tsagentkit.contracts import (
     ECovariateLeakage,
     ECovariateStaticInvalid,
     EQARepairPeeksFuture,
+    RepairReport,
     TaskSpec,
 )
 from tsagentkit.covariates import align_covariates
@@ -23,16 +24,22 @@ class QAReport:
     """Quality assurance report."""
 
     issues: list[dict[str, Any]] = field(default_factory=list)
-    repairs: list[dict[str, Any]] = field(default_factory=list)
+    repairs: list[RepairReport] = field(default_factory=list)
     leakage_detected: bool = False
 
     def has_critical_issues(self) -> bool:
         return any(issue.get("severity") == "critical" for issue in self.issues)
 
     def to_dict(self) -> dict[str, Any]:
+        repairs_list: list[dict[str, Any]] = []
+        for r in self.repairs:
+            if hasattr(r, "to_dict"):
+                repairs_list.append(r.to_dict())
+            else:
+                repairs_list.append(r)
         return {
             "issues": self.issues,
-            "repairs": self.repairs,
+            "repairs": repairs_list,
             "leakage_detected": self.leakage_detected,
         }
 
@@ -198,7 +205,7 @@ def run_qa(
             )
             raise
 
-    repairs: list[dict[str, Any]] = []
+    repairs: list[RepairReport] = []
     if apply_repairs:
         repairs = _apply_repairs(
             df,
@@ -229,14 +236,18 @@ def _apply_repairs(
     winsorize_cfg: dict[str, Any],
     median_cfg: dict[str, Any],
     strict: bool,
-) -> list[dict[str, Any]]:
+) -> list[RepairReport]:
     if y_col in data.columns:
         data[y_col] = data[y_col].astype(float)
 
-    repairs: list[dict[str, Any]] = []
+    repairs: list[RepairReport] = []
     missing_filled = 0
     outliers_clipped = 0
     median_applied = 0
+
+    # Track before/after statistics for audit trail
+    before_stats: dict[str, Any] = {}
+    after_stats: dict[str, Any] = {}
 
     for uid in data[uid_col].unique():
         series_idx = data[uid_col] == uid
@@ -291,33 +302,41 @@ def _apply_repairs(
 
     if missing_filled > 0:
         repairs.append(
-            {
-                "type": "missing_values",
-                "column": y_col,
-                "count": missing_filled,
-                "method": missing_method,
-                "scope": "observed_history",
-            }
+            RepairReport(
+                repair_type="missing_values",
+                column=y_col,
+                count=missing_filled,
+                method=missing_method,
+                scope="observed_history",
+                pit_safe=missing_method != "bfill",
+                validation_passed=True,
+            )
         )
 
     if outliers_clipped > 0:
         repairs.append(
-            {
-                "type": "winsorize",
-                "column": y_col,
-                "count": outliers_clipped,
-                "method": "rolling_quantiles",
-            }
+            RepairReport(
+                repair_type="winsorize",
+                column=y_col,
+                count=outliers_clipped,
+                method="rolling_quantiles",
+                scope="observed_history",
+                pit_safe=True,
+                validation_passed=True,
+            )
         )
 
     if median_applied > 0:
         repairs.append(
-            {
-                "type": "median_filter",
-                "column": y_col,
-                "count": median_applied,
-                "method": "rolling_median",
-            }
+            RepairReport(
+                repair_type="median_filter",
+                column=y_col,
+                count=median_applied,
+                method="rolling_median",
+                scope="observed_history",
+                pit_safe=True,
+                validation_passed=True,
+            )
         )
 
     return repairs

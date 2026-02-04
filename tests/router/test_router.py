@@ -21,14 +21,19 @@ def _make_dataset(values: list[float]) -> TSDataset:
 
 def test_make_plan_regular_series() -> None:
     dataset = _make_dataset([1.0] * 30)
-    plan = make_plan(dataset, dataset.task_spec)
+    plan, route_decision = make_plan(dataset, dataset.task_spec)
     assert plan.candidate_models[0] in {"HistoricAverage", "tsfm-chronos", "tsfm-moirai", "tsfm-timesfm"}
+    # Verify RouteDecision is returned correctly
+    assert route_decision.selected_plan == plan
+    assert "reasons" in route_decision.model_dump()
 
 
 def test_make_plan_intermittent_series() -> None:
     dataset = _make_dataset([0.0] * 10 + [1.0] + [0.0] * 14 + [10.0] + [0.0] * 14 + [2.0])
-    plan = make_plan(dataset, dataset.task_spec, use_tsfm=False)
+    plan, route_decision = make_plan(dataset, dataset.task_spec, use_tsfm=False)
     assert plan.candidate_models[0] == "Croston"
+    # Verify RouteDecision contains bucket info
+    assert "intermittent" in route_decision.buckets
 
 
 def test_get_model_for_series_short_history() -> None:

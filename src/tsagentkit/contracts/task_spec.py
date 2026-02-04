@@ -24,7 +24,7 @@ CovariateRole = Literal["static", "past", "future_known"]
 AggregationMode = Literal["reject", "sum", "mean", "median", "last"]
 MissingPolicy = Literal["error", "ffill", "bfill", "zero", "mean"]
 IntervalMode = Literal["level", "quantiles"]
-AnomalyMethod = Literal["interval_breach", "conformal_interval", "mad_residual"]
+AnomalyMethod = Literal["interval_breach", "conformal", "mad_residual"]
 SeasonalityMethod = Literal["acf", "stl", "periodogram"]
 CovariatePolicy = Literal["ignore", "known", "observed", "auto", "spec"]
 
@@ -246,13 +246,13 @@ class RouterConfig(BaseSpec):
 # ---------------------------
 
 class CalibratorSpec(BaseSpec):
-    method: Literal["none", "conformal_interval"] = "conformal_interval"
+    method: Literal["none", "conformal"] = "conformal"
     level: int = Field(99, ge=50, le=99)
     by: Optional[Literal["unique_id", "global"]] = "unique_id"
 
 
 class AnomalySpec(BaseSpec):
-    method: AnomalyMethod = "conformal_interval"
+    method: AnomalyMethod = "conformal"
     level: int = Field(99, ge=50, le=99)
     score: Literal["margin", "normalized_margin", "zscore"] = "normalized_margin"
 

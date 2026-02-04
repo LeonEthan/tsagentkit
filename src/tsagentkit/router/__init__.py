@@ -3,6 +3,8 @@
 Provides model selection and fallback strategies.
 """
 
+from tsagentkit.contracts import RouteDecision
+
 from .bucketing import (
     BucketConfig,
     BucketProfile,
@@ -22,6 +24,7 @@ __all__ = [
     # Router
     "make_plan",
     "get_model_for_series",
+    "RouteDecision",
     # Fallback
     "FallbackLadder",
     "execute_with_fallback",

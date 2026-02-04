@@ -255,6 +255,57 @@ class ModelArtifact:
 
 
 @dataclass(frozen=True)
+class RepairReport:
+    """Detailed repair report for audit trail.
+
+    Provides comprehensive information about data repairs applied
+    during QA, ensuring full traceability and PIT safety verification.
+
+    Attributes:
+        repair_type: Type of repair ("missing_values", "winsorize", "median_filter")
+        column: Column that was repaired
+        count: Number of values repaired
+        method: Method used for repair
+        scope: Scope of repair ("observed_history", "future")
+        before_sample: Sample statistics before repair (optional)
+        after_sample: Sample statistics after repair (optional)
+        time_range: Time range of repair as (start, end) ISO strings (optional)
+        pit_safe: Whether repair is PIT-safe
+        validation_passed: Whether validation passed
+    """
+
+    repair_type: str
+    column: str
+    count: int
+    method: str
+    scope: str = "observed_history"
+
+    # PIT safety information
+    before_sample: dict[str, Any] | None = None
+    after_sample: dict[str, Any] | None = None
+    time_range: tuple[str, str] | None = None
+
+    # Validation
+    pit_safe: bool = True
+    validation_passed: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "repair_type": self.repair_type,
+            "column": self.column,
+            "count": self.count,
+            "method": self.method,
+            "scope": self.scope,
+            "pit_safe": self.pit_safe,
+            "validation_passed": self.validation_passed,
+            "before_sample": self.before_sample,
+            "after_sample": self.after_sample,
+            "time_range": self.time_range,
+        }
+
+
+@dataclass(frozen=True)
 class RunArtifact:
     """Complete artifact from a forecasting run.
 
@@ -359,6 +410,7 @@ __all__ = [
     "ForecastResult",
     "ModelArtifact",
     "Provenance",
+    "RepairReport",
     "RunArtifact",
     "ValidationReport",
 ]
