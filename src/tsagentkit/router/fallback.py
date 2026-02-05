@@ -5,7 +5,8 @@ Provides automatic model degradation when primary models fail.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, TypeVar
+from typing import TYPE_CHECKING, TypeVar
+from collections.abc import Callable
 
 from tsagentkit.contracts.errors import EFallbackExhausted
 from tsagentkit.router.plan import get_candidate_models, PlanSpec

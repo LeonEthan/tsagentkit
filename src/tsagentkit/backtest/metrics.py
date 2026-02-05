@@ -7,7 +7,7 @@ and will be removed in a future phase.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 import warnings
 
 import numpy as np

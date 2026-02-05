@@ -6,7 +6,8 @@ temporal integrity (no random splits allowed).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
+from collections.abc import Callable
 
 import numpy as np
 import pandas as pd

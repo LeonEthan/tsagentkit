@@ -6,7 +6,8 @@ adapters for various forecasting backends.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
 
 from tsagentkit.contracts import ModelArtifact, ForecastResult, Provenance
 from tsagentkit.models.baselines import fit_baseline, is_baseline_model, predict_baseline
