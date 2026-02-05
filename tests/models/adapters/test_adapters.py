@@ -203,7 +203,7 @@ class TestAdapterRegistration:
         # With mocks, chronos should be available
         is_avail, error = AdapterRegistry.check_availability("chronos")
         assert is_avail
-        assert error is None
+        assert error == ""
 
     def test_register_moirai(self) -> None:
         """Test registering Moirai adapter."""

@@ -28,6 +28,11 @@ class QAReport:
     repairs: list[RepairReport] = field(default_factory=list)
     leakage_detected: bool = False
 
+    @property
+    def valid(self) -> bool:
+        """Whether QA passed (no critical issues)."""
+        return not self.has_critical_issues()
+
     def has_critical_issues(self) -> bool:
         return any(issue.get("severity") == "critical" for issue in self.issues)
 

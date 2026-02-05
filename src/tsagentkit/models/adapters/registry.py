@@ -125,14 +125,14 @@ class AdapterRegistry:
         return adapter_class(config or AdapterConfig(model_name=name))
 
     @classmethod
-    def check_availability(cls, name: str) -> tuple[bool, str | None]:
+    def check_availability(cls, name: str) -> tuple[bool, str]:
         """Check if adapter dependencies are installed.
 
         Args:
             name: Adapter name to check
 
         Returns:
-            Tuple of (is_available, error_message). error_message is None
+            Tuple of (is_available, error_message). error_message is empty string
             if the adapter is available.
         """
         try:
@@ -142,7 +142,7 @@ class AdapterRegistry:
 
         try:
             adapter_class._check_dependencies()
-            return True, None
+            return True, ""
         except ImportError as e:
             return False, str(e)
         except Exception as e:

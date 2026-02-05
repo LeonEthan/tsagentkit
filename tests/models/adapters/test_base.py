@@ -285,7 +285,7 @@ class TestAdapterRegistry:
         AdapterRegistry.register("mock", MockAdapter)
         is_avail, error = AdapterRegistry.check_availability("mock")
         assert is_avail is True
-        assert error is None
+        assert error == ""
 
     def test_check_availability_not_registered(self) -> None:
         is_avail, error = AdapterRegistry.check_availability("unknown")

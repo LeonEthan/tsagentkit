@@ -106,13 +106,21 @@ def validate_contract(
             valid=False,
             errors=errors,
             warnings=warnings,
-            stats={"num_rows": len(df)},
+            stats={"n_rows": len(df), "n_series": 0},
         )
         return (report, df) if return_data else report
 
     # Normalize types
     type_errors = _validate_column_types(df, uid_col, ds_col, y_col)
     errors.extend(type_errors)
+
+    # Check for empty DataFrame
+    if len(df) == 0:
+        errors.append({
+            "code": EContractInvalid.error_code,
+            "message": "DataFrame is empty (no rows)",
+            "context": {"n_rows": 0},
+        })
 
     # Aggregate duplicates if allowed
     if contract.aggregation != "reject" and apply_aggregation:
@@ -340,8 +348,8 @@ def _compute_stats(
     y_col: str,
 ) -> dict[str, Any]:
     stats: dict[str, Any] = {
-        "num_rows": len(df),
-        "num_series": df[uid_col].nunique(),
+        "n_rows": len(df),
+        "n_series": df[uid_col].nunique(),
     }
 
     if pd.api.types.is_datetime64_any_dtype(df[ds_col]):

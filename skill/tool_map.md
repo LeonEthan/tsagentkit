@@ -111,7 +111,7 @@ spec = TaskSpec(
 | `valid` | bool | Whether validation passed |
 | `errors` | list[dict] | Validation errors |
 | `warnings` | list[dict] | Validation warnings |
-| `stats` | dict | Data statistics |
+| `stats` | dict | Data statistics (n_rows, n_series, y_stats, date_range, series_lengths) |
 
 **Methods**:
 - `has_errors() -> bool`
@@ -294,6 +294,9 @@ Convenience function for `TSDataset.from_dataframe()`.
 | `issues` | list[dict] | Detected issues |
 | `repairs` | list[dict] | Repairs applied |
 | `leakage_detected` | bool | Whether leakage was found |
+
+**Properties**:
+- `valid: bool` - True if no critical issues (convenience for `not has_critical_issues()`)
 
 **Methods**:
 - `has_critical_issues() -> bool`
