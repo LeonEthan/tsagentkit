@@ -17,6 +17,7 @@ from tsagentkit.contracts import (
     TaskSpec,
 )
 from tsagentkit.covariates import align_covariates
+from tsagentkit.time import normalize_pandas_freq
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,7 @@ def run_qa(
         full_range = pd.date_range(
             start=series[ds_col].min(),
             end=series[ds_col].max(),
-            freq=task_spec.freq,
+            freq=normalize_pandas_freq(task_spec.freq),
         )
         missing = len(full_range) - len(series)
         if missing > 0:
