@@ -39,7 +39,7 @@ def _build_s_matrix(structure: HierarchyStructure, order: list[str]) -> np.ndarr
 
 
 def _get_level_key(tags: dict[str, np.ndarray], middle_level: int | str | None) -> str:
-    level_keys = [k for k in tags.keys() if k.startswith("level_")]
+    level_keys = [k for k in tags if k.startswith("level_")]
     level_keys = sorted(level_keys, key=lambda k: int(k.split("_")[1]))
     if not level_keys:
         return next(iter(tags), "bottom")

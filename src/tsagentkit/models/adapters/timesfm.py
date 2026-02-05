@@ -13,9 +13,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from .base import TSFMAdapter
 from tsagentkit.time import normalize_pandas_freq
 from tsagentkit.utils import quantile_col_name
+
+from .base import TSFMAdapter
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import ForecastResult, ModelArtifact
@@ -302,7 +303,7 @@ class TimesFMAdapter(TSFMAdapter):
         quantile_values: dict[float, np.ndarray] = {}
         if quantiles:
             if quantile_forecasts is None:
-                quantile_values = {q: point_forecasts for q in quantiles}
+                quantile_values = dict.fromkeys(quantiles, point_forecasts)
             else:
                 supported = getattr(self, "_model_quantiles", self.SUPPORTED_QUANTILES)
                 for q in quantiles:

@@ -6,12 +6,10 @@ These tests use mocking to avoid dependencies on the actual TSFM packages.
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pandas as pd
 import pytest
 
 if TYPE_CHECKING:
@@ -66,9 +64,7 @@ def setup_mocks():
 
 
 # Import after mocks are set up
-from tsagentkit.contracts import TaskSpec
-from tsagentkit.models.adapters import AdapterConfig, AdapterRegistry
-from tsagentkit.series import TSDataset
+from tsagentkit.models.adapters import AdapterConfig, AdapterRegistry  # noqa: E402
 
 
 class TestChronosAdapter:

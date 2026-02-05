@@ -13,24 +13,24 @@ from typing import TYPE_CHECKING, Any, Literal
 import pandas as pd
 
 from tsagentkit.backtest import rolling_backtest
-from tsagentkit.covariates import AlignedDataset, CovariateBundle, align_covariates
 from tsagentkit.contracts import (
     AnomalySpec,
     CalibratorSpec,
-    ECovariateLeakage,
-    ECovariateIncompleteKnown,
-    ECovariateStaticInvalid,
     EAnomalyFail,
     ECalibrationFail,
-    EQACriticalIssue,
+    ECovariateIncompleteKnown,
+    ECovariateLeakage,
+    ECovariateStaticInvalid,
     EFallbackExhausted,
+    EQACriticalIssue,
+    ETaskSpecInvalid,
     ForecastResult,
     PanelContract,
     TaskSpec,
-    ETaskSpecInvalid,
     ValidationReport,
     validate_contract,
 )
+from tsagentkit.covariates import AlignedDataset, CovariateBundle, align_covariates
 from tsagentkit.qa import QAReport, run_qa
 from tsagentkit.router import make_plan
 from tsagentkit.series import TSDataset
@@ -82,11 +82,11 @@ def run_forecast(
     monitoring_config: MonitoringConfig | None = None,
     reference_data: pd.DataFrame | None = None,
     repair_strategy: dict[str, Any] | None = None,
-    hierarchy: "HierarchyStructure" | None = None,
-    feature_config: "FeatureConfig" | None = None,
+    hierarchy: HierarchyStructure | None = None,
+    feature_config: FeatureConfig | None = None,
     calibrator_spec: CalibratorSpec | None = None,
     anomaly_spec: AnomalySpec | None = None,
-) -> "RunArtifact":
+) -> RunArtifact:
     """Execute the complete forecasting pipeline.
 
     This is the main entry point for tsagentkit. It orchestrates the
@@ -822,7 +822,7 @@ def _step_predict(
 
     # Apply reconciliation if hierarchical
     if plan and dataset.is_hierarchical() and dataset.hierarchy:
-        from tsagentkit.hierarchy import reconcile_forecasts, ReconciliationMethod
+        from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
 
         method_str = "bottom_up"
         method_map = {

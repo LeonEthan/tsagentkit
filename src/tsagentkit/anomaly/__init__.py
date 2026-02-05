@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
-import warnings
 
 from tsagentkit.contracts import EAnomalyFail
 from tsagentkit.utils import parse_quantile_column
@@ -61,6 +61,7 @@ def detect_anomalies(
             "Anomaly detection requested without calibrated intervals/quantiles. "
             "Proceeding may increase false positives.",
             UserWarning,
+            stacklevel=2,
         )
 
     df = forecast_with_y.copy()

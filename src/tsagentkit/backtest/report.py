@@ -12,6 +12,7 @@ import pandas as pd
 
 from tsagentkit.contracts import CVFrame
 
+
 @dataclass(frozen=True)
 class WindowResult:
     """Results from a single backtest window.

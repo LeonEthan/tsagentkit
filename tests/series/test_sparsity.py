@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from tsagentkit.series import SparsityClass, compute_sparsity_profile
 

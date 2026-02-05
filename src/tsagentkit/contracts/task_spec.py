@@ -11,7 +11,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 # ---------------------------
 # Common
 # ---------------------------
@@ -124,7 +123,7 @@ class TaskSpec(BaseSpec):
         return payload
 
     @model_validator(mode="after")
-    def _apply_backtest_defaults(self) -> "TaskSpec":
+    def _apply_backtest_defaults(self) -> TaskSpec:
         if self.backtest.h is None:
             object.__setattr__(self, "backtest", self.backtest.model_copy(update={"h": self.h}))
         return self

@@ -5,9 +5,11 @@ Defines the data structures for forecast outputs including provenance tracking.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import re
+from dataclasses import dataclass, field
 from typing import Any
+
+import pandas as pd
 
 _QUANTILE_PATTERN = re.compile(r"^q[_]?([0-9]+(?:\.[0-9]+)?)$")
 

@@ -75,27 +75,39 @@ def create_rolling_features(df: pd.DataFrame, windows: dict[int, list[str]]) -> 
         for agg in aggs:
             if agg == "mean":
                 series = df.groupby("unique_id")["y"].transform(
-                    lambda x: x.shift(1).rolling(window=window, min_periods=1).mean()
+                    lambda x, window=window: x.shift(1)
+                    .rolling(window=window, min_periods=1)
+                    .mean()
                 )
             elif agg == "std":
                 series = df.groupby("unique_id")["y"].transform(
-                    lambda x: x.shift(1).rolling(window=window, min_periods=1).std()
+                    lambda x, window=window: x.shift(1)
+                    .rolling(window=window, min_periods=1)
+                    .std()
                 )
             elif agg == "min":
                 series = df.groupby("unique_id")["y"].transform(
-                    lambda x: x.shift(1).rolling(window=window, min_periods=1).min()
+                    lambda x, window=window: x.shift(1)
+                    .rolling(window=window, min_periods=1)
+                    .min()
                 )
             elif agg == "max":
                 series = df.groupby("unique_id")["y"].transform(
-                    lambda x: x.shift(1).rolling(window=window, min_periods=1).max()
+                    lambda x, window=window: x.shift(1)
+                    .rolling(window=window, min_periods=1)
+                    .max()
                 )
             elif agg == "sum":
                 series = df.groupby("unique_id")["y"].transform(
-                    lambda x: x.shift(1).rolling(window=window, min_periods=1).sum()
+                    lambda x, window=window: x.shift(1)
+                    .rolling(window=window, min_periods=1)
+                    .sum()
                 )
             elif agg == "median":
                 series = df.groupby("unique_id")["y"].transform(
-                    lambda x: x.shift(1).rolling(window=window, min_periods=1).median()
+                    lambda x, window=window: x.shift(1)
+                    .rolling(window=window, min_periods=1)
+                    .median()
                 )
             else:
                 continue

@@ -40,7 +40,7 @@ class TestComputeJitter:
         })
         # Slight variations
         preds = []
-        for i in range(3):
+        for _ in range(3):
             p = base.copy()
             p["yhat"] = p["yhat"] + np.random.normal(0, 1, 20)
             preds.append(p)
@@ -56,7 +56,7 @@ class TestComputeJitter:
         })
         # Large variations
         preds = []
-        for i in range(3):
+        for _ in range(3):
             p = base.copy()
             p["yhat"] = p["yhat"] + np.random.normal(0, 20, 10)
             preds.append(p)
@@ -141,7 +141,7 @@ class TestComputeCoverage:
             actuals, forecasts, [0.1, 0.5, 0.9]
         )
 
-        for q, cov in coverage.items():
+        for _q, cov in coverage.items():
             assert 0.0 <= cov <= 1.0
 
 
@@ -209,7 +209,7 @@ class TestGenerateStabilityReport:
 
         # Create predictions with jitter
         predictions = []
-        for i in range(3):
+        for _ in range(3):
             pred = pd.DataFrame({
                 "unique_id": ["A"] * 10,
                 "ds": pd.date_range("2024-01-01", periods=10),

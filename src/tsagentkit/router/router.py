@@ -265,9 +265,7 @@ def _tsfm_allowed(dataset: TSDataset, thresholds: RouterThresholds) -> bool:
     if dataset.n_series > thresholds.max_series_count_for_tsfm:
         return False
     max_points = dataset.df.groupby("unique_id").size().max()
-    if max_points > thresholds.max_points_per_series_for_tsfm:
-        return False
-    return True
+    return max_points <= thresholds.max_points_per_series_for_tsfm
 
 
 __all__ = ["make_plan", "get_model_for_series", "RouteDecision"]

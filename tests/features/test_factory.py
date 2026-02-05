@@ -1,6 +1,5 @@
 """Tests for FeatureFactory point-in-time safe feature engineering."""
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -40,7 +39,7 @@ class TestFeatureConfigValidation:
 
     def test_valid_config_creates_factory(self):
         """Test that valid config creates factory successfully."""
-        config = FeatureConfig(engine="native", 
+        config = FeatureConfig(engine="native",
             lags=[1, 7],
             calendar_features=["dayofweek"],
             rolling_windows={7: ["mean"]},
@@ -213,7 +212,7 @@ class TestCreateFeatures:
 
     def test_feature_cols_populated(self, sample_tsdataset):
         """Test that feature_cols is correctly populated."""
-        config = FeatureConfig(engine="native", 
+        config = FeatureConfig(engine="native",
             lags=[1, 7],
             calendar_features=["dayofweek"],
         )
@@ -273,7 +272,7 @@ class TestGetFeatureImportanceTemplate:
 
     def test_template_structure(self):
         """Test that template has correct structure."""
-        config = FeatureConfig(engine="native", 
+        config = FeatureConfig(engine="native",
             lags=[1, 7],
             calendar_features=["dayofweek"],
             rolling_windows={7: ["mean", "std"]},

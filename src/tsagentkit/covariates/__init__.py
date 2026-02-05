@@ -11,8 +11,8 @@ from tsagentkit.contracts import (
     ECovariateIncompleteKnown,
     ECovariateLeakage,
     ECovariateStaticInvalid,
-    TaskSpec,
     ETaskSpecInvalid,
+    TaskSpec,
 )
 from tsagentkit.time import make_future_index
 
@@ -144,7 +144,7 @@ def _validate_spec_roles(spec: CovariateSpec, covariate_cols: list[str]) -> None
             )
         return
 
-    missing_in_panel = [col for col in spec.roles.keys() if col not in covariate_cols]
+    missing_in_panel = [col for col in spec.roles if col not in covariate_cols]
     if missing_in_panel:
         raise ETaskSpecInvalid(
             "CovariateSpec roles include columns not present in panel data.",
@@ -157,6 +157,7 @@ def _validate_spec_roles(spec: CovariateSpec, covariate_cols: list[str]) -> None
             "covariate_policy='spec' requires roles for all panel covariates.",
             context={"missing_roles_for": sorted(extra_in_panel)},
         )
+
 
 def _has_future_values(
     panel: pd.DataFrame,

@@ -14,8 +14,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from .base import TSFMAdapter
 from tsagentkit.utils import quantile_col_name
+
+from .base import TSFMAdapter
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import ForecastResult, ModelArtifact

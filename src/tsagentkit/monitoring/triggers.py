@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -235,10 +235,10 @@ class TriggerEvaluator:
 
         # Ensure last_train_time is timezone-aware
         if last_train_time.tzinfo is None:
-            last_train_time = last_train_time.replace(tzinfo=timezone.utc)
+            last_train_time = last_train_time.replace(tzinfo=UTC)
 
         next_train_time = last_train_time + interval
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if now >= next_train_time:
             return TriggerResult(

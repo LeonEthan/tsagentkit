@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+import warnings
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING
-import warnings
 
 import pandas as pd
 
 from tsagentkit.features.covariates import CovariateManager
-from tsagentkit.features.matrix import FeatureMatrix
-from tsagentkit.features.versioning import FeatureConfig
 from tsagentkit.features.extra.native import (
     build_native_feature_matrix,
     create_calendar_features,
@@ -19,7 +17,9 @@ from tsagentkit.features.extra.native import (
     create_observed_covariate_features,
     create_rolling_features,
 )
+from tsagentkit.features.matrix import FeatureMatrix
 from tsagentkit.features.tsfeatures_adapter import build_tsfeatures_matrix
+from tsagentkit.features.versioning import FeatureConfig
 
 if TYPE_CHECKING:
     from tsagentkit.series import TSDataset
@@ -81,6 +81,7 @@ class FeatureFactory:
                 warnings.warn(
                     f"tsfeatures unavailable ({exc}); falling back to native features.",
                     RuntimeWarning,
+                    stacklevel=2,
                 )
                 config = self._resolved_config("native")
                 return build_native_feature_matrix(

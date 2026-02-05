@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from tsagentkit.contracts import ETaskSpecIncompatible, ForecastResult, ModelArtifact
@@ -192,9 +192,9 @@ def fit_sktime(
         series_df = series_df.sort_values("ds")
         y = series_df.set_index("ds")["y"].astype(float)
 
-        X_train = None
+        x_train = None
         if covariates is not None:
-            X_train = _build_train_exog(
+            x_train = _build_train_exog(
                 dataset=dataset,
                 covariates=covariates,
                 uid=uid,
@@ -204,7 +204,7 @@ def fit_sktime(
             )
 
         forecaster = _make_forecaster(model_key, dataset.task_spec.season_length)
-        forecaster.fit(y, X=X_train)
+        forecaster.fit(y, X=x_train)
         forecasters[uid] = forecaster
 
     bundle = SktimeModelBundle(
@@ -252,16 +252,16 @@ def predict_sktime(
         future_dates = pd.to_datetime(future_dates).sort_values()
         fh = ForecastingHorizon(pd.DatetimeIndex(future_dates), is_relative=False)
 
-        X_future = None
+        x_future = None
         if covariates is not None and (bundle.static_columns or bundle.future_columns):
-            X_future = _build_future_exog(
+            x_future = _build_future_exog(
                 covariates=covariates,
                 uid=uid,
                 static_cols=bundle.static_columns,
                 future_cols=bundle.future_columns,
             )
 
-        y_pred = forecaster.predict(fh, X=X_future)
+        y_pred = forecaster.predict(fh, X=x_future)
         if isinstance(y_pred, pd.DataFrame):
             y_pred = y_pred.iloc[:, 0]
 
@@ -288,14 +288,14 @@ def predict_sktime(
 
 
 def _basic_provenance(dataset: Any, spec: Any, artifact: ModelArtifact) -> Any:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from tsagentkit.contracts import Provenance
     from tsagentkit.utils import compute_data_signature
 
     return Provenance(
-        run_id=f"sktime_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        run_id=f"sktime_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
+        timestamp=datetime.now(UTC).isoformat(),
         data_signature=compute_data_signature(dataset.df),
         task_signature=spec.model_hash(),
         plan_signature=artifact.signature,

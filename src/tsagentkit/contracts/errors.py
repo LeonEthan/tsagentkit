@@ -4,6 +4,8 @@ Defines structured error codes used throughout the pipeline.
 Aligned to docs/PRD.md Section 6.1 with compatibility aliases.
 """
 
+# ruff: noqa: N818
+
 from typing import Any
 
 

@@ -125,15 +125,8 @@ class DriftDetector:
         else:  # ks
             # For KS, drift detected if any feature has p-value < threshold
             # Overall score is the max KS statistic across features
-            p_values = [
-                r.p_value for r in feature_drifts.values()
-                if r.p_value is not None
-            ]
-            if p_values:
-                # Drift detected if any p-value is below threshold
-                drift_detected = any(p < self.threshold for p in p_values)
-            else:
-                drift_detected = False
+            p_values = [r.p_value for r in feature_drifts.values() if r.p_value is not None]
+            drift_detected = any(p < self.threshold for p in p_values) if p_values else False
 
         return DriftReport(
             drift_detected=drift_detected,
@@ -295,8 +288,6 @@ def compute_psi_summary(
     Returns:
         Dictionary with PSI breakdown
     """
-    detector = DriftDetector(method="psi", n_bins=n_bins)
-
     ref_values = np.asarray(reference.dropna() if hasattr(reference, "dropna") else reference)
     cur_values = np.asarray(current.dropna() if hasattr(current, "dropna") else current)
 

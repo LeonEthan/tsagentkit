@@ -7,12 +7,16 @@ guaranteed schema and temporal integrity.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
 from tsagentkit.contracts import PanelContract, TaskSpec, validate_contract
 from tsagentkit.series.validation import normalize_panel_columns
+
+if TYPE_CHECKING:
+    from tsagentkit.covariates import AlignedDataset, CovariateBundle
+    from tsagentkit.hierarchy import HierarchyStructure
 
 from .sparsity import SparsityProfile, compute_sparsity_profile
 
@@ -52,7 +56,7 @@ class TSDataset:
     future_x: pd.DataFrame | None = field(default=None)
     future_index: pd.DataFrame | None = field(default=None)
     covariate_spec: Any | None = field(default=None)
-    covariate_bundle: "CovariateBundle | None" = field(default=None)
+    covariate_bundle: CovariateBundle | None = field(default=None)
     panel_with_covariates: pd.DataFrame | None = field(default=None)
 
     def __post_init__(self) -> None:
@@ -81,7 +85,7 @@ class TSDataset:
         task_spec: TaskSpec,
         validate: bool = True,
         compute_sparsity: bool = True,
-    ) -> "TSDataset":
+    ) -> TSDataset:
         """Create TSDataset from DataFrame.
 
         Args:
@@ -173,7 +177,7 @@ class TSDataset:
         """
         return self.df[self.df["unique_id"] == unique_id].copy()
 
-    def filter_series(self, series_ids: list[str]) -> "TSDataset":
+    def filter_series(self, series_ids: list[str]) -> TSDataset:
         """Create new dataset with only specified series.
 
         Args:
@@ -196,7 +200,7 @@ class TSDataset:
         self,
         start: str | pd.Timestamp | None = None,
         end: str | pd.Timestamp | None = None,
-    ) -> "TSDataset":
+    ) -> TSDataset:
         """Create new dataset filtered by date range.
 
         Args:
@@ -229,7 +233,7 @@ class TSDataset:
         self,
         test_size: int | None = None,
         test_start: str | pd.Timestamp | None = None,
-    ) -> tuple["TSDataset", "TSDataset"]:
+    ) -> tuple[TSDataset, TSDataset]:
         """Split dataset into train and test sets.
 
         Temporal split - uses cutoff date or last N observations per series.
@@ -303,7 +307,7 @@ class TSDataset:
             },
         }
 
-    def with_hierarchy(self, hierarchy: HierarchyStructure) -> "TSDataset":
+    def with_hierarchy(self, hierarchy: HierarchyStructure) -> TSDataset:
         """Return new TSDataset with hierarchy attached.
 
         Args:
@@ -316,10 +320,10 @@ class TSDataset:
 
     def with_covariates(
         self,
-        aligned: "AlignedDataset | None",
+        aligned: AlignedDataset | None,
         panel_with_covariates: pd.DataFrame | None = None,
-        covariate_bundle: "CovariateBundle | None" = None,
-    ) -> "TSDataset":
+        covariate_bundle: CovariateBundle | None = None,
+    ) -> TSDataset:
         """Return new TSDataset with covariates attached."""
         if aligned is None:
             return replace(
@@ -369,7 +373,7 @@ class TSDataset:
             if self.hierarchy.get_level(node) == level
         ]
 
-    def aggregate_to_level(self, target_level: int) -> "TSDataset":
+    def aggregate_to_level(self, target_level: int) -> TSDataset:
         """Aggregate bottom-level data to target hierarchy level.
 
         Args:

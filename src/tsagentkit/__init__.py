@@ -12,50 +12,50 @@ Basic usage:
 __version__ = "1.0.2"
 
 # Import commonly used items from contracts
+from tsagentkit.anomaly import detect_anomalies
+from tsagentkit.backtest import (
+    BacktestReport,
+    mase,
+    rolling_backtest,
+    smape,
+    wape,
+)
+from tsagentkit.calibration import apply_calibrator, fit_calibrator
 from tsagentkit.contracts import (
-    TaskSpec,
-    ValidationReport,
+    ECovariateLeakage,
+    ESplitRandomForbidden,
     ForecastResult,
     ModelArtifact,
     Provenance,
     RunArtifact,
-    validate_contract,
+    TaskSpec,
     # Errors
     TSAgentKitError,
-    ESplitRandomForbidden,
-    ECovariateLeakage,
+    ValidationReport,
+    validate_contract,
 )
-from tsagentkit.backtest import (
-    BacktestReport,
-    rolling_backtest,
-    wape,
-    smape,
-    mase,
-)
+from tsagentkit.eval import MetricFrame, ScoreSummary, evaluate_forecasts
+from tsagentkit.qa import run_qa
 from tsagentkit.router import (
-    PlanSpec,
-    compute_plan_signature,
-    get_candidate_models,
-    make_plan,
-    FallbackLadder,
-    execute_with_fallback,
-    # Bucketing (v0.2)
-    DataBucketer,
     BucketConfig,
     BucketProfile,
     BucketStatistics,
+    # Bucketing (v0.2)
+    DataBucketer,
+    FallbackLadder,
+    PlanSpec,
     SeriesBucket,
+    compute_plan_signature,
+    execute_with_fallback,
+    get_candidate_models,
+    make_plan,
 )
 from tsagentkit.series import (
-    TSDataset,
-    SparsityProfile,
     SparsityClass,
+    SparsityProfile,
+    TSDataset,
     build_dataset,
 )
-from tsagentkit.qa import run_qa
-from tsagentkit.calibration import apply_calibrator, fit_calibrator
-from tsagentkit.anomaly import detect_anomalies
-from tsagentkit.eval import evaluate_forecasts, MetricFrame, ScoreSummary
 from tsagentkit.serving import MonitoringConfig, run_forecast
 
 # Structured logging (v1.0)

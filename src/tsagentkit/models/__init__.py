@@ -6,22 +6,22 @@ adapters for various forecasting backends.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
 from collections.abc import Callable
+from datetime import UTC
+from typing import TYPE_CHECKING, Any
 
-from tsagentkit.contracts import ModelArtifact, ForecastResult, Provenance
+from tsagentkit.contracts import ForecastResult, ModelArtifact, Provenance
+
+# Import adapters submodules
+from tsagentkit.models import adapters
 from tsagentkit.models.baselines import fit_baseline, is_baseline_model, predict_baseline
 from tsagentkit.models.sktime import SktimeModelBundle, fit_sktime, predict_sktime
 from tsagentkit.utils import normalize_quantile_columns
 
-# Import adapters submodules
-from tsagentkit.models import adapters
-
 if TYPE_CHECKING:
-    from tsagentkit.series import TSDataset
-    from tsagentkit.models.adapters import TSFMAdapter
-    from tsagentkit.router import PlanSpec
     from tsagentkit.contracts import TaskSpec
+    from tsagentkit.router import PlanSpec
+    from tsagentkit.series import TSDataset
 
 
 def _is_tsfm_model(model_name: str) -> bool:
@@ -32,7 +32,7 @@ def _is_sktime_model(model_name: str) -> bool:
     return model_name.lower().startswith("sktime-")
 
 
-def _build_adapter_config(model_name: str, config: dict[str, Any]) -> "adapters.AdapterConfig":
+def _build_adapter_config(model_name: str, config: dict[str, Any]) -> adapters.AdapterConfig:
     adapter_name = model_name.split("tsfm-", 1)[-1]
     return adapters.AdapterConfig(
         model_name=adapter_name,
@@ -49,8 +49,8 @@ def _build_adapter_config(model_name: str, config: dict[str, Any]) -> "adapters.
 
 def _fit_model_name(
     model_name: str,
-    dataset: "TSDataset",
-    plan: "PlanSpec",
+    dataset: TSDataset,
+    plan: PlanSpec,
     covariates: Any | None = None,
 ) -> ModelArtifact:
     """Fit a model by name with baseline or TSFM dispatch."""
@@ -86,15 +86,15 @@ def _fit_model_name(
 
 
 def fit(
-    dataset: "TSDataset",
-    plan: "PlanSpec",
+    dataset: TSDataset,
+    plan: PlanSpec,
     on_fallback: Callable[[str, str, Exception], None] | None = None,
     covariates: Any | None = None,
 ) -> ModelArtifact:
     """Fit a model using the plan's fallback ladder."""
     from tsagentkit.router import execute_with_fallback
 
-    def _fit(model_name: str, ds: "TSDataset") -> ModelArtifact:
+    def _fit(model_name: str, ds: TSDataset) -> ModelArtifact:
         return _fit_model_name(model_name, ds, plan, covariates=covariates)
 
     artifact, _ = execute_with_fallback(
@@ -107,17 +107,17 @@ def fit(
 
 
 def _basic_provenance(
-    dataset: "TSDataset",
-    spec: "TaskSpec",
+    dataset: TSDataset,
+    spec: TaskSpec,
     artifact: ModelArtifact,
 ) -> Provenance:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from tsagentkit.utils import compute_data_signature
 
     return Provenance(
-        run_id=f"model_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        run_id=f"model_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
+        timestamp=datetime.now(UTC).isoformat(),
         data_signature=compute_data_signature(dataset.df),
         task_signature=spec.model_hash(),
         plan_signature=artifact.signature,
@@ -127,9 +127,9 @@ def _basic_provenance(
 
 
 def predict(
-    dataset: "TSDataset",
+    dataset: TSDataset,
     artifact: ModelArtifact,
-    spec: "TaskSpec",
+    spec: TaskSpec,
     covariates: Any | None = None,
 ) -> ForecastResult:
     """Generate predictions for baseline or TSFM models."""

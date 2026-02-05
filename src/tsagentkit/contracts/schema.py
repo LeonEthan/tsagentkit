@@ -7,7 +7,7 @@ non-stdlib dependencies. The implementation lives in tsagentkit.series.validatio
 from __future__ import annotations
 
 from importlib import import_module
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from tsagentkit.contracts.results import ValidationReport
@@ -20,7 +20,7 @@ def _impl():
 
 def normalize_panel_columns(
     df: Any,
-    contract: "PanelContract",
+    contract: PanelContract,
 ) -> tuple[Any, dict[str, str] | None]:
     """Normalize panel columns to the canonical contract names."""
     return _impl().normalize_panel_columns(df, contract)
@@ -28,10 +28,10 @@ def normalize_panel_columns(
 
 def validate_contract(
     data: Any,
-    panel_contract: "PanelContract | None" = None,
+    panel_contract: PanelContract | None = None,
     apply_aggregation: bool = False,
     return_data: bool = False,
-) -> "ValidationReport | tuple[ValidationReport, Any]":
+) -> ValidationReport | tuple[ValidationReport, Any]:
     """Validate input data against the required schema."""
     return _impl().validate_contract(
         data,

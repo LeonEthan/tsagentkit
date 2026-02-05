@@ -5,11 +5,11 @@ Provides automatic model degradation when primary models fail.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypeVar
 from collections.abc import Callable
+from typing import TYPE_CHECKING, TypeVar
 
 from tsagentkit.contracts.errors import EFallbackExhausted
-from tsagentkit.router.plan import get_candidate_models, PlanSpec
+from tsagentkit.router.plan import PlanSpec, get_candidate_models
 
 if TYPE_CHECKING:
     from tsagentkit.series import TSDataset
