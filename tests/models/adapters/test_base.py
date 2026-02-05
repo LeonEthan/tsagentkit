@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -28,7 +28,9 @@ def _mock_torch(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "torch.backends", torch_mock.backends)
     monkeypatch.setitem(sys.modules, "torch.backends.mps", torch_mock.backends.mps)
 
-from tsagentkit.models.adapters import AdapterConfig, AdapterRegistry, TSFMAdapter
+from datetime import UTC  # noqa: E402
+
+from tsagentkit.models.adapters import AdapterConfig, AdapterRegistry, TSFMAdapter  # noqa: E402
 
 
 class MockAdapter(TSFMAdapter):
@@ -57,7 +59,7 @@ class MockAdapter(TSFMAdapter):
         horizon: int,
         quantiles: list[float] | None = None,
     ):
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from tsagentkit.contracts import ForecastResult, Provenance
 
@@ -71,7 +73,7 @@ class MockAdapter(TSFMAdapter):
 
         provenance = Provenance(
             run_id="test",
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             data_signature="test",
             task_signature="test",
             plan_signature="test",

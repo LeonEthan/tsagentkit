@@ -3,13 +3,13 @@
 import pandas as pd
 import pytest
 
-from tsagentkit.covariates import align_covariates
 from tsagentkit.contracts import (
     CovariateSpec,
     ECovariateIncompleteKnown,
     ETaskSpecInvalid,
     TaskSpec,
 )
+from tsagentkit.covariates import align_covariates
 
 
 def _sample_panel() -> pd.DataFrame:

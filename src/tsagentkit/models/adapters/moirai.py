@@ -13,9 +13,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from .base import TSFMAdapter
 from tsagentkit.time import normalize_pandas_freq
 from tsagentkit.utils import quantile_col_name
+
+from .base import TSFMAdapter
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import ForecastResult, ModelArtifact
@@ -122,8 +123,9 @@ class MoiraiAdapter(TSFMAdapter):
             self.load_model()
 
         from gluonts.dataset.common import ListDataset
-        from tsagentkit.contracts import ForecastResult
         from uni2ts.model.moirai2 import Moirai2Forecast
+
+        from tsagentkit.contracts import ForecastResult
 
         freq = normalize_pandas_freq(dataset.freq)
         context_length = self._get_context_length(dataset, horizon)
@@ -161,7 +163,7 @@ class MoiraiAdapter(TSFMAdapter):
 
         offset = pd.tseries.frequencies.to_offset(freq)
         result_rows = []
-        for meta_item, forecast in zip(meta, forecast_it):
+        for meta_item, forecast in zip(meta, forecast_it, strict=False):
             uid = meta_item["uid"]
             last_date = meta_item["last_date"]
             future_dates = pd.date_range(

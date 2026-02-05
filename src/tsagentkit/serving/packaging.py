@@ -17,15 +17,15 @@ if TYPE_CHECKING:
 
 
 def package_run(
-    forecast: "ForecastResult",
-    plan: "PlanSpec" | dict[str, Any],
+    forecast: ForecastResult,
+    plan: PlanSpec | dict[str, Any],
     task_spec: Any | None = None,
     plan_spec: dict[str, Any] | None = None,
     validation_report: dict[str, Any] | None = None,
-    backtest_report: "BacktestReport" | None = None,
-    qa_report: "QAReport" | None = None,
-    model_artifact: "ModelArtifact" | None = None,
-    provenance: "Provenance" | None = None,
+    backtest_report: BacktestReport | None = None,
+    qa_report: QAReport | None = None,
+    model_artifact: ModelArtifact | None = None,
+    provenance: Provenance | None = None,
     calibration_artifact: dict[str, Any] | None = None,
     anomaly_report: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,

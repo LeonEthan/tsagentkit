@@ -134,7 +134,7 @@ class HierarchyStructure:
         df: pd.DataFrame,
         hierarchy_columns: list[str],
         value_column: str = "y",
-    ) -> "HierarchyStructure":
+    ) -> HierarchyStructure:
         """Build hierarchy structure from DataFrame with hierarchical columns.
 
         Automatically constructs the aggregation graph and summation matrix
@@ -205,7 +205,7 @@ class HierarchyStructure:
         s_matrix: np.ndarray,
         node_names: list[str],
         bottom_node_names: list[str],
-    ) -> "HierarchyStructure":
+    ) -> HierarchyStructure:
         """Build hierarchy from explicit summation matrix.
 
         Args:

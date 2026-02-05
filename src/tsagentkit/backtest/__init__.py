@@ -14,8 +14,8 @@ from .metrics import (
     pinball_loss,
     rmse,
     smape,
-    wql,
     wape,
+    wql,
 )
 from .report import (
     BacktestReport,

@@ -34,7 +34,7 @@ class TestFeaturesIntegration:
 
     def test_feature_factory_integration(self, sample_data):
         """Test FeatureFactory with full feature set."""
-        config = FeatureConfig(engine="native", 
+        config = FeatureConfig(engine="native",
             lags=[1, 7],
             calendar_features=["dayofweek", "month"],
             rolling_windows={7: ["mean"], 14: ["std"]},
@@ -116,7 +116,7 @@ class TestMonitoringIntegration:
         """Test stability monitoring with multiple predictions."""
         # Create multiple forecast runs
         predictions = []
-        for i in range(3):
+        for _ in range(3):
             pred = pd.DataFrame({
                 "unique_id": ["A"] * 10,
                 "ds": pd.date_range("2024-01-01", periods=10),
@@ -345,19 +345,6 @@ class TestEndToEndV02:
     def test_full_pipeline_with_monitoring(self):
         """Test complete pipeline with monitoring enabled."""
         np.random.seed(42)
-
-        # Create reference and current data
-        reference_data = pd.DataFrame({
-            "unique_id": ["A"] * 50,
-            "ds": pd.date_range("2024-01-01", periods=50),
-            "y": np.random.normal(100, 10, 50),
-        })
-
-        current_data = pd.DataFrame({
-            "unique_id": ["A"] * 50,
-            "ds": pd.date_range("2024-02-20", periods=50),
-            "y": np.random.normal(100, 10, 50),
-        })
 
         # Create monitoring config
         monitoring_config = MonitoringConfig(

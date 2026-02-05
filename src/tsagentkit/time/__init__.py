@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Literal
 import re
+from typing import Literal
 
 import pandas as pd
 

@@ -1,6 +1,7 @@
 """Contracts module for tsagentkit."""
 
 from .errors import (
+    EOOM,
     EAdapterNotAvailable,
     EAnomalyFail,
     EBacktestFail,
@@ -21,7 +22,6 @@ from .errors import (
     EModelFitFailed,
     EModelLoadFailed,
     EModelPredictFailed,
-    EOOM,
     EQACriticalIssue,
     EQALeakageDetected,
     EQAMinHistory,

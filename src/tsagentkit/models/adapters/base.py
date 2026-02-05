@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import UTC
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
-    import pandas as pd
 
     from tsagentkit.contracts import ForecastResult, ModelArtifact, Provenance
     from tsagentkit.series import TSDataset
@@ -240,11 +240,11 @@ class TSFMAdapter(ABC):
         Returns:
             Provenance instance
         """
-        from datetime import datetime, timezone
-        from tsagentkit.contracts import Provenance
-
         # Create data signature from dataset
         import hashlib
+        from datetime import datetime
+
+        from tsagentkit.contracts import Provenance
 
         data_hash = hashlib.sha256(
             str(dataset.n_series).encode() +
@@ -253,8 +253,8 @@ class TSFMAdapter(ABC):
         ).hexdigest()[:16]
 
         return Provenance(
-            run_id=f"tsfm_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            run_id=f"tsfm_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
+            timestamp=datetime.now(UTC).isoformat(),
             data_signature=data_hash,
             task_signature=f"horizon={horizon}",
             plan_signature=self.get_model_signature(),

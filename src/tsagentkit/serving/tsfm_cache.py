@@ -7,7 +7,6 @@ Provides model caching and lazy loading for TSFM adapters to enable
 from __future__ import annotations
 
 import threading
-import weakref
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:

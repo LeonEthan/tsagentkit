@@ -6,7 +6,7 @@ with availability checking and dependency management.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Type
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .base import AdapterConfig, TSFMAdapter
@@ -34,13 +34,13 @@ class AdapterRegistry:
         >>> adapter = AdapterRegistry.create("chronos", config)
     """
 
-    _adapters: dict[str, Type["TSFMAdapter"]] = {}
+    _adapters: dict[str, type[TSFMAdapter]] = {}
 
     @classmethod
     def register(
         cls,
         name: str,
-        adapter_class: Type["TSFMAdapter"],
+        adapter_class: type[TSFMAdapter],
     ) -> None:
         """Register an adapter class.
 
@@ -72,7 +72,7 @@ class AdapterRegistry:
         del cls._adapters[name]
 
     @classmethod
-    def get(cls, name: str) -> Type["TSFMAdapter"]:
+    def get(cls, name: str) -> type[TSFMAdapter]:
         """Get adapter class by name.
 
         Args:
@@ -105,8 +105,8 @@ class AdapterRegistry:
     def create(
         cls,
         name: str,
-        config: "AdapterConfig" | None = None,
-    ) -> "TSFMAdapter":
+        config: AdapterConfig | None = None,
+    ) -> TSFMAdapter:
         """Factory method to create adapter instance.
 
         Args:
@@ -149,7 +149,7 @@ class AdapterRegistry:
             return False, f"Unexpected error checking dependencies: {e}"
 
     @classmethod
-    def get_available_adapters(cls) -> dict[str, Type["TSFMAdapter"]]:
+    def get_available_adapters(cls) -> dict[str, type[TSFMAdapter]]:
         """Get all adapters that have their dependencies installed.
 
         Returns:

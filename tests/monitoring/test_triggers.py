@@ -1,10 +1,8 @@
 """Tests for retrain triggers."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-import pytest
-
-from tsagentkit.monitoring.report import DriftReport, StabilityReport, TriggerResult
+from tsagentkit.monitoring.report import DriftReport
 from tsagentkit.monitoring.triggers import (
     RetrainTrigger,
     TriggerEvaluator,
@@ -111,7 +109,7 @@ class TestScheduleTriggerEvaluation:
         evaluator = TriggerEvaluator([trigger])
 
         # Last trained 2 days ago
-        last_train = datetime.now(timezone.utc) - timedelta(days=2)
+        last_train = datetime.now(UTC) - timedelta(days=2)
 
         results = evaluator.evaluate(last_train_time=last_train)
 
@@ -127,7 +125,7 @@ class TestScheduleTriggerEvaluation:
         evaluator = TriggerEvaluator([trigger])
 
         # Last trained just now
-        last_train = datetime.now(timezone.utc)
+        last_train = datetime.now(UTC)
 
         results = evaluator.evaluate(last_train_time=last_train)
 
@@ -152,7 +150,7 @@ class TestScheduleTriggerEvaluation:
         )
         evaluator = TriggerEvaluator([trigger])
 
-        last_train = datetime.now(timezone.utc) - timedelta(days=2)
+        last_train = datetime.now(UTC) - timedelta(days=2)
         results = evaluator.evaluate(last_train_time=last_train)
 
         assert not results[0].fired

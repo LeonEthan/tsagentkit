@@ -1,13 +1,11 @@
 """Tests for backtest/engine.py."""
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from tsagentkit import TaskSpec
 from tsagentkit.backtest import cross_validation_split, rolling_backtest
-from tsagentkit.contracts import ESplitRandomForbidden
-from tsagentkit.contracts import ModelArtifact
+from tsagentkit.contracts import ESplitRandomForbidden, ModelArtifact
 from tsagentkit.router import PlanSpec
 from tsagentkit.series import TSDataset
 

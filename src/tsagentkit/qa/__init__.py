@@ -251,10 +251,6 @@ def _apply_repairs(
     outliers_clipped = 0
     median_applied = 0
 
-    # Track before/after statistics for audit trail
-    before_stats: dict[str, Any] = {}
-    after_stats: dict[str, Any] = {}
-
     for uid in data[uid_col].unique():
         series_idx = data[uid_col] == uid
         series = data.loc[series_idx].sort_values(ds_col).copy()

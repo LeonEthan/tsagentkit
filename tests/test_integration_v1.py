@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from tsagentkit import TaskSpec
+from tsagentkit.contracts import EAdapterNotAvailable
 from tsagentkit.hierarchy import HierarchyStructure, ReconciliationMethod
 from tsagentkit.router import make_plan
 from tsagentkit.series import TSDataset
@@ -201,7 +202,7 @@ class TestTSFMCacheIntegration:
         cache.clear_cache()  # Start fresh
 
         # This will fail to load but will test the cache mechanism
-        with pytest.raises(Exception):
+        with pytest.raises(EAdapterNotAvailable):
             cache.get_model("nonexistent_model")
 
         # Clear specific model
@@ -216,12 +217,12 @@ class TestTSFMCacheIntegration:
         clear_tsfm_cache()  # Start fresh
 
         # Should raise error for unavailable model
-        with pytest.raises(Exception):
+        with pytest.raises(EAdapterNotAvailable):
             get_tsfm_model("chronos")
 
         # Stats should show the attempt
         cache = TSFMModelCache()
-        stats = cache.get_cache_stats()
+        cache.get_cache_stats()
         # May or may not have the model depending on if chronos is installed
 
     def test_cache_key_generation(self):

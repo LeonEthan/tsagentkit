@@ -6,17 +6,13 @@ Identifies intermittent, cold-start, and sparse series for the router.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-from typing import TYPE_CHECKING
+from enum import StrEnum
 
 import numpy as np
 import pandas as pd
 
-if TYPE_CHECKING:
-    pass
 
-
-class SparsityClass(str, Enum):
+class SparsityClass(StrEnum):
     """Classification of series sparsity patterns."""
 
     REGULAR = "regular"

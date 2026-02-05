@@ -14,10 +14,11 @@ import pandas as pd
 if TYPE_CHECKING:
     pass
 
-    from tsagentkit.contracts import TaskSpec
-    from tsagentkit.contracts import Provenance
+    from tsagentkit.contracts import Provenance, TaskSpec
     from tsagentkit.router import PlanSpec
 
+
+from datetime import UTC
 
 from tsagentkit.utils import compute_config_signature, compute_data_signature
 
@@ -34,7 +35,7 @@ def create_provenance(
     column_map: dict[str, str] | None = None,
     original_panel_contract: dict[str, Any] | None = None,
     route_decision: Any | None = None,
-) -> "Provenance":
+) -> Provenance:
     """Create a provenance record for a forecasting run.
 
     Args:
@@ -51,7 +52,7 @@ def create_provenance(
     Returns:
         Provenance object with signatures and metadata
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from tsagentkit.contracts import Provenance
 
@@ -96,7 +97,7 @@ def create_provenance(
 
     return Provenance(
         run_id=str(uuid4()),
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         data_signature=compute_data_signature(data),
         task_signature=task_spec.model_hash(),
         plan_signature=compute_plan_signature(plan),
@@ -137,13 +138,13 @@ def log_event(
     Returns:
         Event dictionary with all structured logging fields
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     event = {
         "step_name": step_name,
         "status": status,
         "duration_ms": round(duration_ms, 3),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "error_code": error_code,
         "artifacts_generated": artifacts_generated or [],
     }

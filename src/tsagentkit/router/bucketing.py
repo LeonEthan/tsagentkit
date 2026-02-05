@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
-import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -142,7 +141,7 @@ class BucketProfile:
         Returns:
             Dict mapping bucket to series count
         """
-        counts: dict[SeriesBucket, int] = {b: 0 for b in SeriesBucket}
+        counts: dict[SeriesBucket, int] = dict.fromkeys(SeriesBucket, 0)
         for buckets in self.bucket_assignments.values():
             for bucket in buckets:
                 counts[bucket] = counts.get(bucket, 0) + 1
@@ -447,9 +446,7 @@ class DataBucketer:
 
         if bucket == SeriesBucket.HEAD:
             return "SeasonalNaive"  # Placeholder for TSFM
-        elif bucket == SeriesBucket.TAIL:
-            return "HistoricAverage"
-        elif bucket == SeriesBucket.SHORT_HISTORY:
+        elif bucket == SeriesBucket.TAIL or bucket == SeriesBucket.SHORT_HISTORY:
             return "HistoricAverage"
         elif bucket == SeriesBucket.LONG_HISTORY:
             return "SeasonalNaive"

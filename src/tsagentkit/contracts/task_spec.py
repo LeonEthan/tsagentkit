@@ -7,10 +7,9 @@ used by agents and orchestration layers. They mirror docs/PRD.md Appendix B.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 
 # ---------------------------
 # Common
@@ -46,13 +45,13 @@ class ForecastContract(BaseSpec):
     yhat_col: str = "yhat"
     cutoff_col: str = "cutoff"  # required for CV output
     interval_mode: IntervalMode = "level"
-    levels: List[int] = Field(default_factory=lambda: [80, 95])
-    quantiles: List[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
+    levels: list[int] = Field(default_factory=lambda: [80, 95])
+    quantiles: list[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
 
 
 class CovariateSpec(BaseSpec):
     # Explicit typing strongly preferred for agent safety.
-    roles: Dict[str, CovariateRole] = Field(default_factory=dict)
+    roles: dict[str, CovariateRole] = Field(default_factory=dict)
     missing_policy: MissingPolicy = "error"
 
 
@@ -61,7 +60,7 @@ class CovariateSpec(BaseSpec):
 # ---------------------------
 
 class BacktestSpec(BaseSpec):
-    h: Optional[int] = Field(None, gt=0)
+    h: int | None = Field(None, gt=0)
     n_windows: int = Field(5, gt=0)
     step: int = Field(1, gt=0)
     min_train_size: int = Field(56, gt=1)
@@ -73,7 +72,7 @@ class TaskSpec(BaseSpec):
     h: int = Field(..., gt=0)
 
     # Frequency handling
-    freq: Optional[str] = None
+    freq: str | None = None
     infer_freq: bool = True
 
     # Contracts
@@ -81,7 +80,7 @@ class TaskSpec(BaseSpec):
     forecast_contract: ForecastContract = Field(default_factory=ForecastContract)
 
     # Covariates
-    covariates: Optional[CovariateSpec] = None
+    covariates: CovariateSpec | None = None
     covariate_policy: CovariatePolicy = "auto"
 
     # Backtest defaults (can be overridden by the caller)
@@ -124,7 +123,7 @@ class TaskSpec(BaseSpec):
         return payload
 
     @model_validator(mode="after")
-    def _apply_backtest_defaults(self) -> "TaskSpec":
+    def _apply_backtest_defaults(self) -> TaskSpec:
         if self.backtest.h is None:
             object.__setattr__(self, "backtest", self.backtest.model_copy(update={"h": self.h}))
         return self
@@ -134,11 +133,11 @@ class TaskSpec(BaseSpec):
         return self.h
 
     @property
-    def quantiles(self) -> List[float]:
+    def quantiles(self) -> list[float]:
         return self.forecast_contract.quantiles
 
     @property
-    def levels(self) -> List[int]:
+    def levels(self) -> list[int]:
         return self.forecast_contract.levels
 
     @property
@@ -196,7 +195,7 @@ class RouterThresholds(BaseSpec):
 
 class PlanSpec(BaseSpec):
     plan_name: str
-    candidate_models: List[str] = Field(..., min_length=1)
+    candidate_models: list[str] = Field(..., min_length=1)
 
     # Covariate usage rules
     use_static: bool = True
@@ -205,12 +204,12 @@ class PlanSpec(BaseSpec):
 
     # Training policy
     min_train_size: int = Field(56, gt=1)
-    max_train_size: Optional[int] = None  # if set, truncate oldest points deterministically
+    max_train_size: int | None = None  # if set, truncate oldest points deterministically
 
     # Output policy
     interval_mode: IntervalMode = "level"
-    levels: List[int] = Field(default_factory=lambda: [80, 95])
-    quantiles: List[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
+    levels: list[int] = Field(default_factory=lambda: [80, 95])
+    quantiles: list[float] = Field(default_factory=lambda: [0.1, 0.5, 0.9])
 
     # Fallback policy
     allow_drop_covariates: bool = True
@@ -219,23 +218,23 @@ class PlanSpec(BaseSpec):
 
 class RouteDecision(BaseSpec):
     # Series statistics used in routing (computed deterministically)
-    stats: Dict[str, Any] = Field(default_factory=dict)
+    stats: dict[str, Any] = Field(default_factory=dict)
 
     # Bucket tags
-    buckets: List[str] = Field(default_factory=list)
+    buckets: list[str] = Field(default_factory=list)
 
     # Which plan template was selected
     selected_plan: PlanSpec
 
     # Human-readable deterministic reasons (safe for logs)
-    reasons: List[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
 
 
 class RouterConfig(BaseSpec):
     thresholds: RouterThresholds = Field(default_factory=RouterThresholds)
 
     # Mapping bucket -> plan template name, resolved by registry
-    bucket_to_plan: Dict[str, str] = Field(default_factory=dict)
+    bucket_to_plan: dict[str, str] = Field(default_factory=dict)
 
     # Default plan when no bucket matches
     default_plan: str = "default"
@@ -248,7 +247,7 @@ class RouterConfig(BaseSpec):
 class CalibratorSpec(BaseSpec):
     method: Literal["none", "conformal"] = "conformal"
     level: int = Field(99, ge=50, le=99)
-    by: Optional[Literal["unique_id", "global"]] = "unique_id"
+    by: Literal["unique_id", "global"] = "unique_id"
 
 
 class AnomalySpec(BaseSpec):
@@ -266,15 +265,15 @@ class RunArtifactSpec(BaseSpec):
     created_at: datetime
 
     task_spec: TaskSpec
-    router_config: Optional[RouterConfig] = None
-    route_decision: Optional[RouteDecision] = None
+    router_config: RouterConfig | None = None
+    route_decision: RouteDecision | None = None
 
     # Identifiers / hashes for reproducibility (implementation-defined)
-    data_signature: Optional[str] = None
-    code_signature: Optional[str] = None
+    data_signature: str | None = None
+    code_signature: str | None = None
 
     # Output references (implementation-defined; typically file paths or object-store keys)
-    outputs: Dict[str, str] = Field(default_factory=dict)
+    outputs: dict[str, str] = Field(default_factory=dict)
 
 
 __all__ = [

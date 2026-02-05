@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Literal
+from datetime import UTC, datetime
 
 
 @dataclass(frozen=True)
@@ -78,10 +77,10 @@ class DriftReport:
     overall_drift_score: float
     threshold_used: float
     reference_timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
     current_timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
 
     def summary(self) -> str:
@@ -206,7 +205,7 @@ class TriggerResult:
     fired: bool
     reason: str
     timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
     metadata: dict = field(default_factory=dict)
 

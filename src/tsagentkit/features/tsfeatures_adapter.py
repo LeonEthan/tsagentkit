@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 import pandas as pd
 
-from tsagentkit.features.matrix import FeatureMatrix
-from tsagentkit.features.versioning import FeatureConfig, compute_feature_hash
 from tsagentkit.features.extra.native import (
     create_observed_covariate_features,
     extract_panel,
     prepare_panel,
 )
+from tsagentkit.features.matrix import FeatureMatrix
+from tsagentkit.features.versioning import FeatureConfig, compute_feature_hash
 
 
 def _import_tsfeatures():

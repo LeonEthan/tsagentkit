@@ -97,7 +97,7 @@ class HierarchyEvaluator:
         Coherence score: 0.998
     """
 
-    def __init__(self, structure: "HierarchyStructure"):
+    def __init__(self, structure: HierarchyStructure):
         """Initialize evaluator.
 
         Args:

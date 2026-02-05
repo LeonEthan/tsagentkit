@@ -6,15 +6,17 @@ temporal integrity (no random splits allowed).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pandas as pd
 
-from tsagentkit.covariates import AlignedDataset, align_covariates
 from tsagentkit.contracts import CVFrame, ESplitRandomForbidden
+from tsagentkit.covariates import AlignedDataset, align_covariates
 from tsagentkit.eval import evaluate_forecasts
 from tsagentkit.utils import drop_future_rows, normalize_quantile_columns
+
 from .report import (
     BacktestReport,
     SegmentMetrics,
@@ -578,7 +580,7 @@ def _reconcile_forecast(
     Returns:
         Reconciled forecast DataFrame
     """
-    from tsagentkit.hierarchy import Reconciler, ReconciliationMethod, reconcile_forecasts
+    from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
 
     # Convert method string to enum if needed
     if isinstance(method, str):
@@ -603,8 +605,8 @@ def _reconcile_forecast(
 
 
 def _build_window_covariates(
-    dataset: "TSDataset",
-    task_spec: "TaskSpec",
+    dataset: TSDataset,
+    task_spec: TaskSpec,
     cutoff_date: pd.Timestamp,
     panel_for_index: pd.DataFrame,
 ) -> AlignedDataset | None:
@@ -612,7 +614,6 @@ def _build_window_covariates(
     if dataset.panel_with_covariates is None and dataset.covariate_bundle is None:
         return None
 
-    uid_col = task_spec.panel_contract.unique_id_col
     ds_col = task_spec.panel_contract.ds_col
     y_col = task_spec.panel_contract.y_col
 
@@ -648,7 +649,7 @@ def _call_with_optional_kwargs(func: Any, *args: Any, **kwargs: Any) -> Any:
 
 def _compute_segment_metrics(
     series_metrics: dict[str, SeriesMetrics],
-    dataset: "TSDataset",
+    dataset: TSDataset,
 ) -> dict[str, SegmentMetrics]:
     """Compute segment metrics grouped by sparsity class.
 
@@ -666,7 +667,7 @@ def _compute_segment_metrics(
 
     # Group series by sparsity class
     if dataset.sparsity_profile:
-        for uid in series_metrics.keys():
+        for uid in series_metrics:
             classification = dataset.sparsity_profile.get_classification(uid)
             segment_name = classification.value
             segment_series[segment_name].append(uid)

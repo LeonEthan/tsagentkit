@@ -3,7 +3,6 @@
 import json
 
 import pandas as pd
-import pytest
 
 from tsagentkit import TaskSpec
 from tsagentkit.router import PlanSpec

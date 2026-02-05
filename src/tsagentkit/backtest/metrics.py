@@ -7,8 +7,8 @@ and will be removed in a future phase.
 
 from __future__ import annotations
 
-from typing import Iterable
 import warnings
+from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd

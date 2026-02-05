@@ -1,6 +1,7 @@
 """Tests for series/dataset.py."""
 
-import numpy as np
+from dataclasses import FrozenInstanceError
+
 import pandas as pd
 import pytest
 
@@ -186,7 +187,7 @@ class TestTSDatasetImmutability:
         dataset = TSDataset.from_dataframe(df, spec)
 
         # Attempting to modify should fail
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             dataset.n_series = 5  # type: ignore
 
     def test_operations_return_new_instances(self) -> None:

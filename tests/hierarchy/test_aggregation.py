@@ -61,26 +61,21 @@ class TestDeprecatedAggregation:
     """Deprecated aggregation helpers should warn and raise."""
 
     def test_bottom_up_deprecated(self, simple_structure):
-        with pytest.warns(DeprecationWarning):
-            with pytest.raises(NotImplementedError):
-                create_bottom_up_matrix(simple_structure)
+        with pytest.warns(DeprecationWarning), pytest.raises(NotImplementedError):
+            create_bottom_up_matrix(simple_structure)
 
     def test_top_down_deprecated(self, simple_structure):
-        with pytest.warns(DeprecationWarning):
-            with pytest.raises(NotImplementedError):
-                create_top_down_matrix(simple_structure, historical_data=np.array([[1]]))
+        with pytest.warns(DeprecationWarning), pytest.raises(NotImplementedError):
+            create_top_down_matrix(simple_structure, historical_data=np.array([[1]]))
 
     def test_middle_out_deprecated(self, three_level_structure):
-        with pytest.warns(DeprecationWarning):
-            with pytest.raises(NotImplementedError):
-                create_middle_out_matrix(three_level_structure, middle_level=1)
+        with pytest.warns(DeprecationWarning), pytest.raises(NotImplementedError):
+            create_middle_out_matrix(three_level_structure, middle_level=1)
 
     def test_ols_deprecated(self, simple_structure):
-        with pytest.warns(DeprecationWarning):
-            with pytest.raises(NotImplementedError):
-                create_ols_matrix(simple_structure)
+        with pytest.warns(DeprecationWarning), pytest.raises(NotImplementedError):
+            create_ols_matrix(simple_structure)
 
     def test_wls_deprecated(self, simple_structure):
-        with pytest.warns(DeprecationWarning):
-            with pytest.raises(NotImplementedError):
-                create_wls_matrix(simple_structure, np.ones(3))
+        with pytest.warns(DeprecationWarning), pytest.raises(NotImplementedError):
+            create_wls_matrix(simple_structure, np.ones(3))

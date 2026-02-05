@@ -7,7 +7,8 @@ and model performance monitoring.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from datetime import UTC
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -183,7 +184,7 @@ check them against current metrics.
         Returns:
             List of triggered alerts
         """
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         triggered: list[Alert] = []
 
@@ -196,7 +197,7 @@ check them against current metrics.
                 alert = Alert(
                     condition=condition,
                     value=value,
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                     context=context or {},
                 )
                 triggered.append(alert)

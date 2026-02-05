@@ -1,6 +1,5 @@
 """Tests for contracts/errors.py."""
 
-import pytest
 
 from tsagentkit.contracts import (
     EContractDuplicateKey,
@@ -8,8 +7,8 @@ from tsagentkit.contracts import (
     EContractMissingColumn,
     EContractUnsorted,
     ECovariateLeakage,
-    EFallbackExhausted,
     EDSNotMonotonic,
+    EFallbackExhausted,
     EFreqInferFail,
     EModelFitFailed,
     ESplitRandomForbidden,
