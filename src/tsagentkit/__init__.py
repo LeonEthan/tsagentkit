@@ -9,7 +9,7 @@ Basic usage:
     >>> result = run_forecast(data, spec)
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.2"
 
 # Import commonly used items from contracts
 from tsagentkit.contracts import (
