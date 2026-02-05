@@ -72,19 +72,23 @@ Or with uv:
 uv pip install tsagentkit
 ```
 
-### Optional Dependencies
+### TSFM Dependencies
 
-For TSFM support, install the relevant packages:
+TSFM dependencies are included in the default install to ensure TSFM adapters
+run out of the box: `chronos-forecasting`, `timesfm`, `uni2ts`, and `gluonts`.
+
+## Testing
+
+Run the test suite:
 
 ```bash
-# Chronos (Amazon)
-pip install chronos-forecasting
+uv run pytest
+```
 
-# Moirai (Salesforce)
-pip install uni2ts
+Run real TSFM smoke tests (downloads models and requires optional deps):
 
-# TimesFM (Google)
-pip install timesfm
+```bash
+TSFM_RUN_REAL=1 uv run pytest -m tsfm
 ```
 
 ## Quick Start

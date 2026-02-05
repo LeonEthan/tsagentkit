@@ -35,7 +35,7 @@ def rolling_backtest(
     spec: TaskSpec,
     plan: PlanSpec,
     fit_func: Callable[[TSDataset, PlanSpec], Any] | None = None,
-    predict_func: Callable[[TSDataset, Any, TaskSpec], Any] | None = None,
+    predict_func: Callable[[TSDataset, Any, TaskSpec], Any] | None = None,  # Also accepts covariates: Optional kwarg
     n_windows: int = 5,
     window_strategy: Literal["expanding", "sliding"] = "expanding",
     min_train_size: int | None = None,
@@ -56,8 +56,8 @@ def rolling_backtest(
         spec: Task specification
         plan: Execution plan with model configuration
         fit_func: Function to fit model: fit_func(train_dataset, plan) (defaults to models.fit)
-        predict_func: Function to predict: predict_func(train_dataset, model_artifact, spec)
-            (defaults to models.predict)
+        predict_func: Function to predict: predict_func(train_dataset, model_artifact, spec, covariates=None)
+            (defaults to models.predict). Must accept covariates as optional kwarg.
         n_windows: Number of backtest windows (default: 5)
         window_strategy: "expanding" or "sliding" (default: "expanding")
         min_train_size: Minimum training observations per series

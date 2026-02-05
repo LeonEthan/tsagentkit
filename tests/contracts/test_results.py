@@ -210,11 +210,12 @@ class TestValidationReport:
         """Test conversion to dictionary."""
         report = ValidationReport(
             valid=True,
-            stats={"num_rows": 100},
+            stats={"n_rows": 100, "n_series": 5},
         )
         d = report.to_dict()
         assert d["valid"] is True
-        assert d["stats"]["num_rows"] == 100
+        assert d["stats"]["n_rows"] == 100
+        assert d["stats"]["n_series"] == 5
 
 
 class TestModelArtifact:

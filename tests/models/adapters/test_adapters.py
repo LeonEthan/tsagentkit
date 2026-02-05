@@ -31,25 +31,28 @@ def setup_mocks():
     torch_mock.backends.mps.is_available = MagicMock(return_value=False)
     torch_mock.device = MagicMock(return_value="cpu")
 
-    # Mock chronos
+    # Mock chronos (Chronos2)
     chronos_mock = MagicMock()
-    chronos_pipeline_mock = MagicMock()
-    chronos_pipeline_mock.from_pretrained = MagicMock(return_value=MagicMock())
-    chronos_mock.ChronosPipeline = chronos_pipeline_mock
+    chronos2_pipeline_mock = MagicMock()
+    chronos2_pipeline_mock.from_pretrained = MagicMock(return_value=MagicMock())
+    chronos_mock.Chronos2Pipeline = chronos2_pipeline_mock
 
     # Mock uni2ts
     uni2ts_mock = MagicMock()
-    moirai_mock = MagicMock()
-    moirai_mock.load_from_checkpoint = MagicMock(return_value=MagicMock())
+    moirai_module_mock = MagicMock()
+    moirai_module_mock.from_pretrained = MagicMock(return_value=MagicMock())
+    moirai_forecast_mock = MagicMock()
     uni2ts_mock.model = MagicMock()
     uni2ts_mock.model.moirai = MagicMock()
-    uni2ts_mock.model.moirai.MoiraiForecast = moirai_mock
+    uni2ts_mock.model.moirai.MoiraiModule = moirai_module_mock
+    uni2ts_mock.model.moirai.MoiraiForecast = moirai_forecast_mock
 
     # Mock timesfm
     timesfm_mock = MagicMock()
-    timesfm_model_mock = MagicMock()
-    timesfm_model_mock.load_from_checkpoint = MagicMock()
-    timesfm_mock.TimesFm = MagicMock(return_value=timesfm_model_mock)
+    timesfm_model_cls = MagicMock()
+    timesfm_model_cls.from_pretrained = MagicMock(return_value=MagicMock())
+    timesfm_mock.TimesFM_2p5_200M_torch = timesfm_model_cls
+    timesfm_mock.ForecastConfig = MagicMock()
 
     with patch.dict(sys.modules, {
         "torch": torch_mock,
@@ -80,10 +83,10 @@ class TestChronosAdapter:
         """Test model size configuration."""
         from tsagentkit.models.adapters.chronos import ChronosAdapter
 
-        expected_sizes = ["tiny", "small", "base", "large"]
+        expected_sizes = ["small", "base"]
         for size in expected_sizes:
             assert size in ChronosAdapter.MODEL_SIZES
-            assert ChronosAdapter.MODEL_SIZES[size].startswith("amazon/chronos")
+            assert "chronos" in ChronosAdapter.MODEL_SIZES[size]
 
     def test_initialization(self) -> None:
         """Test adapter initialization."""
@@ -116,35 +119,29 @@ class TestMoiraiAdapter:
         from tsagentkit.models.adapters.moirai import MoiraiAdapter
         assert MoiraiAdapter is not None
 
-    def test_model_sizes(self) -> None:
-        """Test model size configuration."""
+    def test_model_id(self) -> None:
+        """Test model ID constant."""
         from tsagentkit.models.adapters.moirai import MoiraiAdapter
 
-        expected_sizes = ["small", "base", "large"]
-        for size in expected_sizes:
-            assert size in MoiraiAdapter.MODEL_SIZES
-            assert MoiraiAdapter.MODEL_SIZES[size].startswith("Salesforce/moirai")
+        assert MoiraiAdapter.MODEL_ID == "Salesforce/moirai-2.0-R-small"
+        assert "moirai-2.0" in MoiraiAdapter.MODEL_ID
 
     def test_initialization(self) -> None:
         """Test adapter initialization."""
         from tsagentkit.models.adapters.moirai import MoiraiAdapter
 
-        config = AdapterConfig(model_name="moirai", model_size="base")
+        # model_size is ignored for Moirai 2.0 (only one model exists)
+        config = AdapterConfig(model_name="moirai", model_size="small")
         adapter = MoiraiAdapter(config)
 
         assert adapter.config == config
         assert not adapter.is_loaded
 
-    def test_get_patch_size(self) -> None:
-        """Test patch size selection."""
+    def test_context_length(self) -> None:
+        """Test context length defaults."""
         from tsagentkit.models.adapters.moirai import MoiraiAdapter
 
-        config = AdapterConfig(model_name="moirai", model_size="base")
-        adapter = MoiraiAdapter(config)
-
-        assert adapter._get_patch_size("D") == 32
-        assert adapter._get_patch_size("H") == 24
-        assert adapter._get_patch_size("W") == 4
+        assert MoiraiAdapter.DEFAULT_CONTEXT_LENGTH == 512
 
 
 class TestTimesFMAdapter:
@@ -155,51 +152,33 @@ class TestTimesFMAdapter:
         from tsagentkit.models.adapters.timesfm import TimesFMAdapter
         assert TimesFMAdapter is not None
 
-    def test_model_sizes(self) -> None:
-        """Test model size configuration."""
+    def test_model_id(self) -> None:
+        """Test model ID constant."""
         from tsagentkit.models.adapters.timesfm import TimesFMAdapter
 
-        expected_sizes = ["base", "large"]
-        for size in expected_sizes:
-            assert size in TimesFMAdapter.MODEL_SIZES
-            assert TimesFMAdapter.MODEL_SIZES[size].startswith("google/timesfm")
+        assert TimesFMAdapter.MODEL_ID == "google/timesfm-2.5-200m-pytorch"
+        assert "timesfm-2.5" in TimesFMAdapter.MODEL_ID
 
     def test_initialization(self) -> None:
         """Test adapter initialization."""
         from tsagentkit.models.adapters.timesfm import TimesFMAdapter
 
+        # model_size is ignored for TimesFM 2.5 (only one model exists)
         config = AdapterConfig(model_name="timesfm", model_size="base")
         adapter = TimesFMAdapter(config)
 
         assert adapter.config == config
         assert not adapter.is_loaded
 
-    def test_map_frequency(self) -> None:
-        """Test frequency mapping."""
-        from tsagentkit.models.adapters.timesfm import TimesFMAdapter
-
-        config = AdapterConfig(model_name="timesfm")
-        adapter = TimesFMAdapter(config)
-
-        assert adapter._map_frequency("D") == "D"
-        assert adapter._map_frequency("H") == "H"
-        assert adapter._map_frequency("W") == "W"
-        assert adapter._map_frequency("M") == "M"
-        assert adapter._map_frequency("Q") == "Q"
-        assert adapter._map_frequency("Y") == "Y"
-        # Test unknown defaults to D
-        assert adapter._map_frequency("X") == "D"
-
     def test_get_model_signature(self) -> None:
         """Test model signature generation."""
         from tsagentkit.models.adapters.timesfm import TimesFMAdapter
 
-        config = AdapterConfig(model_name="timesfm", model_size="base", device="cpu")
+        config = AdapterConfig(model_name="timesfm", device="cpu")
         adapter = TimesFMAdapter(config)
 
         signature = adapter.get_model_signature()
-        assert "timesfm" in signature
-        assert "base" in signature
+        assert "timesfm-2.5" in signature
         assert "cpu" in signature
 
 
@@ -224,7 +203,7 @@ class TestAdapterRegistration:
         # With mocks, chronos should be available
         is_avail, error = AdapterRegistry.check_availability("chronos")
         assert is_avail
-        assert error is None
+        assert error == ""
 
     def test_register_moirai(self) -> None:
         """Test registering Moirai adapter."""

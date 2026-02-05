@@ -13,11 +13,20 @@ if TYPE_CHECKING:
     pass
 
 
-# Mock torch before importing adapters
-sys.modules["torch"] = MagicMock()
-sys.modules["torch.cuda"] = MagicMock()
-sys.modules["torch.backends"] = MagicMock()
-sys.modules["torch.backends.mps"] = MagicMock()
+@pytest.fixture(autouse=True)
+def _mock_torch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock torch for adapter base tests without affecting other modules."""
+    torch_mock = MagicMock()
+    torch_mock.cuda = MagicMock()
+    torch_mock.cuda.is_available = MagicMock(return_value=False)
+    torch_mock.backends = MagicMock()
+    torch_mock.backends.mps = MagicMock()
+    torch_mock.backends.mps.is_available = MagicMock(return_value=False)
+
+    monkeypatch.setitem(sys.modules, "torch", torch_mock)
+    monkeypatch.setitem(sys.modules, "torch.cuda", torch_mock.cuda)
+    monkeypatch.setitem(sys.modules, "torch.backends", torch_mock.backends)
+    monkeypatch.setitem(sys.modules, "torch.backends.mps", torch_mock.backends.mps)
 
 from tsagentkit.models.adapters import AdapterConfig, AdapterRegistry, TSFMAdapter
 
@@ -276,7 +285,7 @@ class TestAdapterRegistry:
         AdapterRegistry.register("mock", MockAdapter)
         is_avail, error = AdapterRegistry.check_availability("mock")
         assert is_avail is True
-        assert error is None
+        assert error == ""
 
     def test_check_availability_not_registered(self) -> None:
         is_avail, error = AdapterRegistry.check_availability("unknown")

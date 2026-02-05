@@ -10,17 +10,14 @@
   - Use `uv run <command>` to run commands with the correct environment.
 
 ## Project Structure & Module Organization
-This repository currently contains documentation only:
-- `docs/PRD.md`: Technical requirements and planned module layout.
-- `LICENSE`: Project license.
-
-Implementation is expected to follow the module map in `docs/PRD.md`, with top-level Python packages such as `contracts/`, `qa/`, `series/`, `features/`, `router/`, `models/`, `backtest/`, `serving/`, `monitoring/`, and `skill/`. When code lands, place source files in those package folders and keep any examples or recipes under `skill/` as described in the PRD.
-
-Tests are not present yet. When added, keep them in a top-level `tests/` directory that mirrors the package structure (e.g., `tests/contracts/`).
+This repository contains implementation and documentation:
+- `docs/PRD.md`: Technical requirements and module layout.
+- `src/tsagentkit/`: Core Python packages such as `contracts/`, `qa/`, `series/`, `features/`, `router/`, `models/`, `backtest/`, `serving/`, `monitoring/`, and `skill/`.
+- `tests/`: Test suite mirroring the package structure (e.g., `tests/contracts/`).
 
 ## Build, Test, and Development Commands
-No build or test commands are defined yet because the repository is documentation-only. Once code exists:
-- Document new commands here and in the README.
+- Run unit/integration tests: `uv run pytest`
+- Run real TSFM smoke tests (downloads models): `TSFM_RUN_REAL=1 uv run pytest -m tsfm`
 - Prefer single-entry commands (e.g., `python -m pytest`) over custom scripts unless needed.
 
 ## Coding Style & Naming Conventions
@@ -30,10 +27,9 @@ No build or test commands are defined yet because the repository is documentatio
 - Types: add type hints for public APIs and key data structures.
 
 ## Testing Guidelines
-There are no tests yet. When introducing tests:
 - Prefer deterministic, time-order-safe cases (no random splits; see `E_SPLIT_RANDOM_FORBIDDEN` in the PRD).
 - Name tests descriptively (e.g., `test_router_fallback_ladder`).
-- Document the test runner command in this file.
+- Document test runner commands in this file and in the README.
 
 ## Commit & Pull Request Guidelines
 Git history is minimal and uses short, plain summaries (e.g., “init”, “Initial commit”), so no formal convention is established. Use clear, imperative subject lines and keep each commit focused.

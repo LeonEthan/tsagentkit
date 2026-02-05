@@ -233,8 +233,8 @@ class TestValidateContractStats:
             "y": [1.0, 2.0, 3.0, 4.0],
         })
         report = validate_contract(df)
-        assert report.stats["num_rows"] == 4
-        assert report.stats["num_series"] == 2
+        assert report.stats["n_rows"] == 4
+        assert report.stats["n_series"] == 2
         assert "y_stats" in report.stats
         assert "date_range" in report.stats
         assert "series_lengths" in report.stats
@@ -298,8 +298,8 @@ class TestValidateContractEdgeCases:
         """Test validation with empty DataFrame."""
         df = pd.DataFrame(columns=["unique_id", "ds", "y"])
         report = validate_contract(df)
-        # Should fail due to missing columns check
-        assert report.valid is True  # All columns present
+        # Empty DataFrame should be invalid
+        assert report.valid is False
 
     def test_single_row(self) -> None:
         """Test validation with single row."""

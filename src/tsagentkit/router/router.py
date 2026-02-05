@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from tsagentkit.contracts import PlanSpec, RouteDecision, RouterConfig, RouterThresholds, TaskSpec
+from tsagentkit.time import normalize_pandas_freq
 
 if TYPE_CHECKING:
     from tsagentkit.qa import QAReport
@@ -191,7 +192,7 @@ def _compute_missing_ratio(df: pd.DataFrame, task_spec: TaskSpec) -> float:
         full_range = pd.date_range(
             start=series[ds_col].min(),
             end=series[ds_col].max(),
-            freq=task_spec.freq,
+            freq=normalize_pandas_freq(task_spec.freq),
         )
         missing = len(full_range) - len(series)
         ratio = missing / max(len(full_range), 1)

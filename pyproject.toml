@@ -1,6 +1,6 @@
 [project]
 name = "tsagentkit"
-version = "1.0.0"
+version = "1.0.2"
 description = "Robust execution engine for time-series forecasting agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -9,11 +9,17 @@ dependencies = [
     "numpy>=1.24.0",
     "pydantic>=2.0.0",
     "typing-extensions>=4.0.0",
-    "scipy>=1.15.3",
+    "scipy>=1.11.3,<1.12.0",
     "statsforecast>=1.7.0",
     "utilsforecast>=0.1.0",
     "hierarchicalforecast>=1.0.0",
     "tsfeatures>=0.4.5",
+    "torch",
+    "huggingface-hub",
+    "chronos-forecasting>=2.0.0",
+    "timesfm @ git+https://github.com/google-research/timesfm.git",
+    "uni2ts",
+    "gluonts",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +44,9 @@ features = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/tsagentkit"]
 
@@ -47,6 +56,9 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --cov=src/tsagentkit --cov-report=term-missing"
+markers = [
+    "tsfm: real TSFM smoke tests (requires TSFM_RUN_REAL=1 and model dependencies)",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
@@ -165,6 +177,9 @@ source_modules = [
 forbidden_modules = [
     "tsagentkit.serving",
 ]
+
+[tool.uv.sources]
+uni2ts = { git = "https://github.com/SalesforceAIResearch/uni2ts.git" }
 
 # Top layer: Serving is the only orchestrator
 # It can depend on all other modules

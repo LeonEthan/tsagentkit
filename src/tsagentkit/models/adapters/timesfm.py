@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .base import TSFMAdapter
+from tsagentkit.time import normalize_pandas_freq
 from tsagentkit.utils import quantile_col_name
 
 if TYPE_CHECKING:
@@ -22,18 +23,13 @@ if TYPE_CHECKING:
 
 
 class TimesFMAdapter(TSFMAdapter):
-    """Adapter for Google TimesFM foundation model.
+    """Adapter for Google TimesFM foundation model (2.5).
 
-    TimesFM is a decoder-only foundation model for time series forecasting
+    TimesFM is a decoder-only foundation model with 200M parameters
     that achieves strong zero-shot performance on various datasets.
 
-    Available model sizes:
-        - base: 200M parameters (default)
-        - large: 500M+ parameters
-
     Example:
-        >>> config = AdapterConfig(model_name="timesfm", model_size="base")
-        >>> adapter = TimesFMAdapter(config)
+        >>> adapter = TimesFMAdapter(AdapterConfig(model_name="timesfm"))
         >>> adapter.load_model()
         >>> result = adapter.predict(dataset, horizon=30)
 
@@ -41,31 +37,16 @@ class TimesFMAdapter(TSFMAdapter):
         https://github.com/google-research/timesfm
     """
 
-    # Model checkpoint identifiers
-    MODEL_SIZES = {
-        "base": "google/timesfm-1.0-200m",
-        "large": "google/timesfm-1.0-500m",
-    }
+    # TimesFM 2.5 model checkpoint (200M parameters)
+    MODEL_ID = "google/timesfm-2.5-200m-pytorch"
 
-    # Model configuration by size
-    MODEL_CONFIGS = {
-        "base": {
-            "context_len": 512,
-            "horizon_len": 128,
-            "input_patch_len": 32,
-            "output_patch_len": 128,
-            "num_layers": 20,
-            "model_dims": 1280,
-        },
-        "large": {
-            "context_len": 512,
-            "horizon_len": 128,
-            "input_patch_len": 32,
-            "output_patch_len": 128,
-            "num_layers": 30,
-            "model_dims": 2048,
-        },
-    }
+    # Model configuration constants
+    MAX_CONTEXT = 128  # Maximum supported context length
+    MAX_HORIZON = 256  # Maximum supported forecast horizon
+    MIN_INPUT_LENGTH = 97  # Minimum input to avoid NaN (MAX_CONTEXT - 32 + 1)
+
+    # Supported quantiles from the model
+    SUPPORTED_QUANTILES = [round(q / 10, 1) for q in range(1, 10)]
 
     def load_model(self) -> None:
         """Load TimesFM model from checkpoint.
@@ -84,29 +65,17 @@ class TimesFMAdapter(TSFMAdapter):
                 "Install with: pip install timesfm"
             ) from e
 
-        model_id = self.MODEL_SIZES.get(
-            self.config.model_size,
-            self.MODEL_SIZES["base"]
+        self._compiled_max_context = 0
+        self._compiled_max_horizon = 0
+
+        # Load TimesFM 2.5 model using the new API
+        self._model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
+            self.MODEL_ID,
+            cache_dir=self.config.cache_dir,
         )
 
-        config = self.MODEL_CONFIGS.get(
-            self.config.model_size,
-            self.MODEL_CONFIGS["base"]
-        )
-
-        try:
-            self._model = timesfm.TimesFm(
-                context_len=config["context_len"],
-                horizon_len=config["horizon_len"],
-                input_patch_len=config["input_patch_len"],
-                output_patch_len=config["output_patch_len"],
-                num_layers=config["num_layers"],
-                model_dims=config["model_dims"],
-                backend=self._device,
-            )
-            self._model.load_from_checkpoint(repo_id=model_id)
-        except Exception as e:
-            raise RuntimeError(f"Failed to load TimesFM model: {e}") from e
+        # Compile with default config
+        self._ensure_compiled(self.MAX_CONTEXT, self.MAX_HORIZON)
 
     def fit(
         self,
@@ -138,24 +107,15 @@ class TimesFMAdapter(TSFMAdapter):
         # Validate dataset
         self._validate_dataset(dataset)
 
-        # Check horizon against model limits
-        config = self.MODEL_CONFIGS.get(
-            self.config.model_size,
-            self.MODEL_CONFIGS["base"]
+        max_context, max_horizon = self._get_compilation_targets(
+            dataset, prediction_length
         )
-        max_horizon = config["horizon_len"]
-
-        if prediction_length > max_horizon:
-            raise ValueError(
-                f"Prediction length {prediction_length} exceeds maximum "
-                f"horizon {max_horizon} for {self.config.model_size} model"
-            )
+        self._ensure_compiled(max_context, max_horizon)
 
         return ModelArtifact(
             model=self._model,
-            model_name=f"timesfm-{self.config.model_size}",
+            model_name="timesfm-2.5",
             config={
-                "model_size": self.config.model_size,
                 "device": self._device,
                 "prediction_length": prediction_length,
                 "quantiles": quantiles,
@@ -181,17 +141,25 @@ class TimesFMAdapter(TSFMAdapter):
         if not self.is_loaded:
             self.load_model()
 
-        # Convert to TimesFM format
-        inputs, freq = self._to_timesfm_format(dataset)
+        max_context, max_horizon = self._get_compilation_targets(dataset, horizon)
+        self._ensure_compiled(max_context, max_horizon)
 
-        # Generate forecasts
-        # TimesFM forecast returns point forecasts and optionally quantiles
+        inputs, _freq = self._to_timesfm_format(dataset)
+
+        # TimesFM 2.5 forecast API: forecast(horizon, inputs)
         point_forecasts, quantile_forecasts = self._model.forecast(
+            horizon=horizon,
             inputs=inputs,
-            freq=freq,
-            prediction_length=horizon,
-            quantile_levels=quantiles if quantiles else None,
         )
+        if point_forecasts.shape[1] > horizon:
+            point_forecasts = point_forecasts[:, :horizon]
+            quantile_forecasts = quantile_forecasts[:, :horizon, :]
+
+        # Handle potential NaN in outputs (see: https://github.com/google-research/timesfm/issues/321)
+        if np.any(np.isnan(point_forecasts)):
+            point_forecasts = self._handle_nan_forecasts(point_forecasts, inputs)
+        if quantile_forecasts is not None and np.any(np.isnan(quantile_forecasts)):
+            quantile_forecasts = self._handle_nan_quantiles(quantile_forecasts, point_forecasts)
 
         # Convert to ForecastResult
         return self._to_forecast_result(
@@ -202,17 +170,61 @@ class TimesFMAdapter(TSFMAdapter):
             quantiles,
         )
 
+    def _handle_nan_forecasts(
+        self,
+        forecasts: np.ndarray,
+        inputs: list[np.ndarray],
+    ) -> np.ndarray:
+        """Replace NaN forecasts with last valid values.
+
+        Args:
+            forecasts: Forecast array that may contain NaN
+            inputs: Original input values for each series
+
+        Returns:
+            Forecast array with NaN replaced
+        """
+        result = forecasts.copy()
+        for i in range(result.shape[0]):
+            if np.any(np.isnan(result[i])):
+                last_value = inputs[i][-1] if len(inputs[i]) > 0 else 0.0
+                result[i] = np.nan_to_num(result[i], nan=last_value)
+        return result
+
+    def _handle_nan_quantiles(
+        self,
+        quantiles: np.ndarray,
+        point_forecasts: np.ndarray,
+    ) -> np.ndarray:
+        """Replace NaN quantile forecasts.
+
+        Args:
+            quantiles: Quantile forecast array that may contain NaN
+            point_forecasts: Point forecasts for fallback
+
+        Returns:
+            Quantile array with NaN replaced
+        """
+        result = quantiles.copy()
+        for i in range(result.shape[0]):
+            for h in range(result.shape[1]):
+                if np.any(np.isnan(result[i, h])):
+                    point_val = point_forecasts[i, h]
+                    result[i, h] = np.nan_to_num(result[i, h], nan=point_val)
+        return result
+
     def _to_timesfm_format(
         self,
         dataset: TSDataset,
-    ) -> tuple[list, str]:
+    ) -> tuple[list[np.ndarray], None]:
         """Convert TSDataset to TimesFM format.
 
         Args:
             dataset: Input dataset
 
         Returns:
-            Tuple of (inputs list, frequency string)
+            Tuple of (list of input arrays, None)
+            TimesFM 2.5 does not require frequency mapping.
         """
         inputs = []
         for uid in dataset.series_ids:
@@ -223,51 +235,48 @@ class TimesFMAdapter(TSFMAdapter):
             if np.any(np.isnan(values)):
                 values = self._handle_missing_values(values)
 
+            # Pad short inputs to avoid NaN from attention mask issue
+            # See: https://github.com/google-research/timesfm/issues/321
+            if len(values) < self.MIN_INPUT_LENGTH:
+                values = self._pad_input(values, self.MIN_INPUT_LENGTH)
+
             inputs.append(values)
 
-        # Map frequency
-        freq = self._map_frequency(dataset.freq)
+        # TimesFM 2.5 does not require frequency mapping
+        return inputs, None
 
-        return inputs, freq
+    def _pad_input(self, values: np.ndarray, min_length: int) -> np.ndarray:
+        """Pad input values to minimum length.
 
-    def _map_frequency(self, freq: str) -> str:
-        """Map pandas frequency to TimesFM frequency format.
-
-        TimesFM uses specific frequency codes:
-        - Y: yearly
-        - Q: quarterly
-        - M: monthly
-        - W: weekly
-        - D: daily
-        - H: hourly
-        - T: minutely
+        Uses linear extrapolation based on the last values to avoid
+        introducing artificial patterns.
 
         Args:
-            freq: Pandas frequency string
+            values: Original input values
+            min_length: Minimum required length
 
         Returns:
-            TimesFM frequency code
+            Padded array
         """
-        freq_map = {
-            "Y": "Y", "A": "Y",       # Yearly/Annual
-            "Q": "Q",                 # Quarterly
-            "M": "M",                 # Monthly
-            "W": "W",                 # Weekly
-            "D": "D",                 # Daily
-            "H": "H",                 # Hourly
-            "T": "T", "min": "T",    # Minutely
-            "S": "T",                 # Second -> treated as minute
-        }
+        if len(values) >= min_length:
+            return values
 
-        # Extract base frequency code
-        base_freq = freq[0].upper() if freq else "D"
+        # Calculate trend from last values for extrapolation
+        n_last = min(5, len(values))
+        last_values = values[-n_last:]
+        trend = np.diff(last_values).mean() if n_last > 1 else 0
+        last_value = values[-1]
 
-        return freq_map.get(base_freq, "D")
+        # Generate padded values following the trend
+        n_pad = min_length - len(values)
+        padded = np.arange(1, n_pad + 1) * trend + last_value
+
+        return np.concatenate([values, padded]).astype(np.float32)
 
     def _to_forecast_result(
         self,
         point_forecasts: np.ndarray,
-        quantile_forecasts: dict[float, np.ndarray] | None,
+        quantile_forecasts: np.ndarray | None,
         dataset: TSDataset,
         horizon: int,
         quantiles: list[float] | None,
@@ -287,12 +296,26 @@ class TimesFMAdapter(TSFMAdapter):
         from tsagentkit.contracts import ForecastResult
 
         result_rows = []
+        freq = normalize_pandas_freq(dataset.freq)
+        offset = pd.tseries.frequencies.to_offset(freq)
+
+        quantile_values: dict[float, np.ndarray] = {}
+        if quantiles:
+            if quantile_forecasts is None:
+                quantile_values = {q: point_forecasts for q in quantiles}
+            else:
+                supported = getattr(self, "_model_quantiles", self.SUPPORTED_QUANTILES)
+                for q in quantiles:
+                    nearest = min(supported, key=lambda v: abs(v - q))
+                    idx = supported.index(nearest) + 1
+                    quantile_values[q] = quantile_forecasts[:, :, idx]
+
         for i, uid in enumerate(dataset.series_ids):
             last_date = dataset.get_series(uid)["ds"].max()
             future_dates = pd.date_range(
-                start=last_date + pd.Timedelta(1, unit=dataset.freq),
+                start=last_date + offset,
                 periods=horizon,
-                freq=dataset.freq,
+                freq=freq,
             )
 
             for h in range(horizon):
@@ -303,22 +326,22 @@ class TimesFMAdapter(TSFMAdapter):
                 }
 
                 # Add quantile columns if available
-                if quantile_forecasts and quantiles:
+                if quantiles:
                     for q in quantiles:
                         row[quantile_col_name(q)] = float(
-                            quantile_forecasts[q][i, h]
+                            quantile_values[q][i, h]
                         )
 
                 result_rows.append(row)
 
         result_df = pd.DataFrame(result_rows)
-        result_df["model"] = f"timesfm-{self.config.model_size}"
+        result_df["model"] = "timesfm-2.5"
         provenance = self._create_provenance(dataset, horizon, quantiles)
 
         return ForecastResult(
             df=result_df,
             provenance=provenance,
-            model_name=f"timesfm-{self.config.model_size}",
+            model_name="timesfm-2.5",
             horizon=horizon,
         )
 
@@ -337,13 +360,68 @@ class TimesFMAdapter(TSFMAdapter):
         s = s.interpolate(method="linear", limit_direction="both")
         return s.fillna(s.mean()).values.astype(np.float32)
 
+    def _get_compilation_targets(
+        self,
+        dataset: TSDataset,
+        horizon: int,
+    ) -> tuple[int, int]:
+        """Get compilation targets for model.
+
+        Args:
+            dataset: Input dataset
+            horizon: Forecast horizon
+
+        Returns:
+            Tuple of (max_context, max_horizon)
+        """
+        max_series_len = int(
+            dataset.df.groupby("unique_id").size().max()
+        ) if not dataset.df.empty else 0
+        target_context = self.config.max_context_length or max_series_len or self.MAX_CONTEXT
+        max_context = max(self.MAX_CONTEXT, target_context)
+        max_context = min(max_context, self.MAX_CONTEXT)
+        max_horizon = max(self.MAX_HORIZON, horizon)
+        return max_context, max_horizon
+
+    def _ensure_compiled(self, max_context: int, max_horizon: int) -> None:
+        """Ensure model is compiled with appropriate context/horizon settings.
+
+        TimesFM 2.5 requires calling compile() with ForecastConfig before forecast().
+
+        Args:
+            max_context: Maximum context length
+            max_horizon: Maximum forecast horizon
+        """
+        if (
+            getattr(self, "_compiled_max_context", 0) >= max_context
+            and getattr(self, "_compiled_max_horizon", 0) >= max_horizon
+            and self._model is not None
+        ):
+            return
+
+        import timesfm
+
+        config = timesfm.ForecastConfig(
+            max_context=max_context,
+            max_horizon=max_horizon,
+            normalize_inputs=True,
+            use_continuous_quantile_head=True,
+            force_flip_invariance=True,
+            infer_is_positive=True,
+            fix_quantile_crossing=True,
+        )
+        self._model.compile(config)
+        self._model_quantiles = list(self.SUPPORTED_QUANTILES)
+        self._compiled_max_context = max_context
+        self._compiled_max_horizon = max_horizon
+
     def get_model_signature(self) -> str:
         """Return model signature for provenance.
 
         Returns:
             Unique signature string
         """
-        return f"timesfm-{self.config.model_size}-{self._device}"
+        return f"timesfm-2.5-{self._device}"
 
     @classmethod
     def _check_dependencies(cls) -> None:

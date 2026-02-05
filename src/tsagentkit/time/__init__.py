@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
+import re
 
 import pandas as pd
 
@@ -37,6 +38,20 @@ def infer_freq(
     return max(freq_counts, key=freq_counts.get)
 
 
+_MONTH_END_RE = re.compile(r"^(?P<mult>\d+)?M$")
+
+
+def normalize_pandas_freq(freq: str) -> str:
+    """Normalize pandas frequency aliases to avoid deprecation warnings."""
+    if not freq:
+        return freq
+    match = _MONTH_END_RE.match(freq)
+    if match:
+        mult = match.group("mult") or ""
+        return f"{mult}ME"
+    return freq
+
+
 def make_regular_grid(
     panel: pd.DataFrame,
     freq: str,
@@ -46,6 +61,7 @@ def make_regular_grid(
 ) -> pd.DataFrame:
     """Expand to a regular grid per-series with optional fill policy."""
     frames: list[pd.DataFrame] = []
+    freq = normalize_pandas_freq(freq)
 
     for uid in panel[id_col].unique():
         series = panel[panel[id_col] == uid].copy()
@@ -90,6 +106,7 @@ def make_future_index(
 ) -> pd.DataFrame:
     """Generate future index per series."""
     rows: list[pd.DataFrame] = []
+    freq = normalize_pandas_freq(freq)
 
     for uid in panel[id_col].unique():
         series = panel[panel[id_col] == uid].copy()
@@ -111,6 +128,7 @@ def make_future_index(
 
 __all__ = [
     "infer_freq",
+    "normalize_pandas_freq",
     "make_regular_grid",
     "make_future_index",
 ]

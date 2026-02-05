@@ -17,6 +17,7 @@ from tsagentkit.contracts import (
     TaskSpec,
 )
 from tsagentkit.covariates import align_covariates
+from tsagentkit.time import normalize_pandas_freq
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,11 @@ class QAReport:
     issues: list[dict[str, Any]] = field(default_factory=list)
     repairs: list[RepairReport] = field(default_factory=list)
     leakage_detected: bool = False
+
+    @property
+    def valid(self) -> bool:
+        """Whether QA passed (no critical issues)."""
+        return not self.has_critical_issues()
 
     def has_critical_issues(self) -> bool:
         return any(issue.get("severity") == "critical" for issue in self.issues)
@@ -108,7 +114,7 @@ def run_qa(
         full_range = pd.date_range(
             start=series[ds_col].min(),
             end=series[ds_col].max(),
-            freq=task_spec.freq,
+            freq=normalize_pandas_freq(task_spec.freq),
         )
         missing = len(full_range) - len(series)
         if missing > 0:

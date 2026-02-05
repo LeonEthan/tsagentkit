@@ -281,6 +281,14 @@ class StructuredLogger:
         """
         return json.dumps(self.events, sort_keys=True, separators=(",", ":"))
 
+    def get_events(self) -> list[dict[str, Any]]:
+        """Get all logged events.
+
+        Returns:
+            List of event dictionaries (copy)
+        """
+        return self.events.copy()
+
     def to_dict(self) -> list[dict[str, Any]]:
         """Export all events as list of dictionaries.
 
