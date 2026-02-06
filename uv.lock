@@ -3414,16 +3414,6 @@ wheels = [
 ]
 
 [[package]]
-name = "timesfm"
-version = "2.0.0"
-source = { git = "https://github.com/google-research/timesfm.git#2dcc66fbfe2155adba1af66aa4d564a0ee52f61e" }
-dependencies = [
-    { name = "huggingface-hub", extra = ["cli"] },
-    { name = "numpy" },
-    { name = "safetensors" },
-]
-
-[[package]]
 name = "tokenizers"
 version = "0.22.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3637,11 +3627,11 @@ dependencies = [
     { name = "pydantic" },
     { name = "scipy" },
     { name = "statsforecast" },
-    { name = "timesfm" },
     { name = "torch" },
+    { name = "tsagentkit-timesfm" },
+    { name = "tsagentkit-uni2ts" },
     { name = "tsfeatures" },
     { name = "typing-extensions" },
-    { name = "uni2ts" },
     { name = "utilsforecast" },
 ]
 
@@ -3682,16 +3672,58 @@ requires-dist = [
     { name = "sktime", marker = "extra == 'features'", specifier = ">=0.24.0" },
     { name = "statsforecast", specifier = ">=1.7.0" },
     { name = "statsforecast", marker = "extra == 'models'", specifier = ">=1.7.0" },
-    { name = "timesfm", git = "https://github.com/google-research/timesfm.git" },
     { name = "torch" },
+    { name = "tsagentkit-timesfm" },
+    { name = "tsagentkit-uni2ts" },
     { name = "tsfeatures", specifier = ">=0.4.5" },
     { name = "tsfresh", marker = "extra == 'features'", specifier = ">=0.20.0" },
     { name = "typing-extensions", specifier = ">=4.0.0" },
-    { name = "uni2ts", git = "https://github.com/SalesforceAIResearch/uni2ts.git" },
     { name = "utilsforecast", specifier = ">=0.1.0" },
     { name = "utilsforecast", marker = "extra == 'models'", specifier = ">=0.1.0" },
 ]
 provides-extras = ["dev", "models", "features"]
+
+[[package]]
+name = "tsagentkit-timesfm"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub", extra = ["cli"] },
+    { name = "numpy" },
+    { name = "safetensors" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a7/fb/c6f4c50492b6b8d5dda36edec4cfcc5c0565b5ddf5ba66409df3c081a4bf/tsagentkit_timesfm-1.0.0.tar.gz", hash = "sha256:6b2d4a8f9fb99a22734eec6ef77720481cd1caaa6e26798783ee31aa08a055a1", size = 33827, upload-time = "2026-02-05T14:44:11.333Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ea/37/fd8a12dae295cbeabb12dcde8fd87c886c815204a74d0c18ff2620767508/tsagentkit_timesfm-1.0.0-py3-none-any.whl", hash = "sha256:19569e5b56773363acd99f0c807c131faf8062815d2a49fb18f0edeb55f145f8", size = 44097, upload-time = "2026-02-05T14:44:10.243Z" },
+]
+
+[[package]]
+name = "tsagentkit-uni2ts"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "datasets" },
+    { name = "einops" },
+    { name = "gluonts" },
+    { name = "huggingface-hub" },
+    { name = "hydra-core" },
+    { name = "jax", version = "0.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "jax", version = "0.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "jaxtyping" },
+    { name = "lightning" },
+    { name = "multiprocess" },
+    { name = "numpy" },
+    { name = "orjson" },
+    { name = "python-dotenv" },
+    { name = "safetensors" },
+    { name = "scipy" },
+    { name = "tensorboard" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/64/3a550b23d23a70bc2b5b444423f59333acd5bf25a27365f91d236ff168c3/tsagentkit_uni2ts-1.0.2.tar.gz", hash = "sha256:d5f37825fa704bbd6f4ce10ae86e3b15e35e61c16ba84a493f3a01e1c544f27b", size = 97659, upload-time = "2026-02-06T03:25:39.122Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8e/44/6f362eca8ed1e859824fecfe76e659c61434049ad4d7fd5de74f825a903c/tsagentkit_uni2ts-1.0.2-py3-none-any.whl", hash = "sha256:831b4249d39650da5973b0b9a4d16318da255a7bc119a9f33a7e61ef2b902f6e", size = 166840, upload-time = "2026-02-06T03:25:37.732Z" },
+]
 
 [[package]]
 name = "tsfeatures"
@@ -3760,30 +3792,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5e/a7/c202b344c5ca7daf398f3b8a477eeb205cf3b6f32e7ec3a6bac0629ca975/tzdata-2025.3.tar.gz", hash = "sha256:de39c2ca5dc7b0344f2eba86f49d614019d29f060fc4ebc8a417896a620b56a7", size = 196772, upload-time = "2025-12-13T17:45:35.667Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/b0/003792df09decd6849a5e39c28b513c06e84436a54440380862b5aeff25d/tzdata-2025.3-py2.py3-none-any.whl", hash = "sha256:06a47e5700f3081aab02b2e513160914ff0694bce9947d6b76ebd6bf57cfc5d1", size = 348521, upload-time = "2025-12-13T17:45:33.889Z" },
-]
-
-[[package]]
-name = "uni2ts"
-version = "2.0.0"
-source = { git = "https://github.com/SalesforceAIResearch/uni2ts.git#7a4e77cff8d6cf480c559c6b6879ee621a492a42" }
-dependencies = [
-    { name = "datasets" },
-    { name = "einops" },
-    { name = "gluonts" },
-    { name = "huggingface-hub" },
-    { name = "hydra-core" },
-    { name = "jax", version = "0.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
-    { name = "jax", version = "0.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
-    { name = "jaxtyping" },
-    { name = "lightning" },
-    { name = "multiprocess" },
-    { name = "numpy" },
-    { name = "orjson" },
-    { name = "python-dotenv" },
-    { name = "safetensors" },
-    { name = "scipy" },
-    { name = "tensorboard" },
-    { name = "torch" },
 ]
 
 [[package]]

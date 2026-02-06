@@ -17,8 +17,8 @@ dependencies = [
     "torch",
     "huggingface-hub",
     "chronos-forecasting>=2.0.0",
-    "timesfm @ git+https://github.com/google-research/timesfm.git",
-    "uni2ts",
+    "tsagentkit-timesfm",
+    "tsagentkit-uni2ts",
     "gluonts",
 ]
 
@@ -180,9 +180,6 @@ source_modules = [
 forbidden_modules = [
     "tsagentkit.serving",
 ]
-
-[tool.uv.sources]
-uni2ts = { git = "https://github.com/SalesforceAIResearch/uni2ts.git" }
 
 # Top layer: Serving is the only orchestrator
 # It can depend on all other modules
