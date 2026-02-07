@@ -6,18 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `tsagentkit` is a Python library that serves as a robust execution engine for external coding agents (LLMs/AI agents) performing time-series forecasting tasks. It provides strict guardrails to enforce proper time-series practices (preventing data leakage, enforcing temporal integrity, etc.).
 
-**Version**: 1.1.0 (Released)
+**Version**: 1.1.1 (In Development)
 
 **Key v1.1.0 Change**: TSFM policy now defaults to `mode="required"`, meaning TSFM is required by default. To allow fallback to non-TSFM models, explicitly set `tsfm_policy={"mode": "preferred"}`.
+
+**v1.1.1 Additions**: Error fix hints, `repair()`, `forecast()`/`diagnose()` quickstart, `describe()` API discovery, `dry_run` mode, dependency tiers, CLI (`python -m tsagentkit doctor`), doc governance.
 
 ## Python Environment
 
 - Python version: 3.11
-- Dependencies: Listed in `pyproject.toml`.
+- Dependencies: Listed in `pyproject.toml` with optional tiers.
 - Always use `uv` to manage dependencies.
   - Add packages to `pyproject.toml` as needed.
-  - Use `uv sync` to install dependencies.
+  - Use `uv sync` to install core deps.
+  - Use `uv sync --all-extras` to install all optional deps.
   - Use `uv run <command>` to run commands with the correct environment.
+- Installation tiers:
+  - `pip install tsagentkit` — core (statistical baselines only)
+  - `pip install tsagentkit[tsfm]` — TSFM adapters (Chronos, Moirai, TimesFM)
+  - `pip install tsagentkit[hierarchy]` — hierarchical reconciliation
+  - `pip install tsagentkit[features]` — feature engineering
+  - `pip install tsagentkit[full]` — everything
 
 ## Architecture
 
@@ -160,6 +169,8 @@ print(result.summary())
 - `skill/README.md`: Agent documentation with module guide
 - `skill/tool_map.md`: Complete API reference
 - `skill/recipes.md`: Runnable end-to-end examples
+- `skill/QUICKSTART.md`: 3-minute quickstart guide (v1.1.1)
+- `skill/TROUBLESHOOTING.md`: Error codes and fix hints reference (v1.1.1)
 
 ## Version Roadmap
 
@@ -167,6 +178,7 @@ print(result.summary())
 - **v0.2** ✅: Enhanced robustness (monitoring, advanced router, feature hashing, bucketing)
 - **v1.0** ✅: Ecosystem (external adapters, hierarchical reconciliation, structured logging)
 - **v1.1** ✅: TSFM-first policy (strict TSFM requirements, real adapter smoke tests, hardened CI gates)
+- **v1.1.1** 🚧: Error hints, repair, quickstart, describe(), CLI doctor, doc governance, dep tiers, mypy
 
 ## Quick Reference
 
@@ -191,6 +203,12 @@ from tsagentkit import (
     detect_anomalies,       # Anomaly detection
     package_run,            # Package run results
     run_forecast,           # Main entry point
+    # v1.1.1 additions
+    repair,                 # Auto-fix data issues
+    forecast,               # Zero-config forecasting
+    diagnose,               # Dry-run validation + QA
+    describe,               # Machine-readable API schema
+    DryRunResult,           # Dry run result type
     # Errors
     TSAgentKitError,
     ESplitRandomForbidden,
@@ -275,4 +293,50 @@ from tsagentkit.models import list_adapter_capabilities
 
 # List available adapters
 caps = list_adapter_capabilities()
+```
+
+### TaskSpec Presets (v1.1.1)
+
+```python
+from tsagentkit import TaskSpec
+
+# Quick experimentation — falls back to baselines if no TSFM installed
+spec = TaskSpec.starter(h=7, freq="D")
+
+# Production — requires TSFM adapters, full 5-window backtest
+spec = TaskSpec.production(h=14, freq="D")
+```
+
+### Zero-Config Quickstart (v1.1.1)
+
+```python
+from tsagentkit import forecast, diagnose
+
+# Forecast in 2 lines
+result = forecast(df, 7)
+
+# Diagnose data quality without fitting
+report = diagnose(df)
+```
+
+### CLI (v1.1.1)
+
+```bash
+# Environment check
+python -m tsagentkit doctor
+
+# Print version
+python -m tsagentkit version
+
+# Machine-readable API schema (JSON)
+python -m tsagentkit describe
+```
+
+### API Discovery (v1.1.1)
+
+```python
+from tsagentkit import describe
+
+info = describe()
+# Returns: {version, apis, error_codes, install_tiers, tsfm_adapters}
 ```

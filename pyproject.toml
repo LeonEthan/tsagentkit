@@ -43,6 +43,9 @@ dev = [
     "import-linter>=2.0.0",
 ]
 
+[project.scripts]
+tsagentkit = "tsagentkit.__main__:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

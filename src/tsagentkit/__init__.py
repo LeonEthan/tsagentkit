@@ -98,6 +98,9 @@ from tsagentkit.repair import repair
 # Quickstart (v1.1.1)
 from tsagentkit.quickstart import diagnose, forecast
 
+# API discovery (v1.1.1)
+from tsagentkit.discovery import describe
+
 # v0.2 imports (optional - use directly from submodules)
 # from tsagentkit.features import FeatureFactory, FeatureMatrix, compute_feature_hash
 # from tsagentkit.monitoring import DriftDetector, StabilityMonitor, TriggerEvaluator
@@ -181,4 +184,6 @@ __all__ = [
     # Quickstart (v1.1.1)
     "forecast",
     "diagnose",
+    # API discovery (v1.1.1)
+    "describe",
 ]
