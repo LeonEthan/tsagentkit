@@ -14,7 +14,7 @@ A robust execution engine for AI agents performing time-series forecasting. It i
 - **Provenance Tracking**: Complete audit trail with signatures for reproducibility
 - **Monitoring**: Drift detection and automated retrain triggers
 
-## v1.0 Feature Matrix
+## v1.1 Feature Matrix
 
 | Category | Feature | Status | Notes |
 |----------|---------|--------|-------|
@@ -214,7 +214,7 @@ adapter = get_tsfm_model("chronos", model_size="base")
 result = adapter.predict(dataset, horizon=spec.horizon)
 ```
 
-### Agent Assembly Primitives (Phase 4)
+### Agent Assembly Primitives
 
 ```python
 from tsagentkit import (
@@ -241,7 +241,7 @@ chronos = get_adapter_capability("chronos")
 print(chronos.available, chronos.supports_future_covariates)
 ```
 
-### Artifact Lifecycle (Phase 5)
+### Artifact Lifecycle
 
 ```python
 from tsagentkit import (
@@ -338,7 +338,7 @@ adapter = TimesFMAdapter(config)
 
 See `docs/README.md` and adapter docstrings for configuration details.
 
-### TSFM Routing Policy (Phase 1)
+### TSFM Routing Policy
 
 Use `TaskSpec.tsfm_policy` to make TSFM requirements explicit:
 
@@ -456,7 +456,7 @@ tsagentkit/
 - **v0.1** ✅: Minimum loop (contracts, QA, series, router, baselines, backtest)
 - **v0.2** ✅: Enhanced robustness (monitoring, drift detection, triggers)
 - **v1.0** ✅: Ecosystem (TSFM adapters, hierarchical reconciliation)
-- **v1.1**: External model registry, custom adapter API
+- **v1.1** ✅: TSFM-required default policy, CI policy matrix, real adapter smoke gate
 - **v1.2**: Distributed forecasting, streaming support
 
 ## Contributing

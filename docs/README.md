@@ -150,7 +150,14 @@ matrix = factory.create_features(dataset)
 
 ## Version History
 
-### v1.0 - Ecosystem (Current)
+### v1.1 - TSFM-First Release Gate (Current)
+
+- TSFM policy default set to required (`TSFMPolicy.mode="required"`)
+- Deterministic TSFM policy matrix tests in CI
+- Real non-mock TSFM adapter smoke gate in CI
+- Release checklist and migration note published (`RELEASE_V1_1.md`)
+
+### v1.0 - Ecosystem
 
 - TSFM adapters (Chronos, Moirai, TimesFM)
 - Hierarchical reconciliation (6 methods)
