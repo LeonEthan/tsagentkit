@@ -34,7 +34,9 @@ from tsagentkit.contracts import (
     ValidationReport,
     validate_contract,
 )
+from tsagentkit.covariates import AlignedDataset, CovariateBundle, align_covariates
 from tsagentkit.eval import MetricFrame, ScoreSummary, evaluate_forecasts
+from tsagentkit.models import fit, predict
 from tsagentkit.qa import run_qa
 from tsagentkit.router import (
     BucketConfig,
@@ -56,7 +58,7 @@ from tsagentkit.series import (
     TSDataset,
     build_dataset,
 )
-from tsagentkit.serving import MonitoringConfig, run_forecast
+from tsagentkit.serving import MonitoringConfig, package_run, run_forecast
 
 # Structured logging (v1.0)
 from tsagentkit.serving.provenance import (
@@ -79,6 +81,9 @@ __all__ = [
     "Provenance",
     "RunArtifact",
     "validate_contract",
+    "align_covariates",
+    "CovariateBundle",
+    "AlignedDataset",
     # Key errors
     "TSAgentKitError",
     "ESplitRandomForbidden",
@@ -97,6 +102,8 @@ __all__ = [
     "evaluate_forecasts",
     "MetricFrame",
     "ScoreSummary",
+    "fit",
+    "predict",
     # Router
     "PlanSpec",
     "compute_plan_signature",
@@ -118,6 +125,7 @@ __all__ = [
     "mase",
     # Serving
     "run_forecast",
+    "package_run",
     "MonitoringConfig",
     # Structured Logging (v1.0)
     "log_event",

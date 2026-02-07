@@ -2,13 +2,29 @@
 
 This document defines the **stable public APIs** for `tsagentkit` and the compatibility rules that must be preserved during rebuilds/refactors. Changes to these APIs require explicit migration guidance and/or deprecation windows.
 
+Per `docs/ADR_001_assembly_first.md`, `tsagentkit` is **assembly-first**:
+step-level APIs are primary for coding-agent system construction, while
+`run_forecast()` is a convenience wrapper.
+
 ## Stable Public APIs
 
 The following functions/classes are considered stable and **must remain backward compatible**:
 
-### Orchestration
+### Primary Step APIs (Assembly Path)
+- `tsagentkit.contracts.validate_contract()`
+- `tsagentkit.qa.run_qa()`
+- `tsagentkit.covariates.align_covariates()`
+- `tsagentkit.series.TSDataset.from_dataframe()`
+- `tsagentkit.series.build_dataset()`
+- `tsagentkit.router.make_plan()`
+- `tsagentkit.backtest.rolling_backtest()`
+- `tsagentkit.models.fit()`
+- `tsagentkit.models.predict()`
+- `tsagentkit.serving.package_run()`
+
+### Orchestration Convenience API
 - `tsagentkit.serving.run_forecast()`
-  - Semantics: end-to-end pipeline execution with QA, routing, backtest (when enabled), fit/predict, optional calibration/anomaly/monitoring, and packaging.
+  - Semantics: end-to-end pipeline wrapper using stable step APIs.
   - Return: `RunArtifact` containing at minimum `forecast`, `plan`, `task_spec`, `provenance`, and metadata.
 
 ### Contracts & Specs
@@ -18,14 +34,6 @@ The following functions/classes are considered stable and **must remain backward
   - Must continue to support `unique_id`, `ds`, `y` (default columns) and the `aggregation` policy.
 - `tsagentkit.contracts.ForecastContract`
   - `model`, `yhat`, quantiles/intervals must remain consistent.
-
-### Validation
-- `tsagentkit.contracts.validate_contract()`
-  - Must continue to validate schema, apply aggregation rules, and return a `ValidationReport`.
-
-### Backtest
-- `tsagentkit.backtest.rolling_backtest()`
-  - Must enforce temporal integrity and return a `BacktestReport` compatible with existing consumers.
 
 ### Calibration & Anomaly
 - `tsagentkit.calibration.fit_calibrator()` / `tsagentkit.calibration.apply_calibrator()`
@@ -43,9 +51,10 @@ These minimum fields must remain valid in outputs:
 
 1. **No breaking changes** to the stable API signature without a deprecation plan.
 2. **Field preservation**: existing field names in `TaskSpec`, `ForecastResult`, and `RunArtifact` must not be removed.
-3. **Behavioral parity**: refactors must preserve default behavior of `run_forecast()` unless explicitly versioned.
+3. **Behavioral parity**: refactors must preserve composition semantics of step APIs and default behavior of `run_forecast()` unless explicitly versioned.
 4. **Backwards aliases** (e.g., `horizon` → `h`) must continue to work.
 5. **Error codes** in `contracts.errors` must remain stable and documented.
+6. **Assembly-first guarantee**: documentation and official examples must keep step-by-step composition as the primary integration pattern.
 
 ## Deprecation Policy
 

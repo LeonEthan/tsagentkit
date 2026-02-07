@@ -1,12 +1,13 @@
 # tsagentkit Documentation
 
-Complete documentation for the tsagentkit time-series forecasting engine.
+Complete documentation for the tsagentkit assembly-first time-series forecasting toolkit.
 
 ## Getting Started
 
 - [Main README](../README.md) - Overview and quick start
 - [Installation](#installation) - Setup instructions
 - [Quick Start Guide](#quick-start) - First steps
+- [ADR 001: Assembly-First Integration](ADR_001_assembly_first.md) - Product direction and API posture
 
 ## TSFM Adapters
 
