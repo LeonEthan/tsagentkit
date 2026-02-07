@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # Common
 # ---------------------------
 
+
 class BaseSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -45,6 +46,7 @@ PlanNodeKind = Literal[
 # Data contracts (column-level)
 # ---------------------------
 
+
 class PanelContract(BaseSpec):
     unique_id_col: str = "unique_id"
     ds_col: str = "ds"
@@ -72,9 +74,7 @@ class TSFMPolicy(BaseSpec):
     """Policy controlling TSFM availability requirements for routing."""
 
     mode: TSFMMode = "required"
-    adapters: list[str] = Field(
-        default_factory=lambda: ["chronos", "moirai", "timesfm"]
-    )
+    adapters: list[str] = Field(default_factory=lambda: ["chronos", "moirai", "timesfm"])
     allow_non_tsfm_fallback: bool | None = None
 
     @model_validator(mode="after")
@@ -89,6 +89,7 @@ class TSFMPolicy(BaseSpec):
 # ---------------------------
 # Task / execution specs
 # ---------------------------
+
 
 class BacktestSpec(BaseSpec):
     h: int | None = Field(None, gt=0)
@@ -139,9 +140,13 @@ class TaskSpec(BaseSpec):
             if not isinstance(tsfm_policy, dict):
                 tsfm_policy = {}
             tsfm_policy = dict(tsfm_policy)
-            tsfm_policy["mode"] = "required" if require_tsfm else tsfm_policy.get(
-                "mode",
-                "preferred",
+            tsfm_policy["mode"] = (
+                "required"
+                if require_tsfm
+                else tsfm_policy.get(
+                    "mode",
+                    "preferred",
+                )
             )
 
         if "tsfm_preference" in payload:
@@ -237,6 +242,7 @@ class TaskSpec(BaseSpec):
 # Router / planning
 # ---------------------------
 
+
 class RouterThresholds(BaseSpec):
     min_train_size: int = Field(56, gt=1)
     max_missing_ratio: float = Field(0.15, ge=0.0, le=1.0)
@@ -252,6 +258,15 @@ class RouterThresholds(BaseSpec):
     # Practical routing guardrails
     max_series_count_for_tsfm: int = Field(20000, gt=0)
     max_points_per_series_for_tsfm: int = Field(5000, gt=0)
+
+    # Configurable candidate model lists per bucket
+    intermittent_candidates: list[str] = Field(default_factory=lambda: ["Croston", "Naive"])
+    short_history_candidates: list[str] = Field(
+        default_factory=lambda: ["HistoricAverage", "Naive"]
+    )
+    default_candidates: list[str] = Field(
+        default_factory=lambda: ["SeasonalNaive", "HistoricAverage", "Naive"]
+    )
 
 
 class PlanNodeSpec(BaseSpec):
@@ -367,6 +382,7 @@ class RouterConfig(BaseSpec):
 # Calibration + anomaly
 # ---------------------------
 
+
 class CalibratorSpec(BaseSpec):
     method: Literal["none", "conformal"] = "conformal"
     level: int = Field(99, ge=50, le=99)
@@ -382,6 +398,7 @@ class AnomalySpec(BaseSpec):
 # ---------------------------
 # Provenance artifacts (config-level, serializable)
 # ---------------------------
+
 
 class RunArtifactSpec(BaseSpec):
     run_id: str

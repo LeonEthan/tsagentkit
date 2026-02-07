@@ -41,7 +41,7 @@ def inspect_tsfm_adapters(
     from tsagentkit.models.adapters import AdapterRegistry
 
     report: dict[str, dict[str, str | bool]] = {}
-    for name in (preferred or ["chronos", "moirai", "timesfm"]):
+    for name in preferred or ["chronos", "moirai", "timesfm"]:
         is_available, reason = AdapterRegistry.check_availability(name)
         report[name] = {
             "available": is_available,
@@ -74,10 +74,7 @@ def make_plan(
         tsfm_preference=tsfm_preference,
     )
 
-    if (
-        availability.mode == "required"
-        and not availability.available
-    ):
+    if availability.mode == "required" and not availability.available:
         raise ETSFMRequiredUnavailable(
             "TSFM policy requires at least one available adapter, but none were found.",
             context={
@@ -90,11 +87,11 @@ def make_plan(
 
     # Build candidate model list
     if "intermittent" in buckets:
-        candidates = ["Croston", "Naive"]
+        candidates = list(thresholds.intermittent_candidates)
     elif "short_history" in buckets:
-        candidates = ["HistoricAverage", "Naive"]
+        candidates = list(thresholds.short_history_candidates)
     else:
-        candidates = ["SeasonalNaive", "HistoricAverage", "Naive"]
+        candidates = list(thresholds.default_candidates)
 
     tsfm_models = [f"tsfm-{name}" for name in availability.available]
 

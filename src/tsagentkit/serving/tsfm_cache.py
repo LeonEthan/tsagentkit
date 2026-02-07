@@ -17,8 +17,9 @@ class TSFMModelCache:
     """Thread-safe cache for TSFM model instances.
 
     Implements a singleton cache pattern for TSFM adapters to avoid
-    reloading large foundation models on each request. Uses weak
-    references to allow garbage collection when memory is constrained.
+    reloading large foundation models on each request. Cached models
+    are stored in a plain dictionary and persist for the lifetime of
+    the process (or until explicitly cleared via ``clear_cache``).
 
     Attributes:
         _cache: Dictionary mapping model names to cached instances
@@ -107,8 +108,7 @@ class TSFMModelCache:
                 self._metadata.clear()
             else:
                 keys_to_remove = [
-                    k for k, v in self._metadata.items()
-                    if v.get("model_name") == model_name
+                    k for k, v in self._metadata.items() if v.get("model_name") == model_name
                 ]
                 for key in keys_to_remove:
                     del self._cache[key]
@@ -126,12 +126,8 @@ class TSFMModelCache:
         with self._lock:
             return {
                 "num_models": len(self._cache),
-                "models": [
-                    v["model_name"] for v in self._metadata.values()
-                ],
-                "total_accesses": sum(
-                    v["access_count"] for v in self._metadata.values()
-                ),
+                "models": [v["model_name"] for v in self._metadata.values()],
+                "total_accesses": sum(v["access_count"] for v in self._metadata.values()),
                 "details": {
                     k: {
                         "model_name": v["model_name"],
@@ -159,8 +155,7 @@ class TSFMModelCache:
             from tsagentkit.contracts import EAdapterNotAvailable
 
             raise EAdapterNotAvailable(
-                f"TSFM adapter '{model_name}' not found. "
-                f"Ensure the required package is installed.",
+                f"TSFM adapter '{model_name}' not found. Ensure the required package is installed.",
                 context={"adapter_name": model_name, "error": str(exc)},
             ) from exc
 

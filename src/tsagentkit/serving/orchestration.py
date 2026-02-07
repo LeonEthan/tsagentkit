@@ -90,6 +90,7 @@ def run_forecast(
     feature_config: FeatureConfig | None = None,
     calibrator_spec: CalibratorSpec | None = None,
     anomaly_spec: AnomalySpec | None = None,
+    reconciliation_method: str = "bottom_up",
 ) -> RunArtifact:
     """Execute the complete forecasting pipeline.
 
@@ -114,6 +115,9 @@ def run_forecast(
         feature_config: Optional feature configuration for feature engineering (v1.0)
         calibrator_spec: Optional calibration specification
         anomaly_spec: Optional anomaly detection specification
+        reconciliation_method: Reconciliation method for hierarchical forecasts.
+            One of "bottom_up", "top_down", "middle_out", "ols", "wls",
+            "min_trace". Defaults to "bottom_up".
 
     Returns:
         RunArtifact with forecast, metrics, and provenance
@@ -127,6 +131,7 @@ def run_forecast(
     events: list[dict[str, Any]] = []
     qa_repairs: list[dict[str, Any]] = []
     fallbacks_triggered: list[dict[str, Any]] = []
+    degradation_events: list[dict[str, Any]] = []
     start_time = time.time()
     column_map: dict[str, str] | None = None
     original_panel_contract = task_spec.panel_contract
@@ -252,6 +257,15 @@ def run_forecast(
                 context={"covariates_dropped": True},
             )
         )
+        degradation_events.append(
+            {
+                "type": "covariates_dropped",
+                "step": "qa",
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "action": "dropped_covariates",
+            }
+        )
     except Exception as e:
         events.append(
             log_event(
@@ -294,6 +308,15 @@ def run_forecast(
             )
             if mode == "strict":
                 raise
+            degradation_events.append(
+                {
+                    "type": "covariates_dropped",
+                    "step": "align_covariates",
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                    "action": "dropped_covariates",
+                }
+            )
         except Exception as e:
             events.append(
                 log_event(
@@ -305,6 +328,15 @@ def run_forecast(
             )
             if mode == "strict":
                 raise
+            degradation_events.append(
+                {
+                    "type": "covariates_dropped",
+                    "step": "align_covariates",
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                    "action": "dropped_covariates",
+                }
+            )
     else:
         events.append(
             log_event(
@@ -441,11 +473,7 @@ def run_forecast(
             min_train_size = backtest_cfg.min_train_size
             # Preserve historical default behavior (step=horizon) unless
             # the caller explicitly sets backtest.step.
-            step_size = (
-                backtest_cfg.step
-                if "step" in backtest_cfg.model_fields_set
-                else None
-            )
+            step_size = backtest_cfg.step if "step" in backtest_cfg.model_fields_set else None
 
             backtest_report = rolling_backtest(
                 dataset=dataset,
@@ -518,6 +546,7 @@ def run_forecast(
             predict_func=predict_func,
             plan=plan,
             covariates=aligned_dataset,
+            reconciliation_method=reconciliation_method,
         )
         events.append(
             log_event(
@@ -549,6 +578,7 @@ def run_forecast(
                 start_after=model_artifact.model_name,
                 initial_error=e,
                 on_fallback=on_fallback,
+                reconciliation_method=reconciliation_method,
             )
             events.append(
                 log_event(
@@ -734,6 +764,7 @@ def run_forecast(
         provenance=provenance,
         calibration_artifact=calibration_payload_dict(calibration_artifact),
         anomaly_report=anomaly_payload_dict(anomaly_report),
+        degradation_events=degradation_events,
         metadata={
             "mode": mode,
             "total_duration_ms": (time.time() - start_time) * 1000,
@@ -814,6 +845,7 @@ def _step_predict(
     predict_func: Any | None,
     plan: Any | None = None,
     covariates: AlignedDataset | None = None,
+    reconciliation_method: str = "bottom_up",
 ) -> pd.DataFrame:
     """Execute predict step."""
     if predict_func is None:
@@ -838,7 +870,7 @@ def _step_predict(
     if plan and dataset.is_hierarchical() and dataset.hierarchy:
         from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
 
-        method_str = "bottom_up"
+        method_str = reconciliation_method
         method_map = {
             "bottom_up": ReconciliationMethod.BOTTOM_UP,
             "top_down": ReconciliationMethod.TOP_DOWN,
@@ -872,6 +904,7 @@ def _fit_predict_with_fallback(
     start_after: str | None = None,
     initial_error: Exception | None = None,
     on_fallback: Any | None = None,
+    reconciliation_method: str = "bottom_up",
 ) -> tuple[Any, pd.DataFrame]:
     """Fit and predict with fallback across remaining candidates."""
     from tsagentkit.models import fit as default_fit
@@ -919,6 +952,7 @@ def _fit_predict_with_fallback(
                 predict_func=predict_callable,
                 plan=plan,
                 covariates=covariates,
+                reconciliation_method=reconciliation_method,
             )
             return artifact, forecast
         except Exception as e:

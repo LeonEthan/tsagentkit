@@ -37,6 +37,7 @@ def package_run(
     anomaly_report: Any | None = None,
     metadata: dict[str, Any] | None = None,
     lifecycle_stage: str = "train_serve",
+    degradation_events: list[dict[str, Any]] | None = None,
 ) -> RunArtifact:
     """Package all run outputs into a comprehensive artifact.
 
@@ -83,6 +84,7 @@ def package_run(
         provenance=provenance or forecast.provenance,
         calibration_artifact=calibration_dict,
         anomaly_report=anomaly_dict,
+        degradation_events=degradation_events or [],
         metadata=metadata or {},
         artifact_type=RUN_ARTIFACT_TYPE,
         artifact_schema_version=RUN_ARTIFACT_SCHEMA_VERSION,

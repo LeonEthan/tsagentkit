@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -130,10 +130,7 @@ class BucketProfile:
         Returns:
             List of unique_id values in the bucket
         """
-        return [
-            uid for uid, buckets in self.bucket_assignments.items()
-            if bucket in buckets
-        ]
+        return [uid for uid, buckets in self.bucket_assignments.items() if bucket in buckets]
 
     def get_bucket_counts(self) -> dict[SeriesBucket, int]:
         """Get count of series per bucket.
@@ -219,7 +216,9 @@ class DataBucketer:
 
         # Compute quantile positions
         volume_by_series["rank"] = range(n_series)
-        volume_by_series["quantile"] = volume_by_series["rank"] / (n_series - 1) if n_series > 1 else 0
+        volume_by_series["quantile"] = (
+            volume_by_series["rank"] / (n_series - 1) if n_series > 1 else 0
+        )
 
         # Assign buckets
         buckets = {}
@@ -382,9 +381,15 @@ class DataBucketer:
         value_col = self.config.value_col
 
         # Compute per-series metrics
-        series_metrics = df.groupby("unique_id").agg({
-            value_col: ["sum", "mean", "count"],
-        }).reset_index()
+        series_metrics = (
+            df.groupby("unique_id")
+            .agg(
+                {
+                    value_col: ["sum", "mean", "count"],
+                }
+            )
+            .reset_index()
+        )
         series_metrics.columns = ["unique_id", "total_value", "avg_value", "n_obs"]
 
         # Total volume across all series
@@ -392,8 +397,7 @@ class DataBucketer:
 
         for bucket in SeriesBucket:
             series_in_bucket = [
-                uid for uid, buckets in bucket_assignments.items()
-                if bucket in buckets
+                uid for uid, buckets in bucket_assignments.items() if bucket in buckets
             ]
 
             if not series_in_bucket:
@@ -425,6 +429,7 @@ class DataBucketer:
         self,
         bucket: SeriesBucket,
         sparsity_class: str | None = None,
+        tsfm_policy: Any | None = None,
     ) -> str:
         """Get recommended model for a given bucket.
 
@@ -437,6 +442,9 @@ class DataBucketer:
         Args:
             bucket: Bucket to get recommendation for
             sparsity_class: Optional sparsity classification
+            tsfm_policy: Optional TSFMPolicy instance. When provided and
+                TSFM is not disabled, HEAD bucket returns the first
+                available TSFM adapter instead of SeasonalNaive.
 
         Returns:
             Recommended model name
@@ -445,7 +453,12 @@ class DataBucketer:
             return "Croston"  # or "ADIDA"
 
         if bucket == SeriesBucket.HEAD:
-            return "SeasonalNaive"  # Placeholder for TSFM
+            if tsfm_policy is not None:
+                mode = getattr(tsfm_policy, "mode", "disabled")
+                adapters = getattr(tsfm_policy, "adapters", [])
+                if mode != "disabled" and adapters:
+                    return f"tsfm-{adapters[0]}"
+            return "SeasonalNaive"
         elif bucket == SeriesBucket.TAIL or bucket == SeriesBucket.SHORT_HISTORY:
             return "HistoricAverage"
         elif bucket == SeriesBucket.LONG_HISTORY:
