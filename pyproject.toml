@@ -1,6 +1,6 @@
 [project]
 name = "tsagentkit"
-version = "1.0.2"
+version = "1.1.0"
 description = "Robust execution engine for time-series forecasting agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,6 +14,12 @@ dependencies = [
     "utilsforecast>=0.1.0",
     "hierarchicalforecast>=1.0.0",
     "tsfeatures>=0.4.5",
+    "torch",
+    "huggingface-hub",
+    "chronos-forecasting>=2.0.0",
+    "tsagentkit-timesfm",
+    "tsagentkit-uni2ts",
+    "gluonts",
 ]
 
 [project.optional-dependencies]
@@ -28,30 +34,6 @@ models = [
     "statsforecast>=1.7.0",
     "utilsforecast>=0.1.0",
     "scipy>=1.11.0",
-]
-tsfm = [
-    "torch",
-    "huggingface-hub",
-    "chronos-forecasting>=2.0.0",
-    "tsagentkit-timesfm",
-    "tsagentkit-uni2ts",
-    "gluonts",
-]
-chronos = [
-    "torch",
-    "huggingface-hub",
-    "chronos-forecasting>=2.0.0",
-]
-timesfm = [
-    "torch",
-    "huggingface-hub",
-    "tsagentkit-timesfm",
-]
-moirai = [
-    "torch",
-    "huggingface-hub",
-    "tsagentkit-uni2ts",
-    "gluonts",
 ]
 features = [
     "tsfresh>=0.20.0",

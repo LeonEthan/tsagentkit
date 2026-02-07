@@ -5,9 +5,12 @@ Bundles all outputs from a forecasting run into a comprehensive artifact.
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING, Any
 
 from tsagentkit.contracts import (
+    RUN_ARTIFACT_SCHEMA_VERSION,
+    RUN_ARTIFACT_TYPE,
     RunArtifact,
     anomaly_payload_dict,
     calibration_payload_dict,
@@ -33,6 +36,7 @@ def package_run(
     calibration_artifact: Any | None = None,
     anomaly_report: Any | None = None,
     metadata: dict[str, Any] | None = None,
+    lifecycle_stage: str = "train_serve",
 ) -> RunArtifact:
     """Package all run outputs into a comprehensive artifact.
 
@@ -62,6 +66,10 @@ def package_run(
     qa_dict = qa_report.to_dict() if qa_report and hasattr(qa_report, "to_dict") else None
     calibration_dict = calibration_payload_dict(calibration_artifact)
     anomaly_dict = anomaly_payload_dict(anomaly_report)
+    try:
+        package_version = version("tsagentkit")
+    except PackageNotFoundError:
+        package_version = None
 
     return RunArtifact(
         forecast=forecast,
@@ -76,4 +84,8 @@ def package_run(
         calibration_artifact=calibration_dict,
         anomaly_report=anomaly_dict,
         metadata=metadata or {},
+        artifact_type=RUN_ARTIFACT_TYPE,
+        artifact_schema_version=RUN_ARTIFACT_SCHEMA_VERSION,
+        tsagentkit_version=package_version,
+        lifecycle_stage=lifecycle_stage,
     )

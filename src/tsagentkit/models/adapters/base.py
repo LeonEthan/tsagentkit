@@ -13,7 +13,12 @@ from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
 
-    from tsagentkit.contracts import ForecastResult, ModelArtifact, Provenance
+    from tsagentkit.contracts import (
+        AdapterCapabilitySpec,
+        ForecastResult,
+        ModelArtifact,
+        Provenance,
+    )
     from tsagentkit.series import TSDataset
 
 
@@ -319,3 +324,23 @@ class TSFMAdapter(ABC):
                 "PyTorch is required for TSFM adapters. "
                 "Install with: pip install torch"
             ) from e
+
+    @classmethod
+    def capability(cls, adapter_name: str) -> AdapterCapabilitySpec:
+        """Return static capability metadata for this adapter class."""
+        from tsagentkit.contracts import AdapterCapabilitySpec
+
+        return AdapterCapabilitySpec(
+            adapter_name=adapter_name,
+            provider=None,
+            available=None,
+            availability_reason=None,
+            is_zero_shot=True,
+            supports_quantiles=True,
+            supports_past_covariates=False,
+            supports_future_covariates=False,
+            supports_static_covariates=False,
+            max_context_length=None,
+            max_horizon=None,
+            dependencies=["torch"],
+        )

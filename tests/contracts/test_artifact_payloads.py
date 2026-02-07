@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from tsagentkit.anomaly import AnomalyReport
 from tsagentkit.calibration import CalibratorArtifact
 from tsagentkit.contracts import (
+    RUN_ARTIFACT_SCHEMA_VERSION,
+    RUN_ARTIFACT_TYPE,
     AnomalyReportPayload,
     CalibrationArtifactPayload,
     RunArtifactPayload,
+    EArtifactSchemaIncompatible,
     anomaly_payload_from_any,
     calibration_payload_from_any,
     run_artifact_payload_from_dict,
+    validate_run_artifact_compatibility,
 )
 
 
@@ -88,5 +93,17 @@ def test_run_artifact_payload_validation_with_nested_payloads() -> None:
     )
 
     assert isinstance(payload, RunArtifactPayload)
+    assert payload.artifact_type == RUN_ARTIFACT_TYPE
+    assert payload.artifact_schema_version == RUN_ARTIFACT_SCHEMA_VERSION
     assert payload.calibration_artifact is not None
     assert payload.anomaly_report is not None
+
+
+def test_run_artifact_payload_incompatible_schema_version() -> None:
+    with pytest.raises(EArtifactSchemaIncompatible):
+        validate_run_artifact_compatibility(
+            {
+                "artifact_schema_version": 999,
+                "forecast": {"model_name": "Naive", "horizon": 1, "df": []},
+            }
+        )

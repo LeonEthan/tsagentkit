@@ -19,7 +19,7 @@ from tsagentkit.utils import quantile_col_name
 from .base import TSFMAdapter
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import ForecastResult, ModelArtifact
+    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult, ModelArtifact
     from tsagentkit.series import TSDataset
 
 
@@ -385,3 +385,23 @@ class ChronosAdapter(TSFMAdapter):
                 "chronos-forecasting is required. "
                 "Install with: pip install chronos-forecasting"
             ) from e
+
+    @classmethod
+    def capability(cls, adapter_name: str) -> AdapterCapabilitySpec:
+        from tsagentkit.contracts import AdapterCapabilitySpec
+
+        return AdapterCapabilitySpec(
+            adapter_name=adapter_name,
+            provider="amazon",
+            available=None,
+            availability_reason=None,
+            is_zero_shot=True,
+            supports_quantiles=True,
+            supports_past_covariates=True,
+            supports_future_covariates=True,
+            supports_static_covariates=False,
+            max_context_length=None,
+            max_horizon=None,
+            dependencies=["torch", "chronos-forecasting>=2.0.0"],
+            notes="Chronos 2 pipeline supports context + future covariates via predict_df.",
+        )

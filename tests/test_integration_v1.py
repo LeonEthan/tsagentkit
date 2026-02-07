@@ -15,6 +15,7 @@ import pytest
 from tsagentkit import TaskSpec
 from tsagentkit.contracts import EAdapterNotAvailable
 from tsagentkit.hierarchy import HierarchyStructure, ReconciliationMethod
+from tsagentkit.models.adapters import AdapterRegistry
 from tsagentkit.router import make_plan
 from tsagentkit.series import TSDataset
 from tsagentkit.serving import TSFMModelCache, clear_tsfm_cache, get_tsfm_model
@@ -30,7 +31,7 @@ class TestTSFMRouterIntegration:
             "ds": pd.date_range("2024-01-01", periods=30, freq="D"),
             "y": list(range(30)),
         })
-        spec = TaskSpec(h=7, freq="D")
+        spec = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "preferred"})
         dataset = TSDataset.from_dataframe(df, spec)
 
         # Create plan with TSFM preference
@@ -56,7 +57,7 @@ class TestTSFMRouterIntegration:
             "ds": pd.date_range("2024-01-01", periods=30, freq="D"),
             "y": list(range(30)),
         })
-        spec = TaskSpec(h=7, freq="D")
+        spec = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "preferred"})
         dataset = TSDataset.from_dataframe(df, spec)
 
         plan, route_decision = make_plan(dataset, spec, use_tsfm=True)
@@ -74,7 +75,7 @@ class TestTSFMRouterIntegration:
             "ds": pd.to_datetime(["2024-01-01", "2024-01-02"] * 3),
             "y": [10.0, 15.0, 20.0, 25.0, 30.0, 40.0],
         })
-        spec = TaskSpec(h=7, freq="D")
+        spec = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "preferred"})
         dataset = TSDataset.from_dataframe(df, spec)
 
         # Create hierarchy structure
@@ -118,7 +119,7 @@ class TestHierarchicalBacktestIntegration:
         })
 
         df = pd.concat([df_bottom, df_total], ignore_index=True)
-        spec = TaskSpec(h=7, freq="D")
+        spec = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "preferred"})
         dataset = TSDataset.from_dataframe(df, spec)
 
         # Add hierarchy
@@ -216,14 +217,21 @@ class TestTSFMCacheIntegration:
         """Test the get_tsfm_model convenience function."""
         clear_tsfm_cache()  # Start fresh
 
-        # Should raise error for unavailable model
-        with pytest.raises(EAdapterNotAvailable):
-            get_tsfm_model("chronos")
-
-        # Stats should show the attempt
+        is_available, _ = AdapterRegistry.check_availability("chronos")
         cache = TSFMModelCache()
-        cache.get_cache_stats()
-        # May or may not have the model depending on if chronos is installed
+        if is_available:
+            adapter = get_tsfm_model("chronos")
+            assert adapter.config.model_name == "chronos"
+
+            # Stats should show the cached adapter entry.
+            stats = cache.get_cache_stats()
+            assert stats["num_models"] == 1
+            assert "chronos" in stats["models"]
+        else:
+            with pytest.raises(EAdapterNotAvailable):
+                get_tsfm_model("chronos")
+            stats = cache.get_cache_stats()
+            assert stats["num_models"] == 0
 
     def test_cache_key_generation(self):
         """Test that cache keys are generated correctly."""
@@ -252,7 +260,7 @@ class TestEndToEndV1Workflow:
             "y": list(range(30)) + list(range(30, 60)) + list(range(30, 60)),
         })
 
-        spec = TaskSpec(h=7, freq="D")
+        spec = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "preferred"})
         dataset = TSDataset.from_dataframe(df, spec)
 
         # 2. Add hierarchy
@@ -284,7 +292,7 @@ class TestEndToEndV1Workflow:
             "y": list(range(30)) + list(range(30, 60)) + list(range(30, 60)),
         })
 
-        spec = TaskSpec(h=7, freq="D")
+        spec = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "preferred"})
         dataset = TSDataset.from_dataframe(df, spec)
 
         # Add hierarchy

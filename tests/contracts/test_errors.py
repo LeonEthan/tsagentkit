@@ -2,6 +2,8 @@
 
 
 from tsagentkit.contracts import (
+    EArtifactLoadFailed,
+    EArtifactSchemaIncompatible,
     EContractDuplicateKey,
     EContractInvalidType,
     EContractMissingColumn,
@@ -48,6 +50,8 @@ class TestSpecificErrors:
             (ECovariateLeakage, "E_COVARIATE_LEAKAGE"),
             (EModelFitFailed, "E_MODEL_FIT_FAIL"),
             (EFallbackExhausted, "E_FALLBACK_EXHAUSTED"),
+            (EArtifactSchemaIncompatible, "E_ARTIFACT_SCHEMA_INCOMPATIBLE"),
+            (EArtifactLoadFailed, "E_ARTIFACT_LOAD_FAILED"),
         ]
 
         for err_class, expected_code in errors:

@@ -146,6 +146,11 @@ class EAdapterNotAvailable(TSAgentKitError):
     error_code = "E_ADAPTER_NOT_AVAILABLE"
 
 
+class ETSFMRequiredUnavailable(TSAgentKitError):
+    """TSFM is required by policy but no required adapter is available."""
+    error_code = "E_TSFM_REQUIRED_UNAVAILABLE"
+
+
 class EFallbackExhausted(TSAgentKitError):
     """All models in the fallback ladder failed."""
     error_code = "E_FALLBACK_EXHAUSTED"
@@ -168,6 +173,20 @@ class ETaskSpecInvalid(TSAgentKitError):
 class ETaskSpecIncompatible(TSAgentKitError):
     """Task spec is incompatible with data."""
     error_code = "E_TASK_SPEC_INCOMPATIBLE"
+
+
+# ---------------------------
+# Artifact Lifecycle Errors
+# ---------------------------
+
+class EArtifactSchemaIncompatible(TSAgentKitError):
+    """Serialized artifact schema/type is incompatible."""
+    error_code = "E_ARTIFACT_SCHEMA_INCOMPATIBLE"
+
+
+class EArtifactLoadFailed(TSAgentKitError):
+    """Serialized artifact cannot be loaded safely."""
+    error_code = "E_ARTIFACT_LOAD_FAILED"
 
 
 # ---------------------------
@@ -224,10 +243,13 @@ ERROR_REGISTRY: dict[str, type[TSAgentKitError]] = {
     "E_MODEL_PREDICT_FAIL": EModelPredictFailed,
     "E_MODEL_LOAD_FAILED": EModelLoadFailed,
     "E_ADAPTER_NOT_AVAILABLE": EAdapterNotAvailable,
+    "E_TSFM_REQUIRED_UNAVAILABLE": ETSFMRequiredUnavailable,
     "E_FALLBACK_EXHAUSTED": EFallbackExhausted,
     "E_OOM": EOOM,
     "E_TASK_SPEC_INVALID": ETaskSpecInvalid,
     "E_TASK_SPEC_INCOMPATIBLE": ETaskSpecIncompatible,
+    "E_ARTIFACT_SCHEMA_INCOMPATIBLE": EArtifactSchemaIncompatible,
+    "E_ARTIFACT_LOAD_FAILED": EArtifactLoadFailed,
     "E_BACKTEST_FAIL": EBacktestFail,
     "E_BACKTEST_INSUFFICIENT_DATA": EBacktestInsufficientData,
     "E_BACKTEST_INVALID_WINDOW": EBacktestInvalidWindow,
@@ -262,10 +284,13 @@ __all__ = [
     "EModelPredictFailed",
     "EModelLoadFailed",
     "EAdapterNotAvailable",
+    "ETSFMRequiredUnavailable",
     "EFallbackExhausted",
     "EOOM",
     "ETaskSpecInvalid",
     "ETaskSpecIncompatible",
+    "EArtifactSchemaIncompatible",
+    "EArtifactLoadFailed",
     "EBacktestFail",
     "EBacktestInsufficientData",
     "EBacktestInvalidWindow",

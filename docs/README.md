@@ -9,6 +9,11 @@ Complete documentation for the tsagentkit assembly-first time-series forecasting
 - [Quick Start Guide](#quick-start) - First steps
 - [ADR 001: Assembly-First Integration](ADR_001_assembly_first.md) - Product direction and API posture
 
+## Quick Start
+
+- Primary integration path: assembly-first step composition from `README.md`
+- Compatibility path: `run_forecast(...)` convenience wrapper when step-level control is not needed
+
 ## TSFM Adapters
 
 Adapters are available under `src/tsagentkit/models/adapters/` with
@@ -23,20 +28,29 @@ as the canonical hierarchy inputs.
 ## Agent Recipes
 
 Agent-facing recipes live in `skill/recipes.md` and `skill/README.md`.
+Package-distributed mirrors are kept in `src/tsagentkit/skill/` and should stay byte-for-byte consistent.
 
 ## API Reference
 
 ### Stability & Compatibility
 
 - [Stable API Contract](API_STABILITY.md) - Backward-compatibility guarantees
+- [v1.1 Release Checklist & Migration Note](RELEASE_V1_1.md) - Release-blocker checks and migration guidance for TSFM-required default and CI gate updates
 
 ### Core Components
 
 ```python
-from tsagentkit import TaskSpec
-from tsagentkit.series import TSDataset
-from tsagentkit.router import make_plan
-from tsagentkit.serving import run_forecast
+from tsagentkit import (
+    TaskSpec,
+    align_covariates,
+    build_dataset,
+    fit,
+    make_plan,
+    package_run,
+    predict,
+    run_qa,
+    validate_contract,
+)
 ```
 
 ### Hierarchical
@@ -66,6 +80,12 @@ from tsagentkit.models.adapters import (
 ```python
 from tsagentkit.serving import (
     TSFMModelCache,
+    run_forecast,  # convenience wrapper
+    package_run,
+    save_run_artifact,
+    load_run_artifact,
+    validate_run_artifact_for_serving,
+    replay_forecast_from_artifact,
     get_tsfm_model,
     clear_tsfm_cache,
 )
@@ -130,7 +150,14 @@ matrix = factory.create_features(dataset)
 
 ## Version History
 
-### v1.0 - Ecosystem (Current)
+### v1.1 - TSFM-First Release Gate (Current)
+
+- TSFM policy default set to required (`TSFMPolicy.mode="required"`)
+- Deterministic TSFM policy matrix tests in CI
+- Real non-mock TSFM adapter smoke gate in CI
+- Release checklist and migration note published (`RELEASE_V1_1.md`)
+
+### v1.0 - Ecosystem
 
 - TSFM adapters (Chronos, Moirai, TimesFM)
 - Hierarchical reconciliation (6 methods)

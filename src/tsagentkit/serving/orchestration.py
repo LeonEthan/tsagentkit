@@ -27,6 +27,7 @@ from tsagentkit.contracts import (
     ForecastResult,
     PanelContract,
     TaskSpec,
+    TSAgentKitError,
     ValidationReport,
     anomaly_payload_dict,
     calibration_payload_dict,
@@ -35,6 +36,7 @@ from tsagentkit.contracts import (
 from tsagentkit.covariates import AlignedDataset, CovariateBundle, align_covariates
 from tsagentkit.qa import QAReport, run_qa
 from tsagentkit.router import make_plan
+from tsagentkit.router.fallback import should_trigger_fallback
 from tsagentkit.series import TSDataset
 from tsagentkit.time import infer_freq
 from tsagentkit.utils import drop_future_rows, normalize_quantile_columns
@@ -484,6 +486,7 @@ def run_forecast(
             {
                 "from": from_model,
                 "to": to_model,
+                "error_code": _error_code_from_exception(error),
                 "error": str(error),
             }
         )
@@ -530,9 +533,11 @@ def run_forecast(
                 step_name="predict",
                 status="failed",
                 duration_ms=(time.time() - step_start) * 1000,
-                error_code=type(e).__name__,
+                error_code=_error_code_from_exception(e),
             )
         )
+        if not should_trigger_fallback(e):
+            raise
         try:
             model_artifact, forecast_df = _fit_predict_with_fallback(
                 dataset=dataset,
@@ -559,7 +564,7 @@ def run_forecast(
                     step_name="predict_fallback",
                     status="failed",
                     duration_ms=(time.time() - step_start) * 1000,
-                    error_code=type(fallback_error).__name__,
+                    error_code=_error_code_from_exception(fallback_error),
                 )
             )
             raise
@@ -899,6 +904,8 @@ def _fit_predict_with_fallback(
                 covariates=covariates,
             )
         except Exception as e:
+            if not should_trigger_fallback(e):
+                raise
             last_error = e
             if on_fallback and i < len(remaining) - 1:
                 on_fallback(model_name, remaining[i + 1], e)
@@ -915,6 +922,8 @@ def _fit_predict_with_fallback(
             )
             return artifact, forecast
         except Exception as e:
+            if not should_trigger_fallback(e):
+                raise
             last_error = e
             if on_fallback and i < len(remaining) - 1:
                 on_fallback(model_name, remaining[i + 1], e)
@@ -936,6 +945,12 @@ def _get_error_code(validation: ValidationReport) -> str | None:
     return None
 
 
+def _error_code_from_exception(error: Exception) -> str:
+    if isinstance(error, TSAgentKitError):
+        return error.error_code
+    return type(error).__name__
+
+
 def _call_with_optional_kwargs(func: Any, *args: Any, **kwargs: Any) -> Any:
     """Call a function with only supported keyword arguments."""
     if not kwargs:
@@ -945,8 +960,9 @@ def _call_with_optional_kwargs(func: Any, *args: Any, **kwargs: Any) -> Any:
         import inspect
 
         params = inspect.signature(func).parameters
-        accepted = {k: v for k, v in kwargs.items() if k in params}
-        return func(*args, **accepted)
-    except Exception:
-        # Fall back to direct call if signature inspection fails
+    except (TypeError, ValueError):
+        # Fall back to direct call only when signature introspection is unsupported.
         return func(*args, **kwargs)
+
+    accepted = {k: v for k, v in kwargs.items() if k in params}
+    return func(*args, **accepted)

@@ -5,6 +5,12 @@ Provides batch inference orchestration and artifact packaging.
 
 from tsagentkit.contracts import RunArtifact
 
+from .lifecycle import (
+    load_run_artifact,
+    replay_forecast_from_artifact,
+    save_run_artifact,
+    validate_run_artifact_for_serving,
+)
 from .orchestration import MonitoringConfig, run_forecast
 from .packaging import package_run
 from .provenance import (
@@ -23,6 +29,10 @@ __all__ = [
     "MonitoringConfig",
     # Packaging
     "package_run",
+    "save_run_artifact",
+    "load_run_artifact",
+    "validate_run_artifact_for_serving",
+    "replay_forecast_from_artifact",
     "RunArtifact",
     # Provenance
     "compute_data_signature",
