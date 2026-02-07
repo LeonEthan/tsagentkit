@@ -44,6 +44,9 @@ from tsagentkit.contracts import (
     validate_contract,
 )
 from tsagentkit.covariates import AlignedDataset, CovariateBundle, align_covariates
+
+# API discovery (v1.1.1)
+from tsagentkit.discovery import describe
 from tsagentkit.eval import MetricFrame, ScoreSummary, evaluate_forecasts
 from tsagentkit.models import (
     fit,
@@ -52,6 +55,12 @@ from tsagentkit.models import (
     predict,
 )
 from tsagentkit.qa import run_qa
+
+# Quickstart (v1.1.1)
+from tsagentkit.quickstart import diagnose, forecast
+
+# Repair utility (v1.1.1)
+from tsagentkit.repair import repair
 from tsagentkit.router import (
     BucketConfig,
     BucketProfile,
@@ -91,15 +100,6 @@ from tsagentkit.serving.provenance import (
     format_event_json,
     log_event,
 )
-
-# Repair utility (v1.1.1)
-from tsagentkit.repair import repair
-
-# Quickstart (v1.1.1)
-from tsagentkit.quickstart import diagnose, forecast
-
-# API discovery (v1.1.1)
-from tsagentkit.discovery import describe
 
 # v0.2 imports (optional - use directly from submodules)
 # from tsagentkit.features import FeatureFactory, FeatureMatrix, compute_feature_hash
