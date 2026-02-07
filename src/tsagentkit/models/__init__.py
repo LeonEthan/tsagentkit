@@ -11,9 +11,9 @@ from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
 from tsagentkit.contracts import (
+    EOOM,
     EModelFitFailed,
     EModelPredictFailed,
-    EOOM,
     ForecastResult,
     ModelArtifact,
     Provenance,

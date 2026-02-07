@@ -36,9 +36,9 @@ from tsagentkit.contracts import (
     Provenance,
     RunArtifact,
     TaskSpec,
-    TSFMPolicy,
     # Errors
     TSAgentKitError,
+    TSFMPolicy,
     ValidationReport,
     validate_contract,
 )

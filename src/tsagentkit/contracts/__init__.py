@@ -38,7 +38,6 @@ from .errors import (
     EModelFitFailed,
     EModelLoadFailed,
     EModelPredictFailed,
-    ETSFMRequiredUnavailable,
     EQACriticalIssue,
     EQALeakageDetected,
     EQAMinHistory,
@@ -46,6 +45,7 @@ from .errors import (
     ESplitRandomForbidden,
     ETaskSpecIncompatible,
     ETaskSpecInvalid,
+    ETSFMRequiredUnavailable,
     TSAgentKitError,
     get_error_class,
 )
@@ -61,8 +61,8 @@ from .results import (
 )
 from .schema import validate_contract
 from .task_spec import (
-    AggregationMode,
     AdapterCapabilitySpec,
+    AggregationMode,
     AnomalyMethod,
     AnomalySpec,
     BacktestSpec,
@@ -84,9 +84,9 @@ from .task_spec import (
     RouterThresholds,
     RunArtifactSpec,
     SeasonalityMethod,
+    TaskSpec,
     TSFMMode,
     TSFMPolicy,
-    TaskSpec,
 )
 
 __all__ = [

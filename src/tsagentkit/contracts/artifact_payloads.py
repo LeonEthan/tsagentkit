@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .errors import EArtifactSchemaIncompatible
 
+
 class _PayloadModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

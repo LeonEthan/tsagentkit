@@ -375,7 +375,7 @@ def _resolve_tsfm_availability(
             allowed_by_guardrail=False,
             preferred=preferred,
             available=[],
-            unavailable={name: "routing_guardrail_blocked" for name in preferred},
+            unavailable=dict.fromkeys(preferred, "routing_guardrail_blocked"),
             allow_non_tsfm_fallback=allow_non_tsfm_fallback,
         )
 
