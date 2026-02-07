@@ -147,4 +147,4 @@ def test_architecture_doc_assembly_first_consistency() -> None:
     architecture = (_repo_root() / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
     assert "assembly-first" in architecture
     assert "`package_run()`" in architecture
-    assert "`run_forecast()`（便利包装器" in architecture
+    assert "`run_forecast()` (convenience wrapper" in architecture
