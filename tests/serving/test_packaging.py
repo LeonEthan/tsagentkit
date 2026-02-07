@@ -3,6 +3,8 @@
 import pandas as pd
 import pytest
 
+from tsagentkit.anomaly import AnomalyReport
+from tsagentkit.calibration import CalibratorArtifact
 from tsagentkit.contracts import ForecastResult, ModelArtifact, Provenance
 from tsagentkit.router import PlanSpec, compute_plan_signature
 from tsagentkit.serving import RunArtifact, package_run
@@ -137,3 +139,74 @@ class TestPackageRun:
         assert artifact.model_artifact is not None
         assert artifact.provenance == provenance
         assert artifact.metadata == metadata
+
+    def test_serializes_calibration_and_anomaly_payloads(self) -> None:
+        """Non-dict calibration/anomaly inputs should be serialized to dict payloads."""
+        forecast = pd.DataFrame({
+            "unique_id": ["A"],
+            "ds": pd.to_datetime(["2024-01-01"]),
+            "model": ["Naive"],
+            "yhat": [1.0],
+        })
+        plan = PlanSpec(plan_name="default", candidate_models=["Naive"])
+        provenance = Provenance(
+            run_id="test-run",
+            timestamp="2024-01-01T00:00:00Z",
+            data_signature="sig1",
+            task_signature="sig2",
+            plan_signature=compute_plan_signature(plan),
+            model_signature="sig3",
+        )
+        forecast_result = ForecastResult(
+            df=forecast,
+            provenance=provenance,
+            model_name="Naive",
+            horizon=1,
+        )
+
+        calibration_artifact = CalibratorArtifact(
+            method="conformal",
+            level=95,
+            by="global",
+            deltas={"global": 1.0},
+            metadata={"n_residuals": 5},
+        )
+        anomaly_frame = pd.DataFrame(
+            {
+                "unique_id": ["A"],
+                "ds": pd.to_datetime(["2024-01-01"]),
+                "y": [1.0],
+                "yhat": [1.0],
+                "lo": [0.8],
+                "hi": [1.2],
+                "anomaly": [False],
+                "anomaly_score": [0.0],
+                "threshold": [95],
+                "method": ["interval_breach"],
+                "score": ["normalized_margin"],
+            }
+        )
+        anomaly_report = AnomalyReport(
+            frame=anomaly_frame,
+            method="interval_breach",
+            level=95,
+            score="normalized_margin",
+            summary={"total": 1, "anomalies": 0, "anomaly_rate": 0.0},
+        )
+
+        artifact = package_run(
+            forecast=forecast_result,
+            plan=plan,
+            calibration_artifact=calibration_artifact,
+            anomaly_report=anomaly_report,
+        )
+
+        assert artifact.calibration_artifact is not None
+        assert artifact.calibration_artifact["method"] == "conformal"
+        assert artifact.anomaly_report is not None
+        assert artifact.anomaly_report["method"] == "interval_breach"
+        assert isinstance(artifact.anomaly_report["frame"], list)
+
+        serialized = artifact.to_dict()
+        assert serialized["calibration_artifact"]["level"] == 95
+        assert serialized["anomaly_report"]["score"] == "normalized_margin"

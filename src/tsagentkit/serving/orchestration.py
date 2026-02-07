@@ -28,6 +28,8 @@ from tsagentkit.contracts import (
     PanelContract,
     TaskSpec,
     ValidationReport,
+    anomaly_payload_dict,
+    calibration_payload_dict,
     validate_contract,
 )
 from tsagentkit.covariates import AlignedDataset, CovariateBundle, align_covariates
@@ -725,8 +727,8 @@ def run_forecast(
         qa_report=qa_report,
         model_artifact=model_artifact,
         provenance=provenance,
-        calibration_artifact=calibration_artifact,
-        anomaly_report=anomaly_report,
+        calibration_artifact=calibration_payload_dict(calibration_artifact),
+        anomaly_report=anomaly_payload_dict(anomaly_report),
         metadata={
             "mode": mode,
             "total_duration_ms": (time.time() - start_time) * 1000,

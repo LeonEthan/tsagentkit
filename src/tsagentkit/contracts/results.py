@@ -339,7 +339,11 @@ class RunArtifact:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
+        from tsagentkit.contracts.artifact_payloads import (
+            run_artifact_payload_from_dict,
+        )
+
+        payload = {
             "forecast": self.forecast.to_dict() if self.forecast else None,
             "plan": self.plan,
             "task_spec": self.task_spec,
@@ -357,6 +361,7 @@ class RunArtifact:
             "anomaly_report": self.anomaly_report,
             "metadata": self.metadata,
         }
+        return run_artifact_payload_from_dict(payload).model_dump()
 
     def summary(self) -> str:
         """Generate a human-readable summary."""

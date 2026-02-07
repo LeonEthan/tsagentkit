@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from tsagentkit.contracts import RunArtifact
+from tsagentkit.contracts import (
+    RunArtifact,
+    anomaly_payload_dict,
+    calibration_payload_dict,
+)
 
 if TYPE_CHECKING:
     from tsagentkit.backtest import BacktestReport
@@ -26,8 +30,8 @@ def package_run(
     qa_report: QAReport | None = None,
     model_artifact: ModelArtifact | None = None,
     provenance: Provenance | None = None,
-    calibration_artifact: dict[str, Any] | None = None,
-    anomaly_report: dict[str, Any] | None = None,
+    calibration_artifact: Any | None = None,
+    anomaly_report: Any | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> RunArtifact:
     """Package all run outputs into a comprehensive artifact.
@@ -56,6 +60,8 @@ def package_run(
         plan_spec = plan_dict
     backtest_dict = backtest_report.to_dict() if backtest_report else None
     qa_dict = qa_report.to_dict() if qa_report and hasattr(qa_report, "to_dict") else None
+    calibration_dict = calibration_payload_dict(calibration_artifact)
+    anomaly_dict = anomaly_payload_dict(anomaly_report)
 
     return RunArtifact(
         forecast=forecast,
@@ -67,7 +73,7 @@ def package_run(
         qa_report=qa_dict,
         model_artifact=model_artifact,
         provenance=provenance or forecast.provenance,
-        calibration_artifact=calibration_artifact,
-        anomaly_report=anomaly_report,
+        calibration_artifact=calibration_dict,
+        anomaly_report=anomaly_dict,
         metadata=metadata or {},
     )

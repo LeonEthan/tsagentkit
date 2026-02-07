@@ -1,5 +1,15 @@
 """Contracts module for tsagentkit."""
 
+from .artifact_payloads import (
+    AnomalyReportPayload,
+    CalibrationArtifactPayload,
+    RunArtifactPayload,
+    anomaly_payload_dict,
+    anomaly_payload_from_any,
+    calibration_payload_dict,
+    calibration_payload_from_any,
+    run_artifact_payload_from_dict,
+)
 from .errors import (
     EOOM,
     EAdapterNotAvailable,
@@ -98,6 +108,15 @@ __all__ = [
     "ECalibrationFail",
     "EAnomalyFail",
     "get_error_class",
+    # Artifact payloads
+    "CalibrationArtifactPayload",
+    "AnomalyReportPayload",
+    "RunArtifactPayload",
+    "calibration_payload_from_any",
+    "anomaly_payload_from_any",
+    "calibration_payload_dict",
+    "anomaly_payload_dict",
+    "run_artifact_payload_from_dict",
     # Results
     "CVFrame",
     "ForecastFrame",
