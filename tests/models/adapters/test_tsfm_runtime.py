@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 import pytest
 
 from tsagentkit.contracts import TaskSpec
 from tsagentkit.models.adapters import AdapterConfig
 from tsagentkit.series import TSDataset
+
+if os.environ.get("TSFM_RUN_REAL") != "1":
+    pytestmark = pytest.mark.skip(
+        reason="Real TSFM runtime smoke tests require TSFM_RUN_REAL=1.",
+    )
 
 
 def _make_dataset(freq: str = "D", periods: int = 32) -> TSDataset:
