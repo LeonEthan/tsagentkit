@@ -3,7 +3,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-A robust execution engine for AI agents performing time-series forecasting. Provides strict guardrails to enforce proper time-series practices while offering TSFM-first (Time-Series Foundation Model) forecasting with automatic fallback to statistical models.
+A robust execution engine for AI agents performing time-series forecasting. It is designed as an assembly-first toolkit: coding agents compose production workflows from modular building blocks, while `run_forecast()` remains a convenience wrapper.
 
 ## Features
 
@@ -62,6 +62,8 @@ A robust execution engine for AI agents performing time-series forecasting. Prov
 
 ## Installation
 
+Core building blocks:
+
 ```bash
 pip install tsagentkit
 ```
@@ -72,10 +74,27 @@ Or with uv:
 uv pip install tsagentkit
 ```
 
-### TSFM Dependencies
+### Optional TSFM Extras
 
-TSFM dependencies are included in the default install to ensure TSFM adapters
-run out of the box: `chronos-forecasting`, `timesfm`, `uni2ts`, and `gluonts`.
+Install all TSFM adapters:
+
+```bash
+pip install "tsagentkit[tsfm]"
+```
+
+Install a specific adapter stack:
+
+```bash
+pip install "tsagentkit[chronos]"
+pip install "tsagentkit[timesfm]"
+pip install "tsagentkit[moirai]"
+```
+
+Or with uv:
+
+```bash
+uv pip install "tsagentkit[tsfm]"
+```
 
 ## Testing
 

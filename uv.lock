@@ -3618,24 +3618,23 @@ name = "tsagentkit"
 version = "1.0.2"
 source = { editable = "." }
 dependencies = [
-    { name = "chronos-forecasting" },
-    { name = "gluonts" },
     { name = "hierarchicalforecast" },
-    { name = "huggingface-hub" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pydantic" },
     { name = "scipy" },
     { name = "statsforecast" },
-    { name = "torch" },
-    { name = "tsagentkit-timesfm" },
-    { name = "tsagentkit-uni2ts" },
     { name = "tsfeatures" },
     { name = "typing-extensions" },
     { name = "utilsforecast" },
 ]
 
 [package.optional-dependencies]
+chronos = [
+    { name = "chronos-forecasting" },
+    { name = "huggingface-hub" },
+    { name = "torch" },
+]
 dev = [
     { name = "import-linter" },
     { name = "mypy" },
@@ -3652,13 +3651,37 @@ models = [
     { name = "statsforecast" },
     { name = "utilsforecast" },
 ]
+moirai = [
+    { name = "gluonts" },
+    { name = "huggingface-hub" },
+    { name = "torch" },
+    { name = "tsagentkit-uni2ts" },
+]
+timesfm = [
+    { name = "huggingface-hub" },
+    { name = "torch" },
+    { name = "tsagentkit-timesfm" },
+]
+tsfm = [
+    { name = "chronos-forecasting" },
+    { name = "gluonts" },
+    { name = "huggingface-hub" },
+    { name = "torch" },
+    { name = "tsagentkit-timesfm" },
+    { name = "tsagentkit-uni2ts" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "chronos-forecasting", specifier = ">=2.0.0" },
-    { name = "gluonts" },
+    { name = "chronos-forecasting", marker = "extra == 'chronos'", specifier = ">=2.0.0" },
+    { name = "chronos-forecasting", marker = "extra == 'tsfm'", specifier = ">=2.0.0" },
+    { name = "gluonts", marker = "extra == 'moirai'" },
+    { name = "gluonts", marker = "extra == 'tsfm'" },
     { name = "hierarchicalforecast", specifier = ">=1.0.0" },
-    { name = "huggingface-hub" },
+    { name = "huggingface-hub", marker = "extra == 'chronos'" },
+    { name = "huggingface-hub", marker = "extra == 'moirai'" },
+    { name = "huggingface-hub", marker = "extra == 'timesfm'" },
+    { name = "huggingface-hub", marker = "extra == 'tsfm'" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=1.24.0" },
@@ -3672,16 +3695,21 @@ requires-dist = [
     { name = "sktime", marker = "extra == 'features'", specifier = ">=0.24.0" },
     { name = "statsforecast", specifier = ">=1.7.0" },
     { name = "statsforecast", marker = "extra == 'models'", specifier = ">=1.7.0" },
-    { name = "torch" },
-    { name = "tsagentkit-timesfm" },
-    { name = "tsagentkit-uni2ts" },
+    { name = "torch", marker = "extra == 'chronos'" },
+    { name = "torch", marker = "extra == 'moirai'" },
+    { name = "torch", marker = "extra == 'timesfm'" },
+    { name = "torch", marker = "extra == 'tsfm'" },
+    { name = "tsagentkit-timesfm", marker = "extra == 'timesfm'" },
+    { name = "tsagentkit-timesfm", marker = "extra == 'tsfm'" },
+    { name = "tsagentkit-uni2ts", marker = "extra == 'moirai'" },
+    { name = "tsagentkit-uni2ts", marker = "extra == 'tsfm'" },
     { name = "tsfeatures", specifier = ">=0.4.5" },
     { name = "tsfresh", marker = "extra == 'features'", specifier = ">=0.20.0" },
     { name = "typing-extensions", specifier = ">=4.0.0" },
     { name = "utilsforecast", specifier = ">=0.1.0" },
     { name = "utilsforecast", marker = "extra == 'models'", specifier = ">=0.1.0" },
 ]
-provides-extras = ["dev", "models", "features"]
+provides-extras = ["dev", "models", "tsfm", "chronos", "timesfm", "moirai", "features"]
 
 [[package]]
 name = "tsagentkit-timesfm"
