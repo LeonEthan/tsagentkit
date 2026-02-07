@@ -58,6 +58,8 @@ class TestRunArtifact:
         assert d["forecast"]["model_name"] == "Naive"
         assert "plan" in d
         assert "provenance" in d
+        assert d["artifact_type"] == "tsagentkit.run_artifact"
+        assert d["artifact_schema_version"] == 1
 
     def test_summary(self, sample_artifact: RunArtifact) -> None:
         """Test summary generation."""

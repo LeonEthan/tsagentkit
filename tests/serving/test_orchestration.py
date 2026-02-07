@@ -22,7 +22,7 @@ class TestRunForecast:
     @pytest.fixture
     def sample_spec(self) -> TaskSpec:
         """Create sample task spec."""
-        return TaskSpec(h=7, freq="D")
+        return TaskSpec(h=7, freq="D", tsfm_policy={"mode": "preferred"})
 
     def test_quick_mode(self, sample_data: pd.DataFrame, sample_spec: TaskSpec) -> None:
         """Test quick mode execution."""
@@ -45,7 +45,7 @@ class TestRunForecast:
         """Infer freq when missing and infer_freq=True."""
         from tsagentkit.models import fit, predict
 
-        spec = TaskSpec(h=7, freq=None, infer_freq=True)
+        spec = TaskSpec(h=7, freq=None, infer_freq=True, tsfm_policy={"mode": "preferred"})
         result = run_forecast(
             data=sample_data,
             task_spec=spec,
@@ -61,7 +61,7 @@ class TestRunForecast:
         """Raise if freq is missing and infer_freq=False."""
         from tsagentkit.contracts import ETaskSpecInvalid
 
-        spec = TaskSpec(h=7, freq=None, infer_freq=False)
+        spec = TaskSpec(h=7, freq=None, infer_freq=False, tsfm_policy={"mode": "preferred"})
         with pytest.raises(ETaskSpecInvalid):
             run_forecast(
                 data=sample_data,
@@ -90,6 +90,7 @@ class TestRunForecast:
             h=3,
             freq="D",
             backtest={"n_windows": 2, "min_train_size": 10},
+            tsfm_policy={"mode": "preferred"},
         )
 
         from tsagentkit.models import fit, predict
@@ -111,6 +112,7 @@ class TestRunForecast:
             h=3,
             freq="D",
             backtest={"n_windows": 2, "min_train_size": 10, "step": 2},
+            tsfm_policy={"mode": "preferred"},
         )
 
         from tsagentkit.models import fit, predict
@@ -166,7 +168,12 @@ class TestRunForecast:
             "y": [1.0, 2.0, None],
             "promo": [0, 1, 1],
         })
-        spec = TaskSpec(h=1, freq="D", covariate_policy="observed")
+        spec = TaskSpec(
+            h=1,
+            freq="D",
+            covariate_policy="observed",
+            tsfm_policy={"mode": "preferred"},
+        )
 
         from tsagentkit.contracts import ECovariateLeakage
 
@@ -185,7 +192,12 @@ class TestRunForecast:
             "y": [1.0, 2.0, None],
             "promo": [0, 1, 1],
         })
-        spec = TaskSpec(h=1, freq="D", covariate_policy="observed")
+        spec = TaskSpec(
+            h=1,
+            freq="D",
+            covariate_policy="observed",
+            tsfm_policy={"mode": "preferred"},
+        )
 
         from tsagentkit.models import fit, predict
 
@@ -207,6 +219,60 @@ class TestRunForecast:
 
     def test_predict_failure_triggers_fallback(self, sample_data: pd.DataFrame, monkeypatch) -> None:
         """Predict failures should trigger fallback to the next candidate."""
+        from tsagentkit.contracts import EModelPredictFailed, ModelArtifact, RouteDecision
+        from tsagentkit.router import PlanSpec
+
+        def fake_make_plan(dataset, task_spec, qa_report):
+            plan = PlanSpec(plan_name="default", candidate_models=["bad", "good"])
+            route_decision = RouteDecision(
+                stats={},
+                buckets=["test"],
+                selected_plan=plan,
+                reasons=["test fallback"],
+            )
+            return plan, route_decision
+
+        monkeypatch.setattr(
+            "tsagentkit.serving.orchestration.make_plan",
+            fake_make_plan,
+        )
+
+        def fit_func(dataset, plan):
+            return ModelArtifact(model={}, model_name=plan.candidate_models[0])
+
+        def predict_func(dataset, artifact, spec):
+            if artifact.model_name == "bad":
+                raise EModelPredictFailed("predict failed")
+            rows = []
+            step = pd.tseries.frequencies.to_offset(spec.freq)
+            for uid, last_date in dataset.df.groupby("unique_id")["ds"].max().items():
+                for h in range(1, spec.horizon + 1):
+                    rows.append(
+                        {
+                            "unique_id": uid,
+                            "ds": last_date + h * step,
+                            "yhat": 1.0,
+                        }
+                    )
+            return pd.DataFrame(rows)
+
+        spec = TaskSpec(h=2, freq="D", tsfm_policy={"mode": "preferred"})
+        result = run_forecast(
+            data=sample_data,
+            task_spec=spec,
+            mode="quick",
+            fit_func=fit_func,
+            predict_func=predict_func,
+        )
+
+        assert result.forecast.model_name == "good"
+        assert any(
+            f.get("from") == "bad" and f.get("to") == "good"
+            for f in (result.provenance.fallbacks_triggered or [])
+        )
+
+    def test_predict_non_fallback_error_raises(self, sample_data: pd.DataFrame, monkeypatch) -> None:
+        """Unexpected predict exceptions should not be swallowed by fallback."""
         from tsagentkit.contracts import ModelArtifact, RouteDecision
         from tsagentkit.router import PlanSpec
 
@@ -230,7 +296,7 @@ class TestRunForecast:
 
         def predict_func(dataset, artifact, spec):
             if artifact.model_name == "bad":
-                raise RuntimeError("predict failed")
+                raise RuntimeError("predict crashed")
             rows = []
             step = pd.tseries.frequencies.to_offset(spec.freq)
             for uid, last_date in dataset.df.groupby("unique_id")["ds"].max().items():
@@ -244,20 +310,15 @@ class TestRunForecast:
                     )
             return pd.DataFrame(rows)
 
-        spec = TaskSpec(h=2, freq="D")
-        result = run_forecast(
-            data=sample_data,
-            task_spec=spec,
-            mode="quick",
-            fit_func=fit_func,
-            predict_func=predict_func,
-        )
-
-        assert result.forecast.model_name == "good"
-        assert any(
-            f.get("from") == "bad" and f.get("to") == "good"
-            for f in (result.provenance.fallbacks_triggered or [])
-        )
+        spec = TaskSpec(h=2, freq="D", tsfm_policy={"mode": "preferred"})
+        with pytest.raises(RuntimeError, match="predict crashed"):
+            run_forecast(
+                data=sample_data,
+                task_spec=spec,
+                mode="quick",
+                fit_func=fit_func,
+                predict_func=predict_func,
+            )
 
     def test_logs_events(self, sample_data: pd.DataFrame, sample_spec: TaskSpec) -> None:
         """Test that events are logged."""
@@ -288,7 +349,7 @@ class TestRunForecast:
             "ds": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"]),
             "y": [1.0, None, 3.0],
         })
-        spec = TaskSpec(h=1, freq="D")
+        spec = TaskSpec(h=1, freq="D", tsfm_policy={"mode": "preferred"})
 
         from tsagentkit.models import fit, predict
 

@@ -35,26 +35,27 @@
 5. `eval/` 仅封装 `utilsforecast.evaluate`；指标函数不在本库重复实现
 6. `features/` 默认使用 `tsfeatures`；`tsfresh` 仅在 `features/extra`
 7. `models/` 仅做适配与参数映射，不复制 `statsforecast`/`sktime` 算法实现
-8. `serving/` 是唯一流水线编排入口，其他模块不得调用 `run_forecast()` 或 `package_run()`
+8. `serving/` 是流水线封装层；对外推荐 assembly-first 逐步组合，`run_forecast()` 仅作为兼容包装器
 
 ## 3. Pipeline 数据流（实现视角）
 
-主要入口在 `serving/orchestration.py:run_forecast()`：
+推荐入口为 step-level 组合；`run_forecast()` 复用同一组 step API 进行包装：
 
 1. `validate_contract()` → 结构与类型校验
 2. `run_qa()` → 质量检测与可选修复
 3. `align_covariates()` → 协变量对齐与泄露校验
 4. `TSDataset.from_dataframe()` → 统一数据结构
 5. `make_plan()` → 生成 `PlanSpec`
-6. `rolling_backtest()` → 可选 CV 评估
-7. `models.fit()` → 模型适配与训练
-8. `models.predict()` → 预测输出
-9. `fit_calibrator()` / `apply_calibrator()` → 置信度校准（可选）
-10. `detect_anomalies()` → 异常检测（可选）
-11. `package_run()` → 打包 `RunArtifact`
+6. `build_plan_graph()` / `attach_plan_graph()` → 暴露可编排 DAG 节点（可选）
+7. `rolling_backtest()` → 可选 CV 评估
+8. `models.fit()` → 模型适配与训练
+9. `models.predict()` → 预测输出
+10. `fit_calibrator()` / `apply_calibrator()` → 置信度校准（可选）
+11. `detect_anomalies()` → 异常检测（可选）
+12. `package_run()` → 打包 `RunArtifact`
 
 回测策略说明：
-回测逻辑保持自研实现，以兼容 TSFM 与自定义预测来源；指标与汇总优先复用 `utilsforecast.evaluate`。citeturn2search1
+回测逻辑保持自研实现，以兼容 TSFM 与自定义预测来源；指标与汇总优先复用 `utilsforecast.evaluate`。
 
 ### 流程示意图
 
@@ -94,16 +95,16 @@ flowchart TD
 
 建议复用对象与定位（默认实现优先级）：
 - `statsforecast`：统计/基线模型与时间序列 CV 的默认实现，作为基础模型库优先接入。
-- `utilsforecast`：评估函数 `evaluate`、预处理（如 `fill_gaps`）与轻量特征工程 `pipeline` 的默认实现。citeturn2search1turn2search0turn2search3
-- `hierarchicalforecast`：层级预测与一致性处理的**默认实现**，以 `S_df` 与 `tags` 作为标准输入。citeturn1search5
-- `tsfeatures`：时间序列统计特征提取的默认实现，输入为 `unique_id`/`ds`/`y` 面板数据。citeturn1search0
+- `utilsforecast`：评估函数 `evaluate`、预处理（如 `fill_gaps`）与轻量特征工程 `pipeline` 的默认实现。
+- `hierarchicalforecast`：层级预测与一致性处理的**默认实现**，以 `S_df` 与 `tags` 作为标准输入。
+- `tsfeatures`：时间序列统计特征提取的默认实现，输入为 `unique_id`/`ds`/`y` 面板数据。
 - `sktime`：传统模型生态与转换器作为可选扩展入口（不是默认）。
 - `tsfresh`：高维特征自动提取的可选扩展能力（更重，非默认）。
 
 数据格式对齐（契约驱动）：
-- `utilsforecast` 的 `evaluate` 与预处理函数默认使用 `unique_id`/`ds`/`y` 约定，与 `PanelContract` 对齐。citeturn2search1turn2search0
-- `tsfeatures` 接收 `unique_id`/`ds`/`y` 面板，并可基于频率生成特征，与 `PanelContract` 对齐。citeturn1search0
-- `hierarchicalforecast` 以 `S_df` 与 `tags` 作为层级约束输入，便于与 `ForecastResult` 与层级结构对接。citeturn1search5
+- `utilsforecast` 的 `evaluate` 与预处理函数默认使用 `unique_id`/`ds`/`y` 约定，与 `PanelContract` 对齐。
+- `tsfeatures` 接收 `unique_id`/`ds`/`y` 面板，并可基于频率生成特征，与 `PanelContract` 对齐。
+- `hierarchicalforecast` 以 `S_df` 与 `tags` 作为层级约束输入，便于与 `ForecastResult` 与层级结构对接。
 
 默认库映射表（面向维护成本）：
 
@@ -119,8 +120,8 @@ flowchart TD
 替换策略（面向可维护性）：
 - 统计模型与基线预测逻辑尽量迁移至 `statsforecast`，仅保留薄适配层。
 - 层级预测与一致性处理优先由 `hierarchicalforecast` 承担，保留轻量 wrapper 做数据转换与契约校验。
-- 评估指标与汇总统一迁移至 `utilsforecast`，避免自维护指标实现。citeturn2search1
-- 特征提取优先通过 `tsfeatures`，高维特征再考虑 `tsfresh`。citeturn1search0
+- 评估指标与汇总统一迁移至 `utilsforecast`，避免自维护指标实现。
+- 特征提取优先通过 `tsfeatures`，高维特征再考虑 `tsfresh`。
 - 传统模型或特殊需求通过 `sktime` 接入。
 
 集成与演进约束：
@@ -134,14 +135,15 @@ flowchart TD
 ### 模型扩展
 - TSFM 通过 `models/adapters` 统一注册
 - 传统模型通过 `models/sktime` 或基线模块接入
+- `get_adapter_capability()` / `list_adapter_capabilities()` 提供 capability + runtime availability 视图，便于 agent 做策略分支
 
 ### 特征扩展
-- `features/` 提供 `FeatureConfig` 与 `FeatureFactory`，默认接入 `tsfeatures`。citeturn1search0
+- `features/` 提供 `FeatureConfig` 与 `FeatureFactory`，默认接入 `tsfeatures`。
 - Feature hash 用于审计与复现
 
 ### 监控与层级
 - `monitoring/`：漂移/稳定性检测
-- `hierarchy/` 与 `reconciliation/`：层级预测与一致性处理（默认使用 `hierarchicalforecast`，以 `S_df`/`tags` 为核心输入）citeturn1search5
+- `hierarchy/` 与 `reconciliation/`：层级预测与一致性处理（默认使用 `hierarchicalforecast`，以 `S_df`/`tags` 为核心输入）
 
 ## 7. 数据契约与工件
 
@@ -150,28 +152,28 @@ flowchart TD
 - `ForecastContract`: `model`, `yhat`, quantiles/intervals
 
 ### 层级约束输入
-`hierarchicalforecast` 以 `S_df` 与 `tags` 描述层级结构，`tsagentkit` 以该形式作为默认层级输入契约；任何层级结构需转换为 `S_df`/`tags`。citeturn1search5
+`hierarchicalforecast` 以 `S_df` 与 `tags` 描述层级结构，`tsagentkit` 以该形式作为默认层级输入契约；任何层级结构需转换为 `S_df`/`tags`。
 
 ### 层级输入契约细则（S_df / tags / Y_hat_df）
-- `S_df`：层级求和矩阵 DataFrame，行索引为全体序列 `unique_id`，列为底层序列 `unique_id`，值为聚合权重（常见为 0/1）。citeturn1search5
-- `tags`：字典，键为层级名称，值为该层级包含的序列 `unique_id` 列表。citeturn1search5
-- `Y_hat_df`：基础预测 DataFrame，包含 `unique_id`、`ds` 与模型列（每个模型一列）。citeturn1search5
-- `Y_df`：历史数据 DataFrame（可选），包含 `unique_id`、`ds`、`y`，用于某些一致性方法的校准。citeturn1search5
+- `S_df`：层级求和矩阵 DataFrame，行索引为全体序列 `unique_id`，列为底层序列 `unique_id`，值为聚合权重（常见为 0/1）。
+- `tags`：字典，键为层级名称，值为该层级包含的序列 `unique_id` 列表。
+- `Y_hat_df`：基础预测 DataFrame，包含 `unique_id`、`ds` 与模型列（每个模型一列）。
+- `Y_df`：历史数据 DataFrame（可选），包含 `unique_id`、`ds`、`y`，用于某些一致性方法的校准。
 
 ### 回测输出标准（CVFrame / BacktestReport）
 - `CVFrame`（长表）：`unique_id`, `ds`, `cutoff`, `model`, `y`, `yhat`, `q_*`（可选）
 - `BacktestReport`：至少包含 `cv_frame`, `metrics`, `summary`, `errors`, `n_windows`, `horizon`
-- 回测指标计算使用 `utilsforecast.evaluate`，内部允许将 `CVFrame` pivot 为宽表再计算。citeturn2search1
+- 回测指标计算使用 `utilsforecast.evaluate`，内部允许将 `CVFrame` pivot 为宽表再计算。
 
 ### 评估输出标准（MetricFrame / ScoreSummary）
 - `MetricFrame`（长表）：`unique_id`（可选）, `cutoff`（可选）, `model`, `metric`, `value`
 - `ScoreSummary`：`model`, `metric`, `value` 的聚合结果
-- `utilsforecast.evaluate` 原始输出为“每指标一行、模型列展开”的宽表，`tsagentkit` 统一转换为长表保存。citeturn2search1
+- `utilsforecast.evaluate` 原始输出为“每指标一行、模型列展开”的宽表，`tsagentkit` 统一转换为长表保存。
 
 ### 特征矩阵契约（FeatureMatrix）
 - `FeatureMatrix.data` 必须包含 `unique_id`, `ds`, `y` 与特征列
 - `feature_cols` 为特征列名，默认来源于 `tsfeatures` 输出
-- 为避免与协变量/目标列冲突，特征列允许统一前缀 `tsf_`（若发生命名冲突）。citeturn1search0
+- 为避免与协变量/目标列冲突，特征列允许统一前缀 `tsf_`（若发生命名冲突）。
 - 默认适配器建议实现于 `features/tsfeatures_adapter.py`，由 `FeatureFactory` 作为入口调用
 
 ### 主要工件
@@ -180,19 +182,30 @@ flowchart TD
 
 ## 8. 稳定 API 与内部 API
 
-建议将以下接口视为**稳定 API**：
+建议将以下接口视为**稳定 API**（assembly-first 主路径）：
 
-- `run_forecast()`
-- `TaskSpec`
 - `validate_contract()`
+- `run_qa()`
+- `align_covariates()`
+- `TSDataset.from_dataframe()` / `build_dataset()`
+- `make_plan()`
+- `build_plan_graph()` / `attach_plan_graph()`
 - `rolling_backtest()`
+- `models.fit()` / `models.predict()`
+- `get_adapter_capability()` / `list_adapter_capabilities()`
+- `package_run()`
+- `save_run_artifact()` / `load_run_artifact()`
+- `validate_run_artifact_for_serving()` / `replay_forecast_from_artifact()`
+- `TaskSpec`
 - `fit_calibrator()` / `apply_calibrator()`
 - `detect_anomalies()`
 
-其余模块级函数建议视为内部或高级用法，后续版本可能调整。
+兼容 API：
+- `run_forecast()`（便利包装器，语义保持稳定）
 
 兼容边界（必须保持）：
-- `run_forecast()` 的核心语义与返回 `RunArtifact` 的字段名
+- step-level 组合语义与 `package_run()` 的产物字段语义
+- `run_forecast()` 的包装语义与返回 `RunArtifact` 的字段名
 - `PanelContract` / `ForecastContract` 的必需列与列名
 - `ForecastResult.df` 的最小列集合：`unique_id`, `ds`, `model`, `yhat`
 
@@ -215,7 +228,7 @@ flowchart TD
 ## 11. 后续演进建议
 
 - 将 `RouteDecision` 纳入产物并持久化
-- `serving/` 拆分为 step 级模块以增强测试性
+- 增强 step-level 示例与测试，防止文档回退到 wrapper-first
 - 将 `contracts/` 与 `results/` 进一步解耦
 
 ## 12. 迁移与弃用清单（面向可维护性）

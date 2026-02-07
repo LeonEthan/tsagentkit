@@ -336,6 +336,10 @@ class RunArtifact:
     calibration_artifact: dict[str, Any] | None = None
     anomaly_report: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    artifact_type: str = "tsagentkit.run_artifact"
+    artifact_schema_version: int = 1
+    tsagentkit_version: str | None = None
+    lifecycle_stage: str = "train_serve"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -344,6 +348,10 @@ class RunArtifact:
         )
 
         payload = {
+            "artifact_type": self.artifact_type,
+            "artifact_schema_version": self.artifact_schema_version,
+            "tsagentkit_version": self.tsagentkit_version,
+            "lifecycle_stage": self.lifecycle_stage,
             "forecast": self.forecast.to_dict() if self.forecast else None,
             "plan": self.plan,
             "task_spec": self.task_spec,
@@ -362,6 +370,108 @@ class RunArtifact:
             "metadata": self.metadata,
         }
         return run_artifact_payload_from_dict(payload).model_dump()
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RunArtifact:
+        """Load RunArtifact from serialized payload."""
+        from tsagentkit.contracts.artifact_payloads import (
+            validate_run_artifact_compatibility,
+        )
+        from tsagentkit.contracts.errors import EArtifactLoadFailed
+
+        payload = validate_run_artifact_compatibility(data)
+
+        forecast_payload = payload.forecast
+        if not isinstance(forecast_payload, dict):
+            raise EArtifactLoadFailed("Serialized artifact missing forecast payload.")
+
+        records = forecast_payload.get("df")
+        if not isinstance(records, list):
+            raise EArtifactLoadFailed("Serialized forecast must provide df records.")
+        forecast_df = pd.DataFrame(records)
+        if "ds" in forecast_df.columns:
+            forecast_df = forecast_df.copy()
+            try:
+                forecast_df["ds"] = pd.to_datetime(forecast_df["ds"])
+            except Exception as exc:
+                raise EArtifactLoadFailed(
+                    "Serialized forecast contains invalid 'ds' values."
+                ) from exc
+
+        provenance_payload = forecast_payload.get("provenance") or payload.provenance
+        if not isinstance(provenance_payload, dict):
+            raise EArtifactLoadFailed("Serialized artifact missing provenance payload.")
+        forecast_provenance = Provenance.from_dict(provenance_payload)
+
+        model_name = forecast_payload.get("model_name")
+        horizon = forecast_payload.get("horizon")
+        if not isinstance(model_name, str):
+            raise EArtifactLoadFailed("Serialized forecast model_name must be a string.")
+        if not isinstance(horizon, int):
+            raise EArtifactLoadFailed("Serialized forecast horizon must be an integer.")
+
+        try:
+            forecast = ForecastResult(
+                df=forecast_df,
+                provenance=forecast_provenance,
+                model_name=model_name,
+                horizon=horizon,
+            )
+        except Exception as exc:
+            raise EArtifactLoadFailed(
+                "Serialized forecast payload is invalid.",
+                context={"error": str(exc)},
+            ) from exc
+
+        artifact_provenance = (
+            Provenance.from_dict(payload.provenance)
+            if isinstance(payload.provenance, dict)
+            else forecast_provenance
+        )
+
+        serialized_model_artifact = payload.model_artifact
+        model_artifact: ModelArtifact | None = None
+        if isinstance(serialized_model_artifact, dict):
+            model_name_payload = serialized_model_artifact.get("model_name")
+            if not isinstance(model_name_payload, str):
+                raise EArtifactLoadFailed(
+                    "Serialized model_artifact.model_name must be a string."
+                )
+            signature = serialized_model_artifact.get("signature")
+            fit_timestamp = serialized_model_artifact.get("fit_timestamp")
+            model_artifact = ModelArtifact(
+                model=None,
+                model_name=model_name_payload,
+                signature=signature if isinstance(signature, str) else "",
+                fit_timestamp=fit_timestamp if isinstance(fit_timestamp, str) else "",
+            )
+
+        return cls(
+            forecast=forecast,
+            plan=payload.plan,
+            task_spec=payload.task_spec,
+            plan_spec=payload.plan_spec,
+            validation_report=payload.validation_report,
+            backtest_report=payload.backtest_report,
+            qa_report=payload.qa_report,
+            model_artifact=model_artifact,
+            provenance=artifact_provenance,
+            calibration_artifact=(
+                payload.calibration_artifact.model_dump()
+                if payload.calibration_artifact
+                else None
+            ),
+            anomaly_report=(
+                payload.anomaly_report.model_dump()
+                if payload.anomaly_report
+                else None
+            ),
+            metadata=dict(payload.metadata),
+            artifact_type=payload.artifact_type,
+            artifact_schema_version=payload.artifact_schema_version,
+            tsagentkit_version=payload.tsagentkit_version,
+            lifecycle_stage=payload.lifecycle_stage,
+        )
 
     def summary(self) -> str:
         """Generate a human-readable summary."""

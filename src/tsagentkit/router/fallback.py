@@ -8,13 +8,36 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, TypeVar
 
-from tsagentkit.contracts.errors import EFallbackExhausted
+from tsagentkit.contracts.errors import EFallbackExhausted, TSAgentKitError
 from tsagentkit.router.plan import PlanSpec, get_candidate_models
 
 if TYPE_CHECKING:
     from tsagentkit.series import TSDataset
 
 T = TypeVar("T")
+
+FALLBACK_TRIGGER_ERROR_CODES = frozenset(
+    {
+        "E_MODEL_FIT_FAIL",
+        "E_MODEL_PREDICT_FAIL",
+        "E_MODEL_LOAD_FAILED",
+        "E_ADAPTER_NOT_AVAILABLE",
+        "E_OOM",
+    }
+)
+
+
+def should_trigger_fallback(error: Exception) -> bool:
+    """Return whether a failure should trigger the next model fallback.
+
+    Fallback is only allowed for explicit, model-runtime-style failures.
+    Unexpected exceptions should surface immediately.
+    """
+    if isinstance(error, MemoryError):
+        return True
+    if isinstance(error, TSAgentKitError):
+        return error.error_code in FALLBACK_TRIGGER_ERROR_CODES
+    return False
 
 
 def execute_with_fallback(
@@ -47,6 +70,8 @@ def execute_with_fallback(
             result = fit_func(model_name, dataset)
             return result, model_name
         except Exception as e:
+            if not should_trigger_fallback(e):
+                raise
             last_error = e
 
             # Trigger callback if provided

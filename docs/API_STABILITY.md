@@ -21,6 +21,10 @@ The following functions/classes are considered stable and **must remain backward
 - `tsagentkit.models.fit()`
 - `tsagentkit.models.predict()`
 - `tsagentkit.serving.package_run()`
+- `tsagentkit.serving.save_run_artifact()`
+- `tsagentkit.serving.load_run_artifact()`
+- `tsagentkit.serving.validate_run_artifact_for_serving()`
+- `tsagentkit.serving.replay_forecast_from_artifact()`
 
 ### Orchestration Convenience API
 - `tsagentkit.serving.run_forecast()`
@@ -30,6 +34,10 @@ The following functions/classes are considered stable and **must remain backward
 ### Contracts & Specs
 - `tsagentkit.contracts.TaskSpec`
   - Backward-compatible field names (e.g., `h` vs `horizon`) must continue to work.
+- `tsagentkit.contracts.TSFMPolicy`
+  - `mode` semantics (`preferred`, `required`, `disabled`) must remain stable.
+  - Default policy is TSFM-first (`mode="required"`); relaxing to baseline fallback must be explicit.
+  - `require_tsfm` and `tsfm_preference` compatibility aliases must continue to map into `TaskSpec.tsfm_policy`.
 - `tsagentkit.contracts.PanelContract`
   - Must continue to support `unique_id`, `ds`, `y` (default columns) and the `aggregation` policy.
 - `tsagentkit.contracts.ForecastContract`
@@ -46,6 +54,10 @@ These minimum fields must remain valid in outputs:
 - `ForecastResult.df` must include: `unique_id`, `ds`, `model`, `yhat`.
 - `CVFrame` (when present) must include: `unique_id`, `ds`, `cutoff`, `model`, `y`, `yhat`.
 - `RunArtifact.forecast` must be a `ForecastResult`.
+- `RunArtifact` payload metadata must retain:
+  - `artifact_type`
+  - `artifact_schema_version`
+  - `lifecycle_stage`
 
 ## Compatibility Rules
 

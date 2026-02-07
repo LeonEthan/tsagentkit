@@ -3,7 +3,13 @@
 import pytest
 from pydantic import ValidationError
 
-from tsagentkit.contracts import BacktestSpec, ForecastContract, TaskSpec
+from tsagentkit.contracts import (
+    BacktestSpec,
+    ForecastContract,
+    PlanGraphSpec,
+    PlanNodeSpec,
+    TaskSpec,
+)
 
 
 class TestTaskSpecCreation:
@@ -32,6 +38,29 @@ class TestTaskSpecCreation:
         for policy in ["ignore", "known", "observed", "auto", "spec"]:
             spec = TaskSpec(h=7, freq="D", covariate_policy=policy)  # type: ignore
             assert spec.covariate_policy == policy
+
+    def test_default_tsfm_policy(self) -> None:
+        spec = TaskSpec(h=7, freq="D")
+        assert spec.tsfm_policy.mode == "required"
+        assert spec.tsfm_policy.adapters == ["chronos", "moirai", "timesfm"]
+        assert spec.tsfm_policy.allow_non_tsfm_fallback is False
+
+    def test_tsfm_policy_required_disables_non_tsfm_fallback_by_default(self) -> None:
+        spec = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "required"})
+        assert spec.tsfm_policy.mode == "required"
+        assert spec.tsfm_policy.allow_non_tsfm_fallback is False
+
+    def test_legacy_require_tsfm_alias(self) -> None:
+        spec = TaskSpec(h=7, freq="D", require_tsfm=True)  # type: ignore[arg-type]
+        assert spec.tsfm_policy.mode == "required"
+
+    def test_legacy_tsfm_preference_alias(self) -> None:
+        spec = TaskSpec(
+            h=7,
+            freq="D",
+            tsfm_preference=["timesfm", "chronos"],  # type: ignore[arg-type]
+        )
+        assert spec.tsfm_policy.adapters == ["timesfm", "chronos"]
 
 
 class TestTaskSpecValidation:
@@ -86,3 +115,25 @@ class TestTaskSpecHashing:
 
         assert spec1.model_hash() == spec2.model_hash()
         assert spec1.model_hash() != spec3.model_hash()
+
+
+class TestPlanGraphSpec:
+    def test_graph_infers_entrypoints_and_terminal_nodes(self) -> None:
+        graph = PlanGraphSpec(
+            plan_name="default",
+            nodes=[
+                PlanNodeSpec(node_id="a", kind="validate"),
+                PlanNodeSpec(node_id="b", kind="qa", depends_on=["a"]),
+            ],
+        )
+        assert graph.entrypoints == ["a"]
+        assert graph.terminal_nodes == ["b"]
+
+    def test_graph_rejects_missing_dependencies(self) -> None:
+        with pytest.raises(ValidationError):
+            PlanGraphSpec(
+                plan_name="default",
+                nodes=[
+                    PlanNodeSpec(node_id="a", kind="validate", depends_on=["missing"]),
+                ],
+            )

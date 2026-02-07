@@ -19,7 +19,7 @@ from tsagentkit.utils import quantile_col_name
 from .base import TSFMAdapter
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import ForecastResult, ModelArtifact
+    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult, ModelArtifact
     from tsagentkit.series import TSDataset
 
 
@@ -254,3 +254,23 @@ class MoiraiAdapter(TSFMAdapter):
                 "uni2ts>=2.0.0 is required. "
                 "Install with: pip install 'uni2ts @ git+https://github.com/SalesforceAIResearch/uni2ts.git'"
             ) from e
+
+    @classmethod
+    def capability(cls, adapter_name: str) -> AdapterCapabilitySpec:
+        from tsagentkit.contracts import AdapterCapabilitySpec
+
+        return AdapterCapabilitySpec(
+            adapter_name=adapter_name,
+            provider="salesforce",
+            available=None,
+            availability_reason=None,
+            is_zero_shot=True,
+            supports_quantiles=True,
+            supports_past_covariates=False,
+            supports_future_covariates=False,
+            supports_static_covariates=False,
+            max_context_length=cls.DEFAULT_CONTEXT_LENGTH,
+            max_horizon=None,
+            dependencies=["torch", "uni2ts>=2.0.0", "gluonts"],
+            notes="Moirai 2.0 adapter currently consumes target-only panel context.",
+        )

@@ -4,9 +4,13 @@ This library provides a strict, production-grade workflow skeleton for
 external coding agents (LLMs/AI agents) performing time-series forecasting tasks.
 
 Basic usage:
-    >>> from tsagentkit import TaskSpec, validate_contract, run_forecast
+    >>> from tsagentkit import TaskSpec, validate_contract, run_qa, build_dataset, make_plan
     >>> spec = TaskSpec(h=7, freq="D")
-    >>> result = run_forecast(data, spec)
+    >>> report = validate_contract(data)
+    >>> report.raise_if_errors()
+    >>> qa = run_qa(data, spec, mode="quick")
+    >>> dataset = build_dataset(data, spec)
+    >>> plan, _route_decision = make_plan(dataset, spec)
 """
 
 __version__ = "1.0.2"
@@ -22,13 +26,17 @@ from tsagentkit.backtest import (
 )
 from tsagentkit.calibration import apply_calibrator, fit_calibrator
 from tsagentkit.contracts import (
+    AdapterCapabilitySpec,
     ECovariateLeakage,
     ESplitRandomForbidden,
     ForecastResult,
     ModelArtifact,
+    PlanGraphSpec,
+    PlanNodeSpec,
     Provenance,
     RunArtifact,
     TaskSpec,
+    TSFMPolicy,
     # Errors
     TSAgentKitError,
     ValidationReport,
@@ -36,7 +44,12 @@ from tsagentkit.contracts import (
 )
 from tsagentkit.covariates import AlignedDataset, CovariateBundle, align_covariates
 from tsagentkit.eval import MetricFrame, ScoreSummary, evaluate_forecasts
-from tsagentkit.models import fit, predict
+from tsagentkit.models import (
+    fit,
+    get_adapter_capability,
+    list_adapter_capabilities,
+    predict,
+)
 from tsagentkit.qa import run_qa
 from tsagentkit.router import (
     BucketConfig,
@@ -47,9 +60,12 @@ from tsagentkit.router import (
     FallbackLadder,
     PlanSpec,
     SeriesBucket,
+    attach_plan_graph,
+    build_plan_graph,
     compute_plan_signature,
     execute_with_fallback,
     get_candidate_models,
+    inspect_tsfm_adapters,
     make_plan,
 )
 from tsagentkit.series import (
@@ -58,7 +74,15 @@ from tsagentkit.series import (
     TSDataset,
     build_dataset,
 )
-from tsagentkit.serving import MonitoringConfig, package_run, run_forecast
+from tsagentkit.serving import (
+    MonitoringConfig,
+    load_run_artifact,
+    package_run,
+    replay_forecast_from_artifact,
+    run_forecast,
+    save_run_artifact,
+    validate_run_artifact_for_serving,
+)
 
 # Structured logging (v1.0)
 from tsagentkit.serving.provenance import (
@@ -75,9 +99,13 @@ __all__ = [
     "__version__",
     # Core contracts
     "TaskSpec",
+    "TSFMPolicy",
     "ValidationReport",
     "ForecastResult",
     "ModelArtifact",
+    "PlanNodeSpec",
+    "PlanGraphSpec",
+    "AdapterCapabilitySpec",
     "Provenance",
     "RunArtifact",
     "validate_contract",
@@ -104,11 +132,16 @@ __all__ = [
     "ScoreSummary",
     "fit",
     "predict",
+    "get_adapter_capability",
+    "list_adapter_capabilities",
     # Router
     "PlanSpec",
+    "build_plan_graph",
+    "attach_plan_graph",
     "compute_plan_signature",
     "get_candidate_models",
     "make_plan",
+    "inspect_tsfm_adapters",
     "FallbackLadder",
     "execute_with_fallback",
     # Router Bucketing (v0.2)
@@ -126,6 +159,10 @@ __all__ = [
     # Serving
     "run_forecast",
     "package_run",
+    "save_run_artifact",
+    "load_run_artifact",
+    "validate_run_artifact_for_serving",
+    "replay_forecast_from_artifact",
     "MonitoringConfig",
     # Structured Logging (v1.0)
     "log_event",

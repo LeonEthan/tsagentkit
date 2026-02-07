@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 import pytest
 
 from tsagentkit.contracts import TaskSpec
 from tsagentkit.models.adapters import AdapterConfig
 from tsagentkit.series import TSDataset
+
+pytestmark = [
+    pytest.mark.tsfm,
+    pytest.mark.skipif(
+        os.getenv("TSFM_RUN_REAL") != "1",
+        reason="Set TSFM_RUN_REAL=1 to run real adapter runtime tests.",
+    ),
+]
 
 
 def _make_dataset(freq: str = "D", periods: int = 32) -> TSDataset:
@@ -20,7 +30,6 @@ def _make_dataset(freq: str = "D", periods: int = 32) -> TSDataset:
     return TSDataset.from_dataframe(df, spec)
 
 
-@pytest.mark.tsfm
 def test_chronos2_smoke() -> None:
     from tsagentkit.models.adapters.chronos import ChronosAdapter
 
@@ -39,7 +48,6 @@ def test_chronos2_smoke() -> None:
     assert "yhat" in result.df.columns
 
 
-@pytest.mark.tsfm
 def test_timesfm25_smoke() -> None:
     from tsagentkit.models.adapters.timesfm import TimesFMAdapter
 
@@ -57,7 +65,6 @@ def test_timesfm25_smoke() -> None:
     assert "yhat" in result.df.columns
 
 
-@pytest.mark.tsfm
 def test_moirai11_smoke() -> None:
     from tsagentkit.models.adapters.moirai import MoiraiAdapter
 

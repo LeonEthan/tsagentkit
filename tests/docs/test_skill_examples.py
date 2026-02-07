@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
 
-from tsagentkit import TaskSpec, make_plan, run_forecast
-from tsagentkit.contracts import ModelArtifact
+from tsagentkit import (
+    TaskSpec,
+    align_covariates,
+    build_dataset,
+    make_plan,
+    package_run,
+    run_qa,
+    run_forecast,
+    validate_contract,
+)
+from tsagentkit.contracts import ForecastResult, ModelArtifact, Provenance
 from tsagentkit.series import TSDataset
 
 
@@ -41,6 +51,7 @@ def _predict_stub(dataset: TSDataset, artifact: ModelArtifact, spec: TaskSpec) -
                 {
                     "unique_id": uid,
                     "ds": last_date + h * step,
+                    "model": artifact.model_name,
                     "yhat": 1.0,
                 }
             )
@@ -48,18 +59,58 @@ def _predict_stub(dataset: TSDataset, artifact: ModelArtifact, spec: TaskSpec) -
 
 
 def test_skill_docs_taskspec_quantiles_alias() -> None:
-    spec = TaskSpec(h=7, freq="D", quantiles=[0.1, 0.5, 0.9])
+    spec = TaskSpec(
+        h=7,
+        freq="D",
+        quantiles=[0.1, 0.5, 0.9],
+        tsfm_policy={"mode": "preferred"},
+    )
     assert spec.quantiles == [0.1, 0.5, 0.9]
 
 
-def test_skill_docs_make_plan_and_result_accessors() -> None:
+def test_skill_docs_assembly_first_and_wrapper_accessors() -> None:
     df = _make_panel()
-    spec = TaskSpec(h=7, freq="D")
-    dataset = TSDataset.from_dataframe(df, spec)
+    spec = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "preferred"})
+    validation = validate_contract(df)
+    validation.raise_if_errors()
+    qa_report = run_qa(df, spec, mode="quick")
+    aligned = align_covariates(df, spec)
+    dataset = build_dataset(aligned.panel, spec, validate=False).with_covariates(
+        aligned,
+        panel_with_covariates=df,
+    )
 
     plan, route_decision = make_plan(dataset, spec, use_tsfm=False)
     assert len(plan.candidate_models) > 0
     assert isinstance(route_decision.reasons, list)
+
+    model_artifact = _fit_stub(dataset, plan)
+    forecast = ForecastResult(
+        df=_predict_stub(dataset, model_artifact, spec),
+        provenance=Provenance(
+            run_id="skill-assembly-smoke",
+            timestamp=datetime.now(UTC).isoformat(),
+            data_signature="data_sig",
+            task_signature="task_sig",
+            plan_signature="plan_sig",
+            model_signature=model_artifact.signature,
+        ),
+        model_name=model_artifact.model_name,
+        horizon=spec.horizon,
+    )
+    assembled = package_run(
+        forecast=forecast,
+        plan=plan,
+        task_spec=spec.model_dump(),
+        qa_report=qa_report,
+        model_artifact=model_artifact,
+        provenance=forecast.provenance,
+        metadata={"route_decision": route_decision.model_dump()},
+    )
+
+    assert not assembled.forecast.df.empty
+    assert isinstance(assembled.forecast.model_name, str)
+    assert isinstance(assembled.provenance.data_signature, str)
 
     result = run_forecast(
         df,
@@ -98,3 +149,12 @@ def test_skill_docs_do_not_use_stale_patterns() -> None:
     ]
     for pattern in forbidden:
         assert pattern not in text
+
+
+def test_skill_docs_assembly_first_headings_present() -> None:
+    readme = (_repo_root() / "skill" / "README.md").read_text(encoding="utf-8")
+    assert "Pattern 1: Assembly-First Pipeline (Recommended)" in readme
+    assert "Pattern 2: Quick Forecast Wrapper (Convenience)" in readme
+    assert readme.index("Pattern 1: Assembly-First Pipeline (Recommended)") < readme.index(
+        "Pattern 2: Quick Forecast Wrapper (Convenience)"
+    )

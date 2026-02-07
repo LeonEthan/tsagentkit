@@ -26,6 +26,19 @@ IntervalMode = Literal["level", "quantiles"]
 AnomalyMethod = Literal["interval_breach", "conformal", "mad_residual"]
 SeasonalityMethod = Literal["acf", "stl", "periodogram"]
 CovariatePolicy = Literal["ignore", "known", "observed", "auto", "spec"]
+TSFMMode = Literal["preferred", "required", "disabled"]
+PlanNodeKind = Literal[
+    "validate",
+    "qa",
+    "align_covariates",
+    "build_dataset",
+    "make_plan",
+    "backtest",
+    "fit",
+    "predict",
+    "package",
+    "custom",
+]
 
 
 # ---------------------------
@@ -55,6 +68,24 @@ class CovariateSpec(BaseSpec):
     missing_policy: MissingPolicy = "error"
 
 
+class TSFMPolicy(BaseSpec):
+    """Policy controlling TSFM availability requirements for routing."""
+
+    mode: TSFMMode = "required"
+    adapters: list[str] = Field(
+        default_factory=lambda: ["chronos", "moirai", "timesfm"]
+    )
+    allow_non_tsfm_fallback: bool | None = None
+
+    @model_validator(mode="after")
+    def _normalize_defaults(self) -> TSFMPolicy:
+        if not self.adapters:
+            raise ValueError("tsfm_policy.adapters must include at least one adapter.")
+        if self.allow_non_tsfm_fallback is None:
+            object.__setattr__(self, "allow_non_tsfm_fallback", self.mode != "required")
+        return self
+
+
 # ---------------------------
 # Task / execution specs
 # ---------------------------
@@ -82,6 +113,7 @@ class TaskSpec(BaseSpec):
     # Covariates
     covariates: CovariateSpec | None = None
     covariate_policy: CovariatePolicy = "auto"
+    tsfm_policy: TSFMPolicy = Field(default_factory=TSFMPolicy)
 
     # Backtest defaults (can be overridden by the caller)
     backtest: BacktestSpec = Field(default_factory=BacktestSpec)
@@ -93,6 +125,35 @@ class TaskSpec(BaseSpec):
             return data
 
         payload = dict(data)
+
+        # Backward-compat aliases for TSFM policy
+        if "tsfm" in payload and "tsfm_policy" not in payload:
+            payload["tsfm_policy"] = payload.pop("tsfm")
+
+        tsfm_policy = payload.get("tsfm_policy")
+        if isinstance(tsfm_policy, TSFMPolicy):
+            tsfm_policy = tsfm_policy.model_dump()
+
+        if "require_tsfm" in payload:
+            require_tsfm = bool(payload.pop("require_tsfm"))
+            if not isinstance(tsfm_policy, dict):
+                tsfm_policy = {}
+            tsfm_policy = dict(tsfm_policy)
+            tsfm_policy["mode"] = "required" if require_tsfm else tsfm_policy.get(
+                "mode",
+                "preferred",
+            )
+
+        if "tsfm_preference" in payload:
+            preference = payload.pop("tsfm_preference")
+            if not isinstance(tsfm_policy, dict):
+                tsfm_policy = {}
+            tsfm_policy = dict(tsfm_policy)
+            if "adapters" not in tsfm_policy:
+                tsfm_policy["adapters"] = preference
+
+        if tsfm_policy is not None:
+            payload["tsfm_policy"] = tsfm_policy
 
         # Backward-compat aliases
         if "horizon" in payload and "h" not in payload:
@@ -193,6 +254,51 @@ class RouterThresholds(BaseSpec):
     max_points_per_series_for_tsfm: int = Field(5000, gt=0)
 
 
+class PlanNodeSpec(BaseSpec):
+    node_id: str
+    kind: PlanNodeKind
+    depends_on: list[str] = Field(default_factory=list)
+    model_name: str | None = None
+    group: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlanGraphSpec(BaseSpec):
+    plan_name: str
+    nodes: list[PlanNodeSpec] = Field(..., min_length=1)
+    entrypoints: list[str] = Field(default_factory=list)
+    terminal_nodes: list[str] = Field(default_factory=list)
+    version: int = 1
+
+    @model_validator(mode="after")
+    def _validate_graph(self) -> PlanGraphSpec:
+        node_ids = {node.node_id for node in self.nodes}
+
+        if not self.entrypoints:
+            inferred = [node.node_id for node in self.nodes if not node.depends_on]
+            object.__setattr__(self, "entrypoints", inferred)
+
+        if not self.terminal_nodes:
+            dependent_nodes = {dep for node in self.nodes for dep in node.depends_on}
+            inferred = [node.node_id for node in self.nodes if node.node_id not in dependent_nodes]
+            object.__setattr__(self, "terminal_nodes", inferred)
+
+        missing_entrypoints = [node_id for node_id in self.entrypoints if node_id not in node_ids]
+        missing_terminals = [node_id for node_id in self.terminal_nodes if node_id not in node_ids]
+        if missing_entrypoints or missing_terminals:
+            raise ValueError(
+                "PlanGraph references unknown nodes.",
+            )
+
+        for node in self.nodes:
+            missing_deps = [dep for dep in node.depends_on if dep not in node_ids]
+            if missing_deps:
+                raise ValueError(
+                    f"PlanNode '{node.node_id}' depends on unknown nodes: {missing_deps}",
+                )
+        return self
+
+
 class PlanSpec(BaseSpec):
     plan_name: str
     candidate_models: list[str] = Field(..., min_length=1)
@@ -214,6 +320,23 @@ class PlanSpec(BaseSpec):
     # Fallback policy
     allow_drop_covariates: bool = True
     allow_baseline: bool = True
+    graph: PlanGraphSpec | None = None
+
+
+class AdapterCapabilitySpec(BaseSpec):
+    adapter_name: str
+    provider: str | None = None
+    available: bool | None = None
+    availability_reason: str | None = None
+    is_zero_shot: bool = True
+    supports_quantiles: bool = True
+    supports_past_covariates: bool = False
+    supports_future_covariates: bool = False
+    supports_static_covariates: bool = False
+    max_context_length: int | None = None
+    max_horizon: int | None = None
+    dependencies: list[str] = Field(default_factory=list)
+    notes: str | None = None
 
 
 class RouteDecision(BaseSpec):
@@ -283,6 +406,10 @@ __all__ = [
     "BacktestSpec",
     "BaseSpec",
     "CalibratorSpec",
+    "PlanNodeKind",
+    "PlanNodeSpec",
+    "PlanGraphSpec",
+    "AdapterCapabilitySpec",
     "CovariatePolicy",
     "CovariateRole",
     "CovariateSpec",
@@ -296,5 +423,7 @@ __all__ = [
     "RouterThresholds",
     "RunArtifactSpec",
     "SeasonalityMethod",
+    "TSFMMode",
+    "TSFMPolicy",
     "TaskSpec",
 ]

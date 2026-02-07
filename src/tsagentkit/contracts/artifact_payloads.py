@@ -10,9 +10,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .errors import EArtifactSchemaIncompatible
 
 class _PayloadModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+RUN_ARTIFACT_TYPE = "tsagentkit.run_artifact"
+RUN_ARTIFACT_SCHEMA_VERSION = 1
+SUPPORTED_RUN_ARTIFACT_SCHEMA_VERSIONS = frozenset({RUN_ARTIFACT_SCHEMA_VERSION})
 
 
 class CalibrationArtifactPayload(_PayloadModel):
@@ -38,6 +44,10 @@ class AnomalyReportPayload(_PayloadModel):
 class RunArtifactPayload(_PayloadModel):
     """Serializable payload for run artifacts."""
 
+    artifact_type: Literal["tsagentkit.run_artifact"] = RUN_ARTIFACT_TYPE
+    artifact_schema_version: int = Field(RUN_ARTIFACT_SCHEMA_VERSION, ge=1)
+    tsagentkit_version: str | None = None
+    lifecycle_stage: Literal["train", "serve", "train_serve"] = "train_serve"
     forecast: dict[str, Any] | None = None
     plan: dict[str, Any] | None = None
     task_spec: dict[str, Any] | None = None
@@ -152,7 +162,44 @@ def run_artifact_payload_from_dict(data: dict[str, Any]) -> RunArtifactPayload:
     return RunArtifactPayload.model_validate(normalized)
 
 
+def validate_run_artifact_compatibility(
+    data: dict[str, Any],
+    *,
+    supported_schema_versions: set[int] | None = None,
+    expected_artifact_type: str = RUN_ARTIFACT_TYPE,
+) -> RunArtifactPayload:
+    """Validate schema/type compatibility for serialized run artifacts."""
+    payload = run_artifact_payload_from_dict(data)
+
+    supported = (
+        supported_schema_versions
+        if supported_schema_versions is not None
+        else set(SUPPORTED_RUN_ARTIFACT_SCHEMA_VERSIONS)
+    )
+    if payload.artifact_schema_version not in supported:
+        raise EArtifactSchemaIncompatible(
+            "RunArtifact schema version is not supported.",
+            context={
+                "artifact_schema_version": payload.artifact_schema_version,
+                "supported_schema_versions": sorted(supported),
+            },
+        )
+    if payload.artifact_type != expected_artifact_type:
+        raise EArtifactSchemaIncompatible(
+            "RunArtifact type is incompatible.",
+            context={
+                "artifact_type": payload.artifact_type,
+                "expected_artifact_type": expected_artifact_type,
+            },
+        )
+
+    return payload
+
+
 __all__ = [
+    "RUN_ARTIFACT_TYPE",
+    "RUN_ARTIFACT_SCHEMA_VERSION",
+    "SUPPORTED_RUN_ARTIFACT_SCHEMA_VERSIONS",
     "CalibrationArtifactPayload",
     "AnomalyReportPayload",
     "RunArtifactPayload",
@@ -161,4 +208,5 @@ __all__ = [
     "calibration_payload_dict",
     "anomaly_payload_dict",
     "run_artifact_payload_from_dict",
+    "validate_run_artifact_compatibility",
 ]

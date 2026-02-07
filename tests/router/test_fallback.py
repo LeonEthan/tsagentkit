@@ -57,6 +57,17 @@ class TestExecuteWithFallback:
         assert callback_calls[0][0] == "ModelA"
         assert callback_calls[0][1] == "ModelB"
 
+    def test_non_fallback_error_raises_immediately(self) -> None:
+        plan = PlanSpec(plan_name="default", candidate_models=["ModelA", "ModelB"])
+
+        def fit_func(model: str, dataset: str) -> str:
+            if model == "ModelA":
+                raise RuntimeError("unexpected crash")
+            return "success"
+
+        with pytest.raises(RuntimeError, match="unexpected crash"):
+            execute_with_fallback(fit_func, "dataset", plan)
+
 
 class TestFallbackLadder:
     def test_standard_ladder(self) -> None:

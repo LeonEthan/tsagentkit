@@ -1,269 +1,151 @@
 # tsagentkit Skill Documentation
 
-> **For AI Agents**: Guide to using tsagentkit for time-series forecasting tasks.
+## What
+Agent-facing guide for building production time-series forecasting systems with `tsagentkit`.
+This skill is assembly-first and TSFM-first: coding agents should compose explicit steps,
+while `run_forecast` remains a convenience wrapper.
 
-## Overview
+## When
+Use this guide when an agent needs to:
+- validate and repair panel data,
+- route to TSFM/baseline candidates deterministically,
+- assemble forecasting steps with explicit artifacts,
+- persist and replay production artifacts safely.
 
-`tsagentkit` is a robust execution engine for time-series forecasting. It enforces proper time-series practices and provides guardrails to prevent common mistakes like data leakage and random train/test splits.
+## Inputs
+- `data`: pandas DataFrame with `unique_id`, `ds`, `y`
+- `task_spec`: `TaskSpec`
+- Optional: covariates, hierarchy, monitoring config
+- Optional: custom `fit_func` and `predict_func`
 
-## Quick Start
+## Workflow
+1. `validate_contract`
+2. `run_qa`
+3. `align_covariates`
+4. `build_dataset`
+5. `make_plan`
+6. `fit` and `predict`
+7. `package_run`
+8. Optional lifecycle: `save_run_artifact` -> `load_run_artifact` -> `validate_run_artifact_for_serving` -> `replay_forecast_from_artifact`
 
+---
+
+## Core Principles
+- Assembly-first by default. Prefer explicit step composition over monolithic wrappers.
+- TSFM-first routing. Chronos/Moirai/TimesFM are first-class and policy-driven.
+- Deterministic provenance. Keep signatures, decisions, and fallback events auditable.
+- Guardrails always on. Never use random splits or future leakage.
+
+## Guardrails
+- `E_SPLIT_RANDOM_FORBIDDEN`: never randomize temporal order.
+- `E_DS_NOT_MONOTONIC`: sort by `unique_id`, `ds` before processing.
+- `E_COVARIATE_LEAKAGE`: do not feed future-observed covariates.
+- `E_MODEL_FIT_FAIL` / `E_MODEL_PREDICT_FAIL`: model execution failure.
+- `E_FALLBACK_EXHAUSTED`: all fallback candidates failed.
+- `E_ARTIFACT_SCHEMA_INCOMPATIBLE`: artifact schema/type mismatch at load/serve boundary.
+- `E_ARTIFACT_LOAD_FAILED`: artifact payload cannot be safely reconstructed.
+
+## Module Map
+- `contracts`: task specs, payload contracts, structured errors
+- `series`: immutable `TSDataset`, sparsity profiling
+- `qa`: quality checks and optional repairs
+- `router`: deterministic candidate selection and fallback policy
+- `models`: `fit`/`predict`, TSFM adapter capability APIs
+- `backtest`: rolling temporal validation
+- `serving`: packaging + lifecycle save/load/validate/replay
+
+## Pattern 1: Assembly-First Pipeline (Recommended)
 ```python
-import pandas as pd
-from tsagentkit import TaskSpec, run_forecast
+from tsagentkit import (
+    TaskSpec,
+    align_covariates,
+    build_dataset,
+    fit,
+    make_plan,
+    package_run,
+    predict,
+    run_qa,
+    validate_contract,
+)
 
-# Prepare your data
-df = pd.DataFrame({
-    "unique_id": ["A", "A", "A", "B", "B", "B"],
-    "ds": pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"] * 2),
-    "y": [10.0, 20.0, 30.0, 15.0, 25.0, 35.0],
-})
-
-# Define the task
 spec = TaskSpec(h=7, freq="D")
-
-# Run forecast
-result = run_forecast(df, spec)
-print(result.forecast.df.head())
-```
-
-## Core Workflow
-
-```
-validate -> QA -> series -> route -> backtest -> fit -> predict -> package
-```
-
-## Module Guide
-
-### 1. Contracts (`tsagentkit.contracts`)
-
-**What**: Data validation and task specifications.
-
-**When to use**: Always start here to validate input data.
-
-**Key Functions**:
-
-| Function | Purpose | Inputs | Output |
-|----------|---------|--------|--------|
-| `validate_contract(data)` | Validate data schema | DataFrame with unique_id, ds, y | ValidationReport |
-| `TaskSpec(...)` | Define forecasting task | h, freq, quantiles, etc. | TaskSpec |
-
-**Example**:
-```python
-from tsagentkit import validate_contract, TaskSpec
-
-# Validate first
 report = validate_contract(df)
-if not report.valid:
-    report.raise_if_errors()
-
-# Then create task spec
-spec = TaskSpec(
-    h=14,
-    freq="D",
-    quantiles=[0.1, 0.5, 0.9],
+report.raise_if_errors()
+qa_report = run_qa(df, spec, mode="standard")
+aligned = align_covariates(df, spec)
+dataset = build_dataset(aligned.panel, spec, validate=False).with_covariates(
+    aligned,
+    panel_with_covariates=df,
+)
+plan, route_decision = make_plan(dataset, spec)
+model_artifact = fit(dataset, plan, covariates=aligned)
+forecast = predict(dataset, model_artifact, spec, covariates=aligned)
+run_artifact = package_run(
+    forecast=forecast,
+    plan=plan,
+    task_spec=spec.model_dump(),
+    qa_report=qa_report,
+    model_artifact=model_artifact,
+    provenance=forecast.provenance,
+    metadata={"route_decision": route_decision.model_dump()},
 )
 ```
 
-### 2. Series (`tsagentkit.series`)
-
-**What**: Time series data structures and operations.
-
-**When to use**: When you need to work with time series datasets directly.
-
-**Key Classes/Functions**:
-
-| Function | Purpose | Inputs | Output |
-|----------|---------|--------|--------|
-| `TSDataset.from_dataframe(df, spec)` | Create dataset | DataFrame, TaskSpec | TSDataset |
-| `build_dataset(df, spec)` | Convenience wrapper | DataFrame, TaskSpec | TSDataset |
-
-**Example**:
+## Pattern 2: Quick Forecast Wrapper (Convenience)
 ```python
-from tsagentkit.series import TSDataset
+from tsagentkit import TaskSpec, run_forecast
 
-dataset = TSDataset.from_dataframe(df, spec)
-print(f"Series: {dataset.n_series}, Observations: {dataset.n_observations}")
-```
-
-### 3. QA (`tsagentkit.qa`)
-
-**What**: Data quality checks and leakage detection.
-
-**When to use**: Before modeling to check for issues.
-
-**Key Functions**:
-
-| Function | Purpose | Inputs | Output |
-|----------|---------|--------|--------|
-| `run_qa(data, spec, mode)` | Quality checks | DataFrame, TaskSpec, mode | QAReport |
-
-**Modes**:
-- `"quick"`: Basic checks
-- `"standard"`: Full checks with auto-repair
-- `"strict"`: Fail on any issue
-
-**Example**:
-```python
-from tsagentkit.qa import run_qa
-
-qa_report = run_qa(df, spec, mode="standard")
-if qa_report.leakage_detected:
-    print("Warning: Potential data leakage detected")
-```
-
-### 4. Router (`tsagentkit.router`)
-
-**What**: Model selection and fallback strategies.
-
-**When to use**: To get model recommendations or create execution plans.
-
-**Key Functions**:
-
-| Function | Purpose | Inputs | Output |
-|----------|---------|--------|--------|
-| `make_plan(dataset, spec)` | Create execution plan | TSDataset, TaskSpec | `(PlanSpec, RouteDecision)` |
-| `execute_with_fallback(fit_func, dataset, plan)` | Execute with fallback | fit function, dataset, plan | (result, model_name) |
-
-**Example**:
-```python
-from tsagentkit.router import make_plan
-
-plan, route_decision = make_plan(dataset, spec)
-print(f"Candidates: {plan.candidate_models}")
-print(f"Buckets: {route_decision.buckets}")
-```
-
-### 5. Models (`tsagentkit.models`)
-
-**What**: Model fitting and prediction.
-
-**When to use**: To fit models directly (usually handled by `run_forecast`).
-
-**Key Functions**:
-
-| Function | Purpose | Inputs | Output |
-|----------|---------|--------|--------|
-| `fit(dataset, plan)` | Fit model | TSDataset, PlanSpec | ModelArtifact |
-| `predict(dataset, artifact, spec)` | Generate forecast | TSDataset, ModelArtifact, TaskSpec | ForecastResult |
-
-**Example**:
-```python
-from tsagentkit.models import fit, predict
-
-artifact = fit(dataset, plan)
-forecast = predict(dataset, artifact, spec)
-```
-
-### 6. Backtest (`tsagentkit.backtest`)
-
-**What**: Rolling window backtesting with temporal integrity.
-
-**When to use**: To evaluate model performance without data leakage.
-
-**Key Functions**:
-
-| Function | Purpose | Inputs | Output |
-|----------|---------|--------|--------|
-| `rolling_backtest(dataset, spec, plan)` | Temporal cross-validation | TSDataset, TaskSpec, PlanSpec | BacktestReport |
-
-**Example**:
-```python
-from tsagentkit.backtest import rolling_backtest
-
-report = rolling_backtest(dataset, spec, plan, n_windows=5)
-print(f"WAPE: {report.aggregate_metrics['wape']:.2%}")
-```
-
-### 7. Serving (`tsagentkit.serving`)
-
-**What**: Complete forecasting pipeline orchestration.
-
-**When to use**: Use `run_forecast()` for the full workflow.
-
-**Key Functions**:
-
-| Function | Purpose | Inputs | Output |
-|----------|---------|--------|--------|
-| `run_forecast(data, spec, mode)` | Complete pipeline | DataFrame, TaskSpec, mode | RunArtifact |
-| `package_run(...)` | Package all outputs | forecast, plan, backtest, etc. | RunArtifact |
-
-**Example**:
-```python
-from tsagentkit import run_forecast
-
-result = run_forecast(df, spec, mode="standard")
-print(result.summary())
-```
-
-## Guardrails (Error Prevention)
-
-| Error Code | Meaning | How to Fix |
-|------------|---------|------------|
-| `E_CONTRACT_MISSING_COLUMN` | Missing required column | Add unique_id, ds, y columns |
-| `E_CONTRACT_DUPLICATE_KEY` | Duplicate (unique_id, ds) pairs | Remove duplicates |
-| `E_SPLIT_RANDOM_FORBIDDEN` | Data not sorted or random splits detected | Use `df.sort_values(['unique_id', 'ds'])` or use temporal splits only |
-| `E_COVARIATE_LEAKAGE` | Future covariates leaked | Mark covariates as known/observed correctly |
-| `E_MODEL_FIT_FAIL` | Model training failed | Check data quality or use fallback |
-| `E_FALLBACK_EXHAUSTED` | All models failed | Check data is valid for forecasting |
-| `E_DS_NOT_MONOTONIC` | Data is not sorted by time | Sort by `unique_id`, `ds` before forecasting |
-
-## Common Patterns
-
-### Pattern 1: Quick Forecast (No Backtest)
-```python
+spec = TaskSpec(h=7, freq="D")
 result = run_forecast(df, spec, mode="quick")
 forecast_df = result.forecast.df
 ```
 
-### Pattern 2: Full Pipeline with Metrics
+## Pattern 3: Agent Graph + TSFM Capability Gate
 ```python
-result = run_forecast(df, spec, mode="standard")
-print(f"Backtest WAPE: {result.backtest_report['aggregate_metrics']['wape']:.2%}")
-```
-
-### Pattern 3: Custom Model Integration
-```python
-def my_fit(dataset, plan):
-    # Your custom fitting logic
-    return ModelArtifact(model=my_model, model_name="Custom", config={})
-
-def my_predict(dataset, artifact, spec):
-    # Your custom prediction logic
-    return ForecastResult(df=forecast_df, provenance=prov, model_name="Custom", horizon=spec.horizon)
-
-result = run_forecast(df, spec, fit_func=my_fit, predict_func=my_predict)
-```
-
-### Pattern 4: Hierarchical Forecasting
-```python
-from tsagentkit.hierarchy import HierarchyStructure
-
-# Define hierarchy
-hierarchy = HierarchyStructure(
-    aggregation_graph={"Total": ["A", "B"]},
-    bottom_nodes=["A", "B"],
+from tsagentkit import (
+    TaskSpec,
+    attach_plan_graph,
+    build_dataset,
+    get_adapter_capability,
+    list_adapter_capabilities,
+    make_plan,
 )
 
-result = run_forecast(df, spec, hierarchy=hierarchy)
+spec = TaskSpec(h=14, freq="D", tsfm_policy={"mode": "required"})
+dataset = build_dataset(df, spec)
+plan, _decision = make_plan(dataset, spec)
+plan = attach_plan_graph(plan, include_backtest=True)
+
+capabilities = list_adapter_capabilities()
+chronos = get_adapter_capability("chronos")
+print(plan.graph.entrypoints, chronos.available)
 ```
 
-## Data Format Requirements
+## Pattern 4: Artifact Lifecycle (Phase 5)
+```python
+from tsagentkit import (
+    load_run_artifact,
+    replay_forecast_from_artifact,
+    save_run_artifact,
+    validate_run_artifact_for_serving,
+)
 
-Your input DataFrame **must** have these columns:
+save_run_artifact(run_artifact, "artifacts/run_artifact.json")
+loaded = load_run_artifact("artifacts/run_artifact.json")
+validate_run_artifact_for_serving(
+    loaded,
+    expected_task_signature=loaded.provenance.task_signature,
+    expected_plan_signature=loaded.provenance.plan_signature,
+)
+replayed = replay_forecast_from_artifact(loaded)
+```
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `unique_id` | string | Series identifier (e.g., "store_1", "product_A") |
-| `ds` | datetime | Timestamp of observation |
-| `y` | numeric | Target value to forecast |
-
-**Optional columns** (for covariates):
-- Known in advance: Can use in future periods (e.g., holidays, promotions)
-- Observed: Only known up to forecast time (e.g., temperature, stock price)
+## Data Requirements
+- Required columns: `unique_id`, `ds`, `y`
+- `ds` must be datetime-like and monotonic per series
+- duplicates on (`unique_id`, `ds`) are invalid
 
 ## Next Steps
-
-- See `recipes.md` for complete runnable examples
-- See `tool_map.md` for detailed function reference
-- Check the PRD at `docs/PRD.md` for technical specifications
+- Use `skill/recipes.md` for end-to-end templates.
+- Use `skill/tool_map.md` for task-to-API lookup.
+- Use `docs/API_STABILITY.md` for compatibility boundaries.

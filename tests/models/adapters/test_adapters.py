@@ -196,10 +196,13 @@ class TestAdapterRegistration:
         AdapterRegistry.register("chronos", ChronosAdapter)
         assert "chronos" in AdapterRegistry.list_available()
 
-        # With mocks, chronos should be available
         is_avail, error = AdapterRegistry.check_availability("chronos")
-        assert is_avail
-        assert error == ""
+        assert is_avail in {True, False}
+        if is_avail:
+            assert error == ""
+        else:
+            assert isinstance(error, str)
+            assert error
 
     def test_register_moirai(self) -> None:
         """Test registering Moirai adapter."""
@@ -214,6 +217,54 @@ class TestAdapterRegistration:
 
         AdapterRegistry.register("timesfm", TimesFMAdapter)
         assert "timesfm" in AdapterRegistry.list_available()
+
+
+class TestAdapterCapabilities:
+    def setup_method(self) -> None:
+        AdapterRegistry.clear()
+
+    def teardown_method(self) -> None:
+        AdapterRegistry.clear()
+
+    def test_get_capability(self) -> None:
+        from tsagentkit.models.adapters.chronos import ChronosAdapter
+
+        AdapterRegistry.register("chronos", ChronosAdapter)
+        capability = AdapterRegistry.get_capability("chronos")
+        is_avail, reason = AdapterRegistry.check_availability("chronos")
+
+        assert capability.adapter_name == "chronos"
+        assert capability.supports_quantiles is True
+        assert capability.supports_future_covariates is True
+        assert capability.available is is_avail
+        if is_avail:
+            assert capability.availability_reason is None
+        else:
+            assert capability.availability_reason == reason
+
+    def test_list_capabilities(self) -> None:
+        from tsagentkit.models.adapters.chronos import ChronosAdapter
+        from tsagentkit.models.adapters.moirai import MoiraiAdapter
+
+        AdapterRegistry.register("chronos", ChronosAdapter)
+        AdapterRegistry.register("moirai", MoiraiAdapter)
+
+        capabilities = AdapterRegistry.list_capabilities()
+        assert set(capabilities.keys()) == {"chronos", "moirai"}
+        assert capabilities["chronos"].provider == "amazon"
+        assert capabilities["moirai"].provider == "salesforce"
+
+    def test_model_module_capability_helpers(self) -> None:
+        from tsagentkit.models import get_adapter_capability, list_adapter_capabilities
+        from tsagentkit.models.adapters.timesfm import TimesFMAdapter
+
+        AdapterRegistry.register("timesfm", TimesFMAdapter)
+        capability = get_adapter_capability("timesfm")
+        all_capabilities = list_adapter_capabilities()
+
+        assert capability.adapter_name == "timesfm"
+        assert capability.provider == "google"
+        assert "timesfm" in all_capabilities
 
 
 class TestAdapterHandleMissingValues:

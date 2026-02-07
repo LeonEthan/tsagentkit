@@ -163,6 +163,32 @@ class AdapterRegistry:
         return available
 
     @classmethod
+    def get_capability(cls, name: str):
+        """Return adapter capability schema with runtime availability."""
+        from tsagentkit.contracts import AdapterCapabilitySpec
+
+        adapter_class = cls.get(name)
+        capability = adapter_class.capability(name)
+        if not isinstance(capability, AdapterCapabilitySpec):
+            raise TypeError(
+                f"Adapter '{name}' returned invalid capability type: {type(capability)!r}",
+            )
+
+        is_available, reason = cls.check_availability(name)
+        return capability.model_copy(
+            update={
+                "available": is_available,
+                "availability_reason": reason or None,
+            }
+        )
+
+    @classmethod
+    def list_capabilities(cls, names: list[str] | None = None) -> dict[str, AdapterCapabilitySpec]:
+        """Return capability schema for registered adapters."""
+        selected = names or cls.list_available()
+        return {name: cls.get_capability(name) for name in selected}
+
+    @classmethod
     def clear(cls) -> None:
         """Clear all registered adapters.
 
