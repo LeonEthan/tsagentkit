@@ -157,11 +157,11 @@ See [AGENTS.md](../AGENTS.md) for contribution guidelines.
 To validate dependency boundaries during refactors:
 
 ```bash
-uv run lint-imports --config importlinter.ini
+uv run lint-imports
 ```
 
 ## Support
 
 - GitHub Issues: Bug reports and feature requests
-- Recipes: Check `docs/recipes/` for common scenarios
+- Recipes: Check `skill/recipes.md` for common scenarios
 - API Docs: See module docstrings

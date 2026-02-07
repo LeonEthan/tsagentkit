@@ -122,16 +122,16 @@ if qa_report.leakage_detected:
 
 | Function | Purpose | Inputs | Output |
 |----------|---------|--------|--------|
-| `make_plan(dataset, spec)` | Create execution plan | TSDataset, TaskSpec | PlanSpec |
+| `make_plan(dataset, spec)` | Create execution plan | TSDataset, TaskSpec | `(PlanSpec, RouteDecision)` |
 | `execute_with_fallback(fit_func, dataset, plan)` | Execute with fallback | fit function, dataset, plan | (result, model_name) |
 
 **Example**:
 ```python
 from tsagentkit.router import make_plan
 
-plan = make_plan(dataset, spec)
-print(f"Primary: {plan.primary_model}")
-print(f"Fallbacks: {plan.fallback_chain}")
+plan, route_decision = make_plan(dataset, spec)
+print(f"Candidates: {plan.candidate_models}")
+print(f"Buckets: {route_decision.buckets}")
 ```
 
 ### 5. Models (`tsagentkit.models`)
@@ -204,10 +204,9 @@ print(result.summary())
 | `E_CONTRACT_DUPLICATE_KEY` | Duplicate (unique_id, ds) pairs | Remove duplicates |
 | `E_SPLIT_RANDOM_FORBIDDEN` | Data not sorted or random splits detected | Use `df.sort_values(['unique_id', 'ds'])` or use temporal splits only |
 | `E_COVARIATE_LEAKAGE` | Future covariates leaked | Mark covariates as known/observed correctly |
-| `E_MODEL_FIT_FAILED` | Model training failed | Check data quality or use fallback |
+| `E_MODEL_FIT_FAIL` | Model training failed | Check data quality or use fallback |
 | `E_FALLBACK_EXHAUSTED` | All models failed | Check data is valid for forecasting |
-
-> **Note**: `E_CONTRACT_UNSORTED` has been consolidated into `E_SPLIT_RANDOM_FORBIDDEN` as both indicate temporal ordering violations requiring the same fix (sort data by unique_id, ds).
+| `E_DS_NOT_MONOTONIC` | Data is not sorted by time | Sort by `unique_id`, `ds` before forecasting |
 
 ## Common Patterns
 

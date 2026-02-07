@@ -32,7 +32,7 @@ tsagentkit's temporal integrity and leakage prevention rules.
 |---|---|---|
 | No random splits | `E_SPLIT_RANDOM_FORBIDDEN` | Data must be sorted by (`unique_id`, `ds`) |
 | No covariate leakage | `E_COVARIATE_LEAKAGE` | Future covariates cannot be used |
-| Temporal ordering | `E_CONTRACT_UNSORTED` | Dates must increase within each series |
+| Temporal ordering | `E_DS_NOT_MONOTONIC` | Dates must increase within each series |
 
 ---
 
@@ -94,7 +94,7 @@ print(dataset.date_range)
 ```python
 from tsagentkit import make_plan
 
-plan = make_plan(dataset, spec)
+plan, route_decision = make_plan(dataset, spec)
 print(plan.candidate_models)
 ```
 

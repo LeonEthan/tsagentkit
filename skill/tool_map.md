@@ -194,10 +194,10 @@ spec = TaskSpec(
 | `EContractMissingColumn` | `E_CONTRACT_MISSING_COLUMN` | Missing required columns |
 | `EContractInvalidType` | `E_CONTRACT_INVALID_TYPE` | Wrong column types |
 | `EContractDuplicateKey` | `E_CONTRACT_DUPLICATE_KEY` | Duplicate (unique_id, ds) pairs |
-| `EContractUnsorted` | `E_CONTRACT_UNSORTED` | Data not sorted |
+| `EContractUnsorted` | `E_DS_NOT_MONOTONIC` | Data not sorted |
 | `ESplitRandomForbidden` | `E_SPLIT_RANDOM_FORBIDDEN` | Random splits detected |
 | `ECovariateLeakage` | `E_COVARIATE_LEAKAGE` | Future covariate leakage |
-| `EModelFitFailed` | `E_MODEL_FIT_FAILED` | Model training failed |
+| `EModelFitFailed` | `E_MODEL_FIT_FAIL` | Model training failed |
 | `EFallbackExhausted` | `E_FALLBACK_EXHAUSTED` | All models failed |
 | `EQACriticalIssue` | `E_QA_CRITICAL_ISSUE` | Critical QA issues in strict mode |
 | `EBacktestInsufficientData` | `E_BACKTEST_INSUFFICIENT_DATA` | Not enough data for backtest |
@@ -306,7 +306,7 @@ Convenience function for `TSDataset.from_dataframe()`.
 
 ## Router
 
-### `make_plan(dataset, task_spec, qa=None, **kwargs) -> PlanSpec`
+### `make_plan(dataset, task_spec, qa=None, **kwargs) -> (PlanSpec, RouteDecision)`
 **Purpose**: Create deterministic plan for forecasting.
 
 **Parameters**:
@@ -318,7 +318,7 @@ Convenience function for `TSDataset.from_dataframe()`.
 | `use_tsfm` | bool | No | True | Whether to include TSFMs |
 | `tsfm_preference` | list[str] | No | ["chronos", "moirai", "timesfm"] | TSFM priority |
 
-**Returns**: `PlanSpec` with candidate models and policy settings.
+**Returns**: Tuple of `(PlanSpec, RouteDecision)` with candidate models and routing reasons.
 
 ---
 

@@ -120,6 +120,7 @@ print(artifact.forecast)
 
 ```python
 import numpy as np
+from tsagentkit import make_plan
 from tsagentkit.hierarchy import (
     HierarchyStructure,
     ReconciliationMethod,
@@ -141,7 +142,7 @@ hierarchy = HierarchyStructure(
 dataset = dataset.with_hierarchy(hierarchy)
 
 # Forecast with automatic reconciliation
-plan = make_plan(dataset, spec)
+plan, route_decision = make_plan(dataset, spec)
 ```
 
 ### Using TSFM Models
@@ -326,7 +327,7 @@ Contributions welcome! Please read [AGENTS.md](AGENTS.md) for coding guidelines.
 
 ## License
 
-MIT License - see LICENSE file for details.
+Apache-2.0 License - see LICENSE file for details.
 
 ## Acknowledgments
 

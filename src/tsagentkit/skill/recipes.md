@@ -66,14 +66,14 @@ result = run_forecast(df, spec, mode="quick")
 
 # Review results
 print("\n=== Forecast ===")
-print(result.forecast.head())
+print(result.forecast.df.head())
 
 print("\n=== Model Used ===")
-print(result.model_name)
+print(result.forecast.model_name)
 
 print("\n=== Provenance ===")
-print(f"Data signature: {result.provenance['data_signature']}")
-print(f"Timestamp: {result.provenance['timestamp']}")
+print(f"Data signature: {result.provenance.data_signature}")
+print(f"Timestamp: {result.provenance.timestamp}")
 
 print("\n=== Summary ===")
 print(result.summary())
@@ -87,7 +87,6 @@ print(result.summary())
 import pandas as pd
 import numpy as np
 from tsagentkit import TaskSpec, run_forecast, TSDataset
-from tsagentkit.series import compute_sparsity_profile
 
 # Generate hourly sensor data with gaps
 def generate_sensor_data(n_sensors=2, hours=168) -> pd.DataFrame:  # 1 week
@@ -186,7 +185,7 @@ print("\n=== Forecast ===")
 print(result.forecast)
 
 print("\n=== Model Selected ===")
-print(result.model_name)
+print(result.forecast.model_name)
 print("(Intermittent series use appropriate models)")
 ```
 
@@ -293,7 +292,7 @@ df = pd.DataFrame({
 # Create dataset and plan
 spec = TaskSpec(h=7, freq="D")
 dataset = TSDataset.from_dataframe(df, spec)
-plan = make_plan(dataset, spec)
+plan, _route_decision = make_plan(dataset, spec)
 
 # Run detailed backtest
 report = rolling_backtest(

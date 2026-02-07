@@ -26,6 +26,7 @@
 
 ```python
 import pandas as pd
+import numpy as np
 from tsagentkit import TaskSpec, run_forecast
 
 # Create sample retail data
@@ -220,7 +221,7 @@ for uid in dataset.series_ids:
     print(f"  {uid}: {zero_ratio:.1%} zeros -> {classification.value}")
 
 # Create plan (router detects intermittent automatically)
-plan = make_plan(dataset, spec)
+plan, _route_decision = make_plan(dataset, spec)
 from tsagentkit.router import compute_plan_signature
 print(f"\nPlan name: {plan.plan_name}")
 print(f"Candidates: {plan.candidate_models}")
@@ -390,7 +391,7 @@ for name in ["chronos", "moirai", "timesfm"]:
     print(f"  {name}: {status}")
 
 # Create plan with TSFM preference
-plan = make_plan(
+plan, route_decision = make_plan(
     dataset,
     spec,
     tsfm_preference=["chronos", "moirai", "timesfm"],
@@ -398,6 +399,7 @@ plan = make_plan(
 
 print(f"\nPlan created:")
 print(f"  Candidates: {plan.candidate_models[:5]}...")  # First 5
+print(f"  Buckets: {route_decision.buckets}")
 
 # Run forecast (will use TSFM if available, else fall back)
 result = run_forecast(df, spec)
@@ -577,7 +579,7 @@ df = pd.DataFrame({
 
 spec = TaskSpec(h=14, freq="D")
 dataset = TSDataset.from_dataframe(df, spec)
-plan = make_plan(dataset, spec)
+plan, _route_decision = make_plan(dataset, spec)
 
 # Run rolling backtest with expanding window
 print("Running expanding window backtest...")
@@ -746,4 +748,4 @@ print("\n=== All Examples Complete ===")
 - **API Reference**: See `tool_map.md` for complete function documentation
 - **Getting Started**: See `README.md` for basic concepts
 - **Technical Specs**: See `docs/PRD.md` for detailed requirements
-- **Troubleshooting**: See `docs/recipes/RECIPE_TROUBLESHOOTING.md` for common issues
+- **Troubleshooting**: Refer to the guardrail/error sections in `README.md` and `tool_map.md`
