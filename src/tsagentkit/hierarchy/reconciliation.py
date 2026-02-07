@@ -63,7 +63,13 @@ def _select_reconciler(
     middle_level: int | str | None = None,
     has_insample: bool = False,
 ) -> Any:
-    from hierarchicalforecast.methods import BottomUp, MiddleOut, MinTrace, TopDown
+    try:
+        from hierarchicalforecast.methods import BottomUp, MiddleOut, MinTrace, TopDown
+    except ImportError as e:
+        raise ImportError(
+            "hierarchicalforecast>=1.0.0 is required for reconciliation. "
+            "Install with: pip install 'tsagentkit[hierarchy]'"
+        ) from e
 
     if method == ReconciliationMethod.BOTTOM_UP:
         return BottomUp()
@@ -187,14 +193,18 @@ def reconcile_forecasts(
         df[ds_col] = pd.to_datetime(df[ds_col])
 
     value_cols = [
-        c
-        for c in df.columns
-        if c not in {id_col, ds_col} and pd.api.types.is_numeric_dtype(df[c])
+        c for c in df.columns if c not in {id_col, ds_col} and pd.api.types.is_numeric_dtype(df[c])
     ]
     if not value_cols:
         raise ValueError("No numeric forecast columns to reconcile.")
 
-    from hierarchicalforecast.core import HierarchicalReconciliation
+    try:
+        from hierarchicalforecast.core import HierarchicalReconciliation
+    except ImportError as e:
+        raise ImportError(
+            "hierarchicalforecast>=1.0.0 is required for reconciliation. "
+            "Install with: pip install 'tsagentkit[hierarchy]'"
+        ) from e
 
     tags = structure.to_tags()
     s_df = structure.to_s_df()

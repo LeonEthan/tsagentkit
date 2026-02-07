@@ -308,6 +308,39 @@ class RepairReport:
 
 
 @dataclass(frozen=True)
+class DryRunResult:
+    """Result of a dry-run forecast execution.
+
+    Returned when ``run_forecast(dry_run=True)`` is called.  Contains only
+    the lightweight planning artefacts without fitting or predicting.
+
+    Attributes:
+        validation: Validation report from the input data check.
+        qa_report: QA report (issues, repairs detected).
+        plan: Execution plan selected by the router.
+        route_decision: Routing decision details (buckets, reasons).
+        task_spec_used: The effective TaskSpec after normalisation
+            (e.g. inferred freq filled in).
+    """
+
+    validation: dict[str, Any]
+    qa_report: dict[str, Any]
+    plan: dict[str, Any]
+    route_decision: dict[str, Any]
+    task_spec_used: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "validation": self.validation,
+            "qa_report": self.qa_report,
+            "plan": self.plan,
+            "route_decision": self.route_decision,
+            "task_spec_used": self.task_spec_used,
+        }
+
+
+@dataclass(frozen=True)
 class RunArtifact:
     """Complete artifact from a forecasting run.
 
@@ -520,6 +553,7 @@ class RunArtifact:
 
 __all__ = [
     "CVFrame",
+    "DryRunResult",
     "ForecastFrame",
     "ForecastResult",
     "ModelArtifact",

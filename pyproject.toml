@@ -12,8 +12,10 @@ dependencies = [
     "scipy>=1.11.3,<1.12.0",
     "statsforecast>=1.7.0",
     "utilsforecast>=0.1.0",
-    "hierarchicalforecast>=1.0.0",
-    "tsfeatures>=0.4.5",
+]
+
+[project.optional-dependencies]
+tsfm = [
     "torch",
     "huggingface-hub",
     "chronos-forecasting>=2.0.0",
@@ -21,23 +23,24 @@ dependencies = [
     "tsagentkit-uni2ts",
     "gluonts",
 ]
-
-[project.optional-dependencies]
+hierarchy = [
+    "hierarchicalforecast>=1.0.0",
+]
+features = [
+    "tsfeatures>=0.4.5",
+    "tsfresh>=0.20.0",
+    "sktime>=0.24.0",
+]
+full = [
+    "tsagentkit[tsfm,hierarchy,features]",
+]
 dev = [
+    "tsagentkit[full]",
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "mypy>=1.0.0",
     "ruff>=0.1.0",
     "import-linter>=2.0.0",
-]
-models = [
-    "statsforecast>=1.7.0",
-    "utilsforecast>=0.1.0",
-    "scipy>=1.11.0",
-]
-features = [
-    "tsfresh>=0.20.0",
-    "sktime>=0.24.0",
 ]
 
 [build-system]
@@ -65,17 +68,35 @@ filterwarnings = [
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = false
+warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-check_untyped_defs = false
-warn_redundant_casts = false
-warn_unused_ignores = false
 show_error_codes = true
 ignore_missing_imports = true
-follow_imports = "skip"
-ignore_errors = true
+follow_imports = "normal"
+ignore_errors = false
+disallow_untyped_defs = false
+check_untyped_defs = false
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = false
+
+[[tool.mypy.overrides]]
+module = "tsagentkit.contracts.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "tsagentkit.time.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "tsagentkit.utils.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
 
 [tool.ruff]
 target-version = "py311"

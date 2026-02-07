@@ -122,8 +122,14 @@ class MoiraiAdapter(TSFMAdapter):
         if not self.is_loaded:
             self.load_model()
 
-        from gluonts.dataset.common import ListDataset
-        from uni2ts.model.moirai2 import Moirai2Forecast
+        try:
+            from gluonts.dataset.common import ListDataset
+            from uni2ts.model.moirai2 import Moirai2Forecast
+        except ImportError as e:
+            raise ImportError(
+                "gluonts and uni2ts>=2.0.0 are required for MoiraiAdapter. "
+                "Install with: pip install 'tsagentkit[tsfm]'"
+            ) from e
 
         from tsagentkit.contracts import ForecastResult
 
@@ -138,9 +144,7 @@ class MoiraiAdapter(TSFMAdapter):
             feat_dynamic_real_dim=0,
             past_feat_dynamic_real_dim=0,
         )
-        predictor = model.create_predictor(
-            batch_size=self.config.prediction_batch_size or 32
-        )
+        predictor = model.create_predictor(batch_size=self.config.prediction_batch_size or 32)
 
         entries = []
         meta = []
@@ -173,9 +177,7 @@ class MoiraiAdapter(TSFMAdapter):
             )
 
             point_forecast = (
-                forecast.quantile(0.5)
-                if quantiles and 0.5 in quantiles
-                else forecast.mean
+                forecast.quantile(0.5) if quantiles and 0.5 in quantiles else forecast.mean
             )
             point_forecast = np.asarray(point_forecast).flatten()
 
@@ -218,9 +220,9 @@ class MoiraiAdapter(TSFMAdapter):
         Returns:
             Context length (capped at model max)
         """
-        max_series_len = int(
-            dataset.df.groupby("unique_id").size().max()
-        ) if not dataset.df.empty else 0
+        max_series_len = (
+            int(dataset.df.groupby("unique_id").size().max()) if not dataset.df.empty else 0
+        )
 
         context_length = self.config.max_context_length or max_series_len
         context_length = max(context_length, horizon)

@@ -35,7 +35,7 @@ def infer_freq(
             context={"unique_id_count": int(panel[id_col].nunique())},
         )
 
-    return max(freq_counts, key=freq_counts.get)
+    return max(freq_counts, key=lambda k: freq_counts[k])
 
 
 _MONTH_END_RE = re.compile(r"^(?P<mult>\d+)?M$")

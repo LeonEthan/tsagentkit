@@ -3,7 +3,7 @@
 Provides batch inference orchestration and artifact packaging.
 """
 
-from tsagentkit.contracts import RunArtifact
+from tsagentkit.contracts import DryRunResult, RunArtifact
 
 from .lifecycle import (
     load_run_artifact,
@@ -27,6 +27,7 @@ __all__ = [
     # Orchestration
     "run_forecast",
     "MonitoringConfig",
+    "DryRunResult",
     # Packaging
     "package_run",
     "save_run_artifact",

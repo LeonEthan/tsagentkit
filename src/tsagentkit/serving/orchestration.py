@@ -45,7 +45,7 @@ from .packaging import package_run
 from .provenance import create_provenance, log_event
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import RunArtifact
+    from tsagentkit.contracts import DryRunResult, RunArtifact
     from tsagentkit.features import FeatureConfig, FeatureMatrix
     from tsagentkit.hierarchy import HierarchyStructure
 
@@ -91,7 +91,8 @@ def run_forecast(
     calibrator_spec: CalibratorSpec | None = None,
     anomaly_spec: AnomalySpec | None = None,
     reconciliation_method: str = "bottom_up",
-) -> RunArtifact:
+    dry_run: bool = False,
+) -> RunArtifact | DryRunResult:
     """Execute the complete forecasting pipeline.
 
     This is the main entry point for tsagentkit. It orchestrates the
@@ -118,9 +119,13 @@ def run_forecast(
         reconciliation_method: Reconciliation method for hierarchical forecasts.
             One of "bottom_up", "top_down", "middle_out", "ols", "wls",
             "min_trace". Defaults to "bottom_up".
+        dry_run: If True, execute only validate → QA → make_plan and
+            return a ``DryRunResult`` without fitting or predicting.
+            Defaults to False.
 
     Returns:
-        RunArtifact with forecast, metrics, and provenance
+        RunArtifact with forecast, metrics, and provenance; or
+        DryRunResult if ``dry_run=True``.
 
     Raises:
         EContractMissingColumn: If required columns missing
@@ -453,6 +458,25 @@ def run_forecast(
                 "type": "covariates_dropped",
                 "error": str(covariate_error),
             }
+        )
+
+    # --- Dry run: return early with planning artefacts only ---
+    if dry_run:
+        from tsagentkit.contracts.results import DryRunResult
+
+        qa_dict: dict[str, Any] = {
+            "issues": list(qa_report.issues),
+            "repairs": [r.to_dict() if hasattr(r, "to_dict") else r for r in qa_report.repairs],
+            "leakage_detected": qa_report.leakage_detected,
+        }
+        return DryRunResult(
+            validation=validation.to_dict(),
+            qa_report=qa_dict,
+            plan=plan.model_dump() if hasattr(plan, "model_dump") else {"plan": str(plan)},
+            route_decision=route_decision.model_dump()
+            if hasattr(route_decision, "model_dump")
+            else {"route_decision": str(route_decision)},
+            task_spec_used=task_spec.model_dump() if hasattr(task_spec, "model_dump") else {},
         )
 
     # Step 5: Backtest (if standard or strict mode)

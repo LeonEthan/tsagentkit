@@ -117,7 +117,7 @@ class TaskSpec(BaseSpec):
     tsfm_policy: TSFMPolicy = Field(default_factory=TSFMPolicy)
 
     # Backtest defaults (can be overridden by the caller)
-    backtest: BacktestSpec = Field(default_factory=BacktestSpec)
+    backtest: BacktestSpec = Field(default_factory=lambda: BacktestSpec())
 
     @model_validator(mode="before")
     @classmethod
@@ -236,6 +236,44 @@ class TaskSpec(BaseSpec):
         data = self.model_dump(exclude_none=True)
         json_str = json.dumps(data, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(json_str.encode()).hexdigest()[:16]
+
+    @classmethod
+    def starter(cls, h: int, freq: str = "D") -> TaskSpec:
+        """Minimal preset for quick experimentation.
+
+        Uses ``tsfm_policy.mode='preferred'`` (falls back to statistical
+        baselines when TSFM adapters are unavailable) and a small backtest
+        with 2 windows.
+
+        Args:
+            h: Forecast horizon.
+            freq: Time-series frequency (pandas offset alias).
+
+        Returns:
+            A TaskSpec configured for low-friction usage.
+        """
+        return cls(
+            h=h,
+            freq=freq,
+            tsfm_policy=TSFMPolicy(mode="preferred"),
+            backtest=BacktestSpec(n_windows=2),
+        )
+
+    @classmethod
+    def production(cls, h: int, freq: str = "D") -> TaskSpec:
+        """Production preset with full backtest and strict TSFM policy.
+
+        Uses the library defaults: ``tsfm_policy.mode='required'`` and
+        5-window backtest.
+
+        Args:
+            h: Forecast horizon.
+            freq: Time-series frequency (pandas offset alias).
+
+        Returns:
+            A TaskSpec configured for production use.
+        """
+        return cls(h=h, freq=freq)
 
 
 # ---------------------------
@@ -369,7 +407,7 @@ class RouteDecision(BaseSpec):
 
 
 class RouterConfig(BaseSpec):
-    thresholds: RouterThresholds = Field(default_factory=RouterThresholds)
+    thresholds: RouterThresholds = Field(default_factory=lambda: RouterThresholds())
 
     # Mapping bucket -> plan template name, resolved by registry
     bucket_to_plan: dict[str, str] = Field(default_factory=dict)
