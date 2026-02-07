@@ -3615,50 +3615,71 @@ wheels = [
 
 [[package]]
 name = "tsagentkit"
-version = "1.1.0"
+version = "1.1.1"
 source = { editable = "." }
 dependencies = [
-    { name = "chronos-forecasting" },
-    { name = "gluonts" },
-    { name = "hierarchicalforecast" },
-    { name = "huggingface-hub" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "pydantic" },
     { name = "scipy" },
     { name = "statsforecast" },
-    { name = "torch" },
-    { name = "tsagentkit-timesfm" },
-    { name = "tsagentkit-uni2ts" },
-    { name = "tsfeatures" },
     { name = "typing-extensions" },
     { name = "utilsforecast" },
 ]
 
 [package.optional-dependencies]
 dev = [
+    { name = "chronos-forecasting" },
+    { name = "gluonts" },
+    { name = "hierarchicalforecast" },
+    { name = "huggingface-hub" },
     { name = "import-linter" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "sktime" },
+    { name = "torch" },
+    { name = "tsagentkit-timesfm" },
+    { name = "tsagentkit-uni2ts" },
+    { name = "tsfeatures" },
+    { name = "tsfresh" },
 ]
 features = [
     { name = "sktime" },
+    { name = "tsfeatures" },
     { name = "tsfresh" },
 ]
-models = [
-    { name = "scipy" },
-    { name = "statsforecast" },
-    { name = "utilsforecast" },
+full = [
+    { name = "chronos-forecasting" },
+    { name = "gluonts" },
+    { name = "hierarchicalforecast" },
+    { name = "huggingface-hub" },
+    { name = "sktime" },
+    { name = "torch" },
+    { name = "tsagentkit-timesfm" },
+    { name = "tsagentkit-uni2ts" },
+    { name = "tsfeatures" },
+    { name = "tsfresh" },
+]
+hierarchy = [
+    { name = "hierarchicalforecast" },
+]
+tsfm = [
+    { name = "chronos-forecasting" },
+    { name = "gluonts" },
+    { name = "huggingface-hub" },
+    { name = "torch" },
+    { name = "tsagentkit-timesfm" },
+    { name = "tsagentkit-uni2ts" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "chronos-forecasting", specifier = ">=2.0.0" },
-    { name = "gluonts" },
-    { name = "hierarchicalforecast", specifier = ">=1.0.0" },
-    { name = "huggingface-hub" },
+    { name = "chronos-forecasting", marker = "extra == 'tsfm'", specifier = ">=2.0.0" },
+    { name = "gluonts", marker = "extra == 'tsfm'" },
+    { name = "hierarchicalforecast", marker = "extra == 'hierarchy'", specifier = ">=1.0.0" },
+    { name = "huggingface-hub", marker = "extra == 'tsfm'" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=1.24.0" },
@@ -3668,20 +3689,19 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "scipy", specifier = ">=1.11.3,<1.12.0" },
-    { name = "scipy", marker = "extra == 'models'", specifier = ">=1.11.0" },
     { name = "sktime", marker = "extra == 'features'", specifier = ">=0.24.0" },
     { name = "statsforecast", specifier = ">=1.7.0" },
-    { name = "statsforecast", marker = "extra == 'models'", specifier = ">=1.7.0" },
-    { name = "torch" },
-    { name = "tsagentkit-timesfm" },
-    { name = "tsagentkit-uni2ts" },
-    { name = "tsfeatures", specifier = ">=0.4.5" },
+    { name = "torch", marker = "extra == 'tsfm'" },
+    { name = "tsagentkit", extras = ["full"], marker = "extra == 'dev'" },
+    { name = "tsagentkit", extras = ["tsfm", "hierarchy", "features"], marker = "extra == 'full'" },
+    { name = "tsagentkit-timesfm", marker = "extra == 'tsfm'" },
+    { name = "tsagentkit-uni2ts", marker = "extra == 'tsfm'" },
+    { name = "tsfeatures", marker = "extra == 'features'", specifier = ">=0.4.5" },
     { name = "tsfresh", marker = "extra == 'features'", specifier = ">=0.20.0" },
     { name = "typing-extensions", specifier = ">=4.0.0" },
     { name = "utilsforecast", specifier = ">=0.1.0" },
-    { name = "utilsforecast", marker = "extra == 'models'", specifier = ">=0.1.0" },
 ]
-provides-extras = ["dev", "models", "features"]
+provides-extras = ["tsfm", "hierarchy", "features", "full", "dev"]
 
 [[package]]
 name = "tsagentkit-timesfm"

@@ -15,6 +15,8 @@ def test_skill_docs_are_mirrored_in_package_tree() -> None:
         ("skill/README.md", "src/tsagentkit/skill/README.md"),
         ("skill/recipes.md", "src/tsagentkit/skill/recipes.md"),
         ("skill/tool_map.md", "src/tsagentkit/skill/tool_map.md"),
+        ("skill/QUICKSTART.md", "src/tsagentkit/skill/QUICKSTART.md"),
+        ("skill/TROUBLESHOOTING.md", "src/tsagentkit/skill/TROUBLESHOOTING.md"),
     ]
 
     for left, right in mirrored_pairs:

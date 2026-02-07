@@ -45,7 +45,7 @@ from .packaging import package_run
 from .provenance import create_provenance, log_event
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import RunArtifact
+    from tsagentkit.contracts import DryRunResult, RunArtifact
     from tsagentkit.features import FeatureConfig, FeatureMatrix
     from tsagentkit.hierarchy import HierarchyStructure
 
@@ -90,7 +90,9 @@ def run_forecast(
     feature_config: FeatureConfig | None = None,
     calibrator_spec: CalibratorSpec | None = None,
     anomaly_spec: AnomalySpec | None = None,
-) -> RunArtifact:
+    reconciliation_method: str = "bottom_up",
+    dry_run: bool = False,
+) -> RunArtifact | DryRunResult:
     """Execute the complete forecasting pipeline.
 
     This is the main entry point for tsagentkit. It orchestrates the
@@ -114,9 +116,16 @@ def run_forecast(
         feature_config: Optional feature configuration for feature engineering (v1.0)
         calibrator_spec: Optional calibration specification
         anomaly_spec: Optional anomaly detection specification
+        reconciliation_method: Reconciliation method for hierarchical forecasts.
+            One of "bottom_up", "top_down", "middle_out", "ols", "wls",
+            "min_trace". Defaults to "bottom_up".
+        dry_run: If True, execute only validate → QA → make_plan and
+            return a ``DryRunResult`` without fitting or predicting.
+            Defaults to False.
 
     Returns:
-        RunArtifact with forecast, metrics, and provenance
+        RunArtifact with forecast, metrics, and provenance; or
+        DryRunResult if ``dry_run=True``.
 
     Raises:
         EContractMissingColumn: If required columns missing
@@ -127,6 +136,7 @@ def run_forecast(
     events: list[dict[str, Any]] = []
     qa_repairs: list[dict[str, Any]] = []
     fallbacks_triggered: list[dict[str, Any]] = []
+    degradation_events: list[dict[str, Any]] = []
     start_time = time.time()
     column_map: dict[str, str] | None = None
     original_panel_contract = task_spec.panel_contract
@@ -252,6 +262,15 @@ def run_forecast(
                 context={"covariates_dropped": True},
             )
         )
+        degradation_events.append(
+            {
+                "type": "covariates_dropped",
+                "step": "qa",
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "action": "dropped_covariates",
+            }
+        )
     except Exception as e:
         events.append(
             log_event(
@@ -294,6 +313,15 @@ def run_forecast(
             )
             if mode == "strict":
                 raise
+            degradation_events.append(
+                {
+                    "type": "covariates_dropped",
+                    "step": "align_covariates",
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                    "action": "dropped_covariates",
+                }
+            )
         except Exception as e:
             events.append(
                 log_event(
@@ -305,6 +333,15 @@ def run_forecast(
             )
             if mode == "strict":
                 raise
+            degradation_events.append(
+                {
+                    "type": "covariates_dropped",
+                    "step": "align_covariates",
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                    "action": "dropped_covariates",
+                }
+            )
     else:
         events.append(
             log_event(
@@ -423,6 +460,25 @@ def run_forecast(
             }
         )
 
+    # --- Dry run: return early with planning artefacts only ---
+    if dry_run:
+        from tsagentkit.contracts.results import DryRunResult
+
+        qa_dict: dict[str, Any] = {
+            "issues": list(qa_report.issues),
+            "repairs": [r.to_dict() if hasattr(r, "to_dict") else r for r in qa_report.repairs],
+            "leakage_detected": qa_report.leakage_detected,
+        }
+        return DryRunResult(
+            validation=validation.to_dict(),
+            qa_report=qa_dict,
+            plan=plan.model_dump() if hasattr(plan, "model_dump") else {"plan": str(plan)},
+            route_decision=route_decision.model_dump()
+            if hasattr(route_decision, "model_dump")
+            else {"route_decision": str(route_decision)},
+            task_spec_used=task_spec.model_dump() if hasattr(task_spec, "model_dump") else {},
+        )
+
     # Step 5: Backtest (if standard or strict mode)
     backtest_report = None
     if mode in ("standard", "strict"):
@@ -441,11 +497,7 @@ def run_forecast(
             min_train_size = backtest_cfg.min_train_size
             # Preserve historical default behavior (step=horizon) unless
             # the caller explicitly sets backtest.step.
-            step_size = (
-                backtest_cfg.step
-                if "step" in backtest_cfg.model_fields_set
-                else None
-            )
+            step_size = backtest_cfg.step if "step" in backtest_cfg.model_fields_set else None
 
             backtest_report = rolling_backtest(
                 dataset=dataset,
@@ -518,6 +570,7 @@ def run_forecast(
             predict_func=predict_func,
             plan=plan,
             covariates=aligned_dataset,
+            reconciliation_method=reconciliation_method,
         )
         events.append(
             log_event(
@@ -549,6 +602,7 @@ def run_forecast(
                 start_after=model_artifact.model_name,
                 initial_error=e,
                 on_fallback=on_fallback,
+                reconciliation_method=reconciliation_method,
             )
             events.append(
                 log_event(
@@ -734,6 +788,7 @@ def run_forecast(
         provenance=provenance,
         calibration_artifact=calibration_payload_dict(calibration_artifact),
         anomaly_report=anomaly_payload_dict(anomaly_report),
+        degradation_events=degradation_events,
         metadata={
             "mode": mode,
             "total_duration_ms": (time.time() - start_time) * 1000,
@@ -814,6 +869,7 @@ def _step_predict(
     predict_func: Any | None,
     plan: Any | None = None,
     covariates: AlignedDataset | None = None,
+    reconciliation_method: str = "bottom_up",
 ) -> pd.DataFrame:
     """Execute predict step."""
     if predict_func is None:
@@ -838,7 +894,7 @@ def _step_predict(
     if plan and dataset.is_hierarchical() and dataset.hierarchy:
         from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
 
-        method_str = "bottom_up"
+        method_str = reconciliation_method
         method_map = {
             "bottom_up": ReconciliationMethod.BOTTOM_UP,
             "top_down": ReconciliationMethod.TOP_DOWN,
@@ -872,6 +928,7 @@ def _fit_predict_with_fallback(
     start_after: str | None = None,
     initial_error: Exception | None = None,
     on_fallback: Any | None = None,
+    reconciliation_method: str = "bottom_up",
 ) -> tuple[Any, pd.DataFrame]:
     """Fit and predict with fallback across remaining candidates."""
     from tsagentkit.models import fit as default_fit
@@ -919,6 +976,7 @@ def _fit_predict_with_fallback(
                 predict_func=predict_callable,
                 plan=plan,
                 covariates=covariates,
+                reconciliation_method=reconciliation_method,
             )
             return artifact, forecast
         except Exception as e:

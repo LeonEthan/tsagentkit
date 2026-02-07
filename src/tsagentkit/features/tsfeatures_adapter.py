@@ -18,7 +18,13 @@ from tsagentkit.features.versioning import FeatureConfig, compute_feature_hash
 
 
 def _import_tsfeatures():
-    import tsfeatures  # type: ignore
+    try:
+        import tsfeatures  # type: ignore
+    except ImportError as e:
+        raise ImportError(
+            "tsfeatures>=0.4.5 is required for statistical feature extraction. "
+            "Install with: pip install 'tsagentkit[features]'"
+        ) from e
 
     return tsfeatures
 
@@ -44,7 +50,9 @@ def _resolve_tsfeatures_freq(dataset: Any, config: FeatureConfig) -> int | None:
     return task_spec.season_length
 
 
-def _prefix_if_conflict(df: pd.DataFrame, feature_cols: list[str]) -> tuple[pd.DataFrame, list[str]]:
+def _prefix_if_conflict(
+    df: pd.DataFrame, feature_cols: list[str]
+) -> tuple[pd.DataFrame, list[str]]:
     reserved = {"unique_id", "ds", "y"}
     conflicts = [col for col in feature_cols if col in reserved]
     if not conflicts:

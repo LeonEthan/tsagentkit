@@ -13,7 +13,7 @@ Basic usage:
     >>> plan, _route_decision = make_plan(dataset, spec)
 """
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 # Import commonly used items from contracts
 from tsagentkit.anomaly import detect_anomalies
@@ -27,6 +27,7 @@ from tsagentkit.backtest import (
 from tsagentkit.calibration import apply_calibrator, fit_calibrator
 from tsagentkit.contracts import (
     AdapterCapabilitySpec,
+    DryRunResult,
     ECovariateLeakage,
     ESplitRandomForbidden,
     ForecastResult,
@@ -91,6 +92,15 @@ from tsagentkit.serving.provenance import (
     log_event,
 )
 
+# Repair utility (v1.1.1)
+from tsagentkit.repair import repair
+
+# Quickstart (v1.1.1)
+from tsagentkit.quickstart import diagnose, forecast
+
+# API discovery (v1.1.1)
+from tsagentkit.discovery import describe
+
 # v0.2 imports (optional - use directly from submodules)
 # from tsagentkit.features import FeatureFactory, FeatureMatrix, compute_feature_hash
 # from tsagentkit.monitoring import DriftDetector, StabilityMonitor, TriggerEvaluator
@@ -108,6 +118,7 @@ __all__ = [
     "AdapterCapabilitySpec",
     "Provenance",
     "RunArtifact",
+    "DryRunResult",
     "validate_contract",
     "align_covariates",
     "CovariateBundle",
@@ -168,4 +179,11 @@ __all__ = [
     "log_event",
     "format_event_json",
     "StructuredLogger",
+    # Repair utility (v1.1.1)
+    "repair",
+    # Quickstart (v1.1.1)
+    "forecast",
+    "diagnose",
+    # API discovery (v1.1.1)
+    "describe",
 ]

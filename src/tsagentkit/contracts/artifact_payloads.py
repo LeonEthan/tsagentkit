@@ -45,7 +45,7 @@ class AnomalyReportPayload(_PayloadModel):
 class RunArtifactPayload(_PayloadModel):
     """Serializable payload for run artifacts."""
 
-    artifact_type: Literal["tsagentkit.run_artifact"] = RUN_ARTIFACT_TYPE
+    artifact_type: Literal["tsagentkit.run_artifact"] = RUN_ARTIFACT_TYPE  # type: ignore[assignment]
     artifact_schema_version: int = Field(RUN_ARTIFACT_SCHEMA_VERSION, ge=1)
     tsagentkit_version: str | None = None
     lifecycle_stage: Literal["train", "serve", "train_serve"] = "train_serve"
@@ -99,9 +99,7 @@ def calibration_payload_from_any(value: Any | None) -> CalibrationArtifactPayloa
             level = value.level
             by = value.by
         except AttributeError as exc:
-            raise TypeError(
-                "Calibration artifact must define method, level, and by."
-            ) from exc
+            raise TypeError("Calibration artifact must define method, level, and by.") from exc
         mapping = {
             "method": method,
             "level": level,
@@ -126,9 +124,7 @@ def anomaly_payload_from_any(value: Any | None) -> AnomalyReportPayload | None:
             level = value.level
             score = value.score
         except AttributeError as exc:
-            raise TypeError(
-                "Anomaly report must define method, level, and score."
-            ) from exc
+            raise TypeError("Anomaly report must define method, level, and score.") from exc
         frame = value.__dict__.get("frame")
         mapping = {
             "method": method,

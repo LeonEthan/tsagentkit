@@ -308,6 +308,39 @@ class RepairReport:
 
 
 @dataclass(frozen=True)
+class DryRunResult:
+    """Result of a dry-run forecast execution.
+
+    Returned when ``run_forecast(dry_run=True)`` is called.  Contains only
+    the lightweight planning artefacts without fitting or predicting.
+
+    Attributes:
+        validation: Validation report from the input data check.
+        qa_report: QA report (issues, repairs detected).
+        plan: Execution plan selected by the router.
+        route_decision: Routing decision details (buckets, reasons).
+        task_spec_used: The effective TaskSpec after normalisation
+            (e.g. inferred freq filled in).
+    """
+
+    validation: dict[str, Any]
+    qa_report: dict[str, Any]
+    plan: dict[str, Any]
+    route_decision: dict[str, Any]
+    task_spec_used: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "validation": self.validation,
+            "qa_report": self.qa_report,
+            "plan": self.plan,
+            "route_decision": self.route_decision,
+            "task_spec_used": self.task_spec_used,
+        }
+
+
+@dataclass(frozen=True)
 class RunArtifact:
     """Complete artifact from a forecasting run.
 
@@ -335,6 +368,7 @@ class RunArtifact:
     provenance: Provenance | None = None
     calibration_artifact: dict[str, Any] | None = None
     anomaly_report: dict[str, Any] | None = None
+    degradation_events: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     artifact_type: str = "tsagentkit.run_artifact"
     artifact_schema_version: int = 1
@@ -363,7 +397,9 @@ class RunArtifact:
                 "model_name": self.model_artifact.model_name,
                 "signature": self.model_artifact.signature,
                 "fit_timestamp": self.model_artifact.fit_timestamp,
-            } if self.model_artifact else None,
+            }
+            if self.model_artifact
+            else None,
             "provenance": self.provenance.to_dict() if self.provenance else None,
             "calibration_artifact": self.calibration_artifact,
             "anomaly_report": self.anomaly_report,
@@ -434,9 +470,7 @@ class RunArtifact:
         if isinstance(serialized_model_artifact, dict):
             model_name_payload = serialized_model_artifact.get("model_name")
             if not isinstance(model_name_payload, str):
-                raise EArtifactLoadFailed(
-                    "Serialized model_artifact.model_name must be a string."
-                )
+                raise EArtifactLoadFailed("Serialized model_artifact.model_name must be a string.")
             signature = serialized_model_artifact.get("signature")
             fit_timestamp = serialized_model_artifact.get("fit_timestamp")
             model_artifact = ModelArtifact(
@@ -457,14 +491,10 @@ class RunArtifact:
             model_artifact=model_artifact,
             provenance=artifact_provenance,
             calibration_artifact=(
-                payload.calibration_artifact.model_dump()
-                if payload.calibration_artifact
-                else None
+                payload.calibration_artifact.model_dump() if payload.calibration_artifact else None
             ),
             anomaly_report=(
-                payload.anomaly_report.model_dump()
-                if payload.anomaly_report
-                else None
+                payload.anomaly_report.model_dump() if payload.anomaly_report else None
             ),
             metadata=dict(payload.metadata),
             artifact_type=payload.artifact_type,
@@ -523,6 +553,7 @@ class RunArtifact:
 
 __all__ = [
     "CVFrame",
+    "DryRunResult",
     "ForecastFrame",
     "ForecastResult",
     "ModelArtifact",

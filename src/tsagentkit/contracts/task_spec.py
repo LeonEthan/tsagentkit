@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # Common
 # ---------------------------
 
+
 class BaseSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -45,6 +46,7 @@ PlanNodeKind = Literal[
 # Data contracts (column-level)
 # ---------------------------
 
+
 class PanelContract(BaseSpec):
     unique_id_col: str = "unique_id"
     ds_col: str = "ds"
@@ -72,9 +74,7 @@ class TSFMPolicy(BaseSpec):
     """Policy controlling TSFM availability requirements for routing."""
 
     mode: TSFMMode = "required"
-    adapters: list[str] = Field(
-        default_factory=lambda: ["chronos", "moirai", "timesfm"]
-    )
+    adapters: list[str] = Field(default_factory=lambda: ["chronos", "moirai", "timesfm"])
     allow_non_tsfm_fallback: bool | None = None
 
     @model_validator(mode="after")
@@ -89,6 +89,7 @@ class TSFMPolicy(BaseSpec):
 # ---------------------------
 # Task / execution specs
 # ---------------------------
+
 
 class BacktestSpec(BaseSpec):
     h: int | None = Field(None, gt=0)
@@ -116,7 +117,7 @@ class TaskSpec(BaseSpec):
     tsfm_policy: TSFMPolicy = Field(default_factory=TSFMPolicy)
 
     # Backtest defaults (can be overridden by the caller)
-    backtest: BacktestSpec = Field(default_factory=BacktestSpec)
+    backtest: BacktestSpec = Field(default_factory=lambda: BacktestSpec())
 
     @model_validator(mode="before")
     @classmethod
@@ -139,9 +140,13 @@ class TaskSpec(BaseSpec):
             if not isinstance(tsfm_policy, dict):
                 tsfm_policy = {}
             tsfm_policy = dict(tsfm_policy)
-            tsfm_policy["mode"] = "required" if require_tsfm else tsfm_policy.get(
-                "mode",
-                "preferred",
+            tsfm_policy["mode"] = (
+                "required"
+                if require_tsfm
+                else tsfm_policy.get(
+                    "mode",
+                    "preferred",
+                )
             )
 
         if "tsfm_preference" in payload:
@@ -232,10 +237,49 @@ class TaskSpec(BaseSpec):
         json_str = json.dumps(data, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(json_str.encode()).hexdigest()[:16]
 
+    @classmethod
+    def starter(cls, h: int, freq: str = "D") -> TaskSpec:
+        """Minimal preset for quick experimentation.
+
+        Uses ``tsfm_policy.mode='preferred'`` (falls back to statistical
+        baselines when TSFM adapters are unavailable) and a small backtest
+        with 2 windows.
+
+        Args:
+            h: Forecast horizon.
+            freq: Time-series frequency (pandas offset alias).
+
+        Returns:
+            A TaskSpec configured for low-friction usage.
+        """
+        return cls(
+            h=h,
+            freq=freq,
+            tsfm_policy=TSFMPolicy(mode="preferred"),
+            backtest=BacktestSpec(n_windows=2),
+        )
+
+    @classmethod
+    def production(cls, h: int, freq: str = "D") -> TaskSpec:
+        """Production preset with full backtest and strict TSFM policy.
+
+        Uses the library defaults: ``tsfm_policy.mode='required'`` and
+        5-window backtest.
+
+        Args:
+            h: Forecast horizon.
+            freq: Time-series frequency (pandas offset alias).
+
+        Returns:
+            A TaskSpec configured for production use.
+        """
+        return cls(h=h, freq=freq)
+
 
 # ---------------------------
 # Router / planning
 # ---------------------------
+
 
 class RouterThresholds(BaseSpec):
     min_train_size: int = Field(56, gt=1)
@@ -252,6 +296,15 @@ class RouterThresholds(BaseSpec):
     # Practical routing guardrails
     max_series_count_for_tsfm: int = Field(20000, gt=0)
     max_points_per_series_for_tsfm: int = Field(5000, gt=0)
+
+    # Configurable candidate model lists per bucket
+    intermittent_candidates: list[str] = Field(default_factory=lambda: ["Croston", "Naive"])
+    short_history_candidates: list[str] = Field(
+        default_factory=lambda: ["HistoricAverage", "Naive"]
+    )
+    default_candidates: list[str] = Field(
+        default_factory=lambda: ["SeasonalNaive", "HistoricAverage", "Naive"]
+    )
 
 
 class PlanNodeSpec(BaseSpec):
@@ -354,7 +407,7 @@ class RouteDecision(BaseSpec):
 
 
 class RouterConfig(BaseSpec):
-    thresholds: RouterThresholds = Field(default_factory=RouterThresholds)
+    thresholds: RouterThresholds = Field(default_factory=lambda: RouterThresholds())
 
     # Mapping bucket -> plan template name, resolved by registry
     bucket_to_plan: dict[str, str] = Field(default_factory=dict)
@@ -366,6 +419,7 @@ class RouterConfig(BaseSpec):
 # ---------------------------
 # Calibration + anomaly
 # ---------------------------
+
 
 class CalibratorSpec(BaseSpec):
     method: Literal["none", "conformal"] = "conformal"
@@ -382,6 +436,7 @@ class AnomalySpec(BaseSpec):
 # ---------------------------
 # Provenance artifacts (config-level, serializable)
 # ---------------------------
+
 
 class RunArtifactSpec(BaseSpec):
     run_id: str

@@ -51,6 +51,7 @@ from .errors import (
 )
 from .results import (
     CVFrame,
+    DryRunResult,
     ForecastFrame,
     ForecastResult,
     ModelArtifact,
@@ -139,6 +140,7 @@ __all__ = [
     "validate_run_artifact_compatibility",
     # Results
     "CVFrame",
+    "DryRunResult",
     "ForecastFrame",
     "ForecastResult",
     "ModelArtifact",
