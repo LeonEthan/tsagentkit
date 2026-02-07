@@ -91,8 +91,6 @@ def rolling_backtest(
     # Set defaults
     horizon = spec.horizon
     step = step_size if step_size is not None else horizon
-    if step != horizon:
-        step = horizon
     season_length = spec.season_length or 1
 
     if min_train_size is None:
@@ -103,15 +101,16 @@ def rolling_backtest(
     all_dates = pd.to_datetime(df["ds"].unique())
     all_dates = sorted(all_dates)
 
-    if len(all_dates) < min_train_size + horizon * n_windows:
+    min_required = min_train_size + (n_windows - 1) * step + horizon
+    if len(all_dates) < min_required:
         from tsagentkit.contracts import EBacktestInsufficientData
 
         raise EBacktestInsufficientData(
             f"Insufficient data for {n_windows} windows. "
-            f"Have {len(all_dates)} dates, need at least {min_train_size + horizon * n_windows}",
+            f"Have {len(all_dates)} dates, need at least {min_required}",
             context={
                 "n_dates": len(all_dates),
-                "min_required": min_train_size + horizon * n_windows,
+                "min_required": min_required,
                 "n_windows_requested": n_windows,
             },
         )
@@ -501,10 +500,11 @@ def _generate_cutoffs(
 
     elif strategy == "sliding":
         # Sliding window: fixed training size, slides forward
-        total_needed = min_train_size + n_windows * step + horizon
+        total_needed = min_train_size + (n_windows - 1) * step + horizon
         if total_needed > len(all_dates):
             # Adjust n_windows
-            n_windows = (len(all_dates) - min_train_size - horizon) // step
+            n_windows = ((len(all_dates) - min_train_size - horizon) // step) + 1
+            n_windows = max(n_windows, 0)
 
         for i in range(n_windows):
             train_end_idx = min_train_size + i * step

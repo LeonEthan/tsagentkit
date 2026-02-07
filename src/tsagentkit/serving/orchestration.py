@@ -435,6 +435,13 @@ def run_forecast(
             backtest_cfg = task_spec.backtest
             n_windows = backtest_cfg.n_windows
             min_train_size = backtest_cfg.min_train_size
+            # Preserve historical default behavior (step=horizon) unless
+            # the caller explicitly sets backtest.step.
+            step_size = (
+                backtest_cfg.step
+                if "step" in backtest_cfg.model_fields_set
+                else None
+            )
 
             backtest_report = rolling_backtest(
                 dataset=dataset,
@@ -443,7 +450,7 @@ def run_forecast(
                 fit_func=fit_func,
                 predict_func=predict_func,
                 n_windows=n_windows,
-                step_size=task_spec.horizon,
+                step_size=step_size,
                 min_train_size=min_train_size,
                 route_decision=route_decision,
             )

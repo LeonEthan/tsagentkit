@@ -84,6 +84,48 @@ class TestRunForecast:
         assert result is not None
         assert "events" in result.metadata
 
+    def test_standard_mode_default_backtest_step_uses_horizon(self, sample_data: pd.DataFrame) -> None:
+        """When backtest.step is not explicit, step_size should default to horizon."""
+        spec = TaskSpec(
+            h=3,
+            freq="D",
+            backtest={"n_windows": 2, "min_train_size": 10},
+        )
+
+        from tsagentkit.models import fit, predict
+
+        result = run_forecast(
+            data=sample_data,
+            task_spec=spec,
+            mode="standard",
+            fit_func=fit,
+            predict_func=predict,
+        )
+
+        assert result.backtest_report is not None
+        assert result.backtest_report["metadata"]["step_size"] == spec.horizon
+
+    def test_standard_mode_explicit_backtest_step_is_honored(self, sample_data: pd.DataFrame) -> None:
+        """When backtest.step is explicit, it should flow into rolling_backtest."""
+        spec = TaskSpec(
+            h=3,
+            freq="D",
+            backtest={"n_windows": 2, "min_train_size": 10, "step": 2},
+        )
+
+        from tsagentkit.models import fit, predict
+
+        result = run_forecast(
+            data=sample_data,
+            task_spec=spec,
+            mode="standard",
+            fit_func=fit,
+            predict_func=predict,
+        )
+
+        assert result.backtest_report is not None
+        assert result.backtest_report["metadata"]["step_size"] == 2
+
     def test_creates_provenance(self, sample_data: pd.DataFrame, sample_spec: TaskSpec) -> None:
         """Test that provenance is created."""
         from tsagentkit.models import fit, predict

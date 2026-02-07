@@ -180,6 +180,47 @@ class TestRollingBacktest:
         assert report.n_windows > 0
         assert len(report.window_results) > 0
 
+    def test_default_step_size_uses_horizon(
+        self,
+        sample_dataset: TSDataset,
+        sample_plan: PlanSpec,
+    ) -> None:
+        """Default step size should match forecast horizon."""
+        report = rolling_backtest(
+            dataset=sample_dataset,
+            spec=sample_dataset.task_spec,
+            plan=sample_plan,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
+            n_windows=2,
+            min_train_size=20,
+        )
+
+        assert report.metadata["step_size"] == sample_dataset.task_spec.horizon
+
+    def test_custom_step_size_is_honored(
+        self,
+        sample_dataset: TSDataset,
+        sample_plan: PlanSpec,
+    ) -> None:
+        """Explicit step_size should be preserved in metadata and windows."""
+        report = rolling_backtest(
+            dataset=sample_dataset,
+            spec=sample_dataset.task_spec,
+            plan=sample_plan,
+            fit_func=_fit_stub,
+            predict_func=_predict_stub,
+            n_windows=3,
+            min_train_size=20,
+            step_size=2,
+        )
+
+        assert report.metadata["step_size"] == 2
+        assert report.n_windows == 3
+
+        test_starts = [pd.Timestamp(w.test_start) for w in report.window_results]
+        assert (test_starts[1] - test_starts[0]).days == 2
+
     def test_report_has_aggregate_metrics(self, sample_dataset: TSDataset, sample_plan: PlanSpec) -> None:
         """Test that report contains aggregate metrics."""
         report = rolling_backtest(
