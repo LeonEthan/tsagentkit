@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `tsagentkit` is a Python library that serves as a robust execution engine for external coding agents (LLMs/AI agents) performing time-series forecasting tasks. It provides strict guardrails to enforce proper time-series practices (preventing data leakage, enforcing temporal integrity, etc.).
 
-**Version**: 1.1.1 (In Development)
+**Version**: 1.1.1
 
 **Key v1.1.0 Change**: TSFM policy now defaults to `mode="required"`, meaning TSFM is required by default. To allow fallback to non-TSFM models, explicitly set `tsfm_policy={"mode": "preferred"}`.
 
@@ -178,7 +178,7 @@ print(result.summary())
 - **v0.2** ✅: Enhanced robustness (monitoring, advanced router, feature hashing, bucketing)
 - **v1.0** ✅: Ecosystem (external adapters, hierarchical reconciliation, structured logging)
 - **v1.1** ✅: TSFM-first policy (strict TSFM requirements, real adapter smoke tests, hardened CI gates)
-- **v1.1.1** 🚧: Error hints, repair, quickstart, describe(), CLI doctor, doc governance, dep tiers, mypy
+- **v1.1.1** ✅: Error hints, repair, quickstart, describe(), CLI doctor, doc governance, dep tiers, mypy
 
 ## Quick Reference
 
