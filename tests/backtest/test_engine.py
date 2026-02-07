@@ -138,11 +138,12 @@ class TestCrossValidationSplit:
 
     def test_raises_on_shuffled_data(self) -> None:
         """Test that shuffled data raises error."""
-        df = pd.DataFrame({
+        base_df = pd.DataFrame({
             "unique_id": ["A"] * 5,
             "ds": pd.date_range("2024-01-01", periods=5, freq="D"),
             "y": range(5),
-        }).sample(frac=1)  # Shuffle
+        })
+        df = base_df.iloc[[0, 2, 1, 3, 4]].reset_index(drop=True)
 
         with pytest.raises(ESplitRandomForbidden):
             cross_validation_split(df, n_splits=2, horizon=1)
