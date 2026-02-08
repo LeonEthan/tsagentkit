@@ -87,7 +87,53 @@ print(result.forecast.df)
 
 **When to use**: Exploration, prototyping, quick answers.
 
-### Pattern 2: Convenience Wrapper (Balanced)
+### Assembly-First (Recommended)
+
+```python
+from tsagentkit import (
+    TaskSpec, validate_contract, run_qa,
+    build_dataset, make_plan, build_plan_graph, attach_plan_graph,
+    list_adapter_capabilities, get_adapter_capability,
+    fit, predict, package_run,
+)
+
+spec = TaskSpec(h=7, freq="D")
+
+# 1) Validate
+report = validate_contract(df)
+report.raise_if_errors()
+
+# 2) QA check
+qa = run_qa(df, spec, mode="standard")
+
+# 3) Build dataset
+dataset = build_dataset(df, spec)
+
+# 4) Plan routing
+plan, decision = make_plan(dataset, spec)
+plan_graph = build_plan_graph(plan, include_backtest=True)
+plan = attach_plan_graph(plan, include_backtest=True)
+capabilities = list_adapter_capabilities()
+chronos_capability = get_adapter_capability("chronos")
+
+# 5) Fit & predict
+model = fit(dataset, plan)
+result = predict(dataset, model, spec)
+
+# 6) Package
+artifact = package_run(
+    forecast=result,
+    plan=plan,
+    task_spec=spec.model_dump(),
+    qa_report=qa,
+    model_artifact=model,
+    provenance=result.provenance,
+)
+```
+
+**When to use**: Custom preprocessing, intermediate inspection, complex pipelines.
+
+### Convenience Wrapper (`run_forecast`)
 
 ```python
 from tsagentkit import TaskSpec, run_forecast
@@ -109,47 +155,7 @@ spec = TaskSpec.starter(h=7, freq="D")
 spec = TaskSpec.production(h=14, freq="D")
 ```
 
-### Pattern 3: Assembly-First (Full Control)
-
-```python
-from tsagentkit import (
-    TaskSpec, validate_contract, run_qa,
-    build_dataset, make_plan, fit, predict, package_run,
-)
-
-spec = TaskSpec(h=7, freq="D")
-
-# 1) Validate
-report = validate_contract(df)
-report.raise_if_errors()
-
-# 2) QA check
-qa = run_qa(df, spec, mode="standard")
-
-# 3) Build dataset
-dataset = build_dataset(df, spec)
-
-# 4) Plan routing
-plan, decision = make_plan(dataset, spec)
-
-# 5) Fit & predict
-model = fit(dataset, plan)
-result = predict(dataset, model, spec)
-
-# 6) Package
-artifact = package_run(
-    forecast=result,
-    plan=plan,
-    task_spec=spec.model_dump(),
-    qa_report=qa,
-    model_artifact=model,
-    provenance=result.provenance,
-)
-```
-
-**When to use**: Custom preprocessing, intermediate inspection, complex pipelines.
-
-### Pattern 4: Diagnose & Repair (Debugging)
+### Diagnose & Repair (Debugging)
 
 ```python
 from tsagentkit import diagnose, repair
@@ -215,6 +221,7 @@ Save and replay forecasts deterministically:
 from tsagentkit import (
     save_run_artifact,
     load_run_artifact,
+    validate_run_artifact_for_serving,
     replay_forecast_from_artifact,
 )
 
@@ -223,6 +230,10 @@ save_run_artifact(artifact, "run.json")
 
 # Load and validate
 loaded = load_run_artifact("run.json")
+validate_run_artifact_for_serving(
+    loaded,
+    expected_task_signature=loaded.provenance.task_signature,
+)
 
 # Replay
 result = replay_forecast_from_artifact(loaded)
@@ -258,12 +269,16 @@ from tsagentkit import (
     # Mid-level
     run_forecast,       # Convenience wrapper
     TaskSpec,           # Task configuration
+    get_adapter_capability,
+    list_adapter_capabilities,
 
     # Assembly-first (step-by-step)
     validate_contract,  # Input validation
     run_qa,             # Data quality
     build_dataset,      # Create TSDataset
     make_plan,          # Routing plan
+    build_plan_graph,   # Plan graph extraction
+    attach_plan_graph,  # Attach graph to plan metadata
     fit,                # Train model
     predict,            # Generate forecast
     package_run,        # Package results
@@ -271,6 +286,7 @@ from tsagentkit import (
     # Lifecycle
     save_run_artifact,
     load_run_artifact,
+    validate_run_artifact_for_serving,
     replay_forecast_from_artifact,
 
     # Hierarchical
