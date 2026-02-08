@@ -13,7 +13,7 @@ Basic usage:
     >>> plan, _route_decision = make_plan(dataset, spec)
 """
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 # Import commonly used items from contracts
 from tsagentkit.anomaly import detect_anomalies
