@@ -8,7 +8,7 @@ Usage:
     >>> from tsagentkit import describe
     >>> info = describe()
     >>> info["version"]
-    '1.1.2'
+    '1.1.3'
 """
 
 from __future__ import annotations
