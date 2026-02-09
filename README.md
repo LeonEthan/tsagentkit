@@ -95,17 +95,7 @@ except TSAgentKitError as e:
 
 ## Workflows
 
-### Production Wrapper (`run_forecast`)
-
-```python
-from tsagentkit import TaskSpec, run_forecast
-
-spec = TaskSpec.production(h=14, freq="D")
-result = run_forecast(df, spec, mode="standard")
-print(result.forecast.df.head())
-```
-
-### Assembly-First Pipeline
+### Assembly-First (Recommended)
 
 ```python
 from tsagentkit import (
@@ -138,6 +128,16 @@ run_artifact = package_run(
     model_artifact=model_artifact,
     provenance=forecast_result.provenance,
 )
+```
+
+### Convenience Wrapper (`run_forecast`)
+
+```python
+from tsagentkit import TaskSpec, run_forecast
+
+spec = TaskSpec.production(h=14, freq="D")
+result = run_forecast(df, spec, mode="standard")
+print(result.forecast.df.head())
 ```
 
 ### Diagnose and Auto-Repair
@@ -227,6 +227,8 @@ from tsagentkit import (
     run_qa,
     build_dataset,
     make_plan,
+    build_plan_graph,
+    attach_plan_graph,
     fit,
     predict,
     package_run,

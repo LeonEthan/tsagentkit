@@ -56,6 +56,16 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 packages = ["src/tsagentkit"]
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/benchmarks",
+    "/dist",
+    "/.uv-cache",
+    "/.pytest_cache",
+    "/.mypy_cache",
+    "/.ruff_cache",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
