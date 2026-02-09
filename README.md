@@ -3,379 +3,267 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**What**: Assembly-first execution engine for time-series forecasting. Compose explicit pipelines from modular blocks, or use convenience wrappers.
+Deterministic execution engine for time-series forecasting, designed to be called by coding agents.
 
-**When**: Use when you need to forecast time-series data with guardrails against leakage, automatic TSFM routing, and deterministic provenance.
+tsagentkit gives you:
+- a strict panel data contract (`unique_id`, `ds`, `y`)
+- always-on temporal guardrails (no leakage, no random splits)
+- deterministic routing/fallback and reproducible run artifacts
+- both quick wrappers and assembly-first low-level APIs
 
-**Inputs**: `pandas.DataFrame` with `unique_id`, `ds`, `y` columns.
+## Start Here
 
----
-
-## Quick Decision Guide
-
-| Your Goal | Recommended API | Lines | Control |
-|-----------|----------------|-------|---------|
-| Get forecast now | `forecast(df, h=7)` | 2 | Low |
-| Production pipeline | `run_forecast(df, spec)` | 3 | Medium |
-| Custom assembly | Assembly-First | 10 | High |
-| Debug data issues | `diagnose(df)` + `repair()` | 5 | - |
-
----
-
-## Installation
+### Install
 
 ```bash
-# Core only — statistical baselines
+# Core package
 pip install tsagentkit
 
-# With TSFM adapters (Chronos, Moirai, TimesFM)
-pip install tsagentkit[tsfm]
-
-# With hierarchical reconciliation
-pip install tsagentkit[hierarchy]
-
-# With feature engineering
-pip install tsagentkit[features]
-
-# Everything
-pip install tsagentkit[full]
+# Optional extras
+pip install tsagentkit[tsfm]       # Chronos/Moirai/TimesFM adapters
+pip install tsagentkit[hierarchy]  # hierarchical reconciliation
+pip install tsagentkit[features]   # feature engineering backends
+pip install tsagentkit[full]       # all extras
 ```
 
-Verify installation:
-
-```bash
-python -m tsagentkit doctor
-```
-
----
-
-## Guardrails (Safety First)
-
-tsagentkit enforces strict time-series practices. These **cannot be disabled**:
-
-| Guardrail | Code | Trigger |
-|-----------|------|---------|
-| No random splits | `E_SPLIT_RANDOM_FORBIDDEN` | Shuffled data |
-| Temporal ordering | `E_DS_NOT_MONOTONIC` | Unsorted timestamps |
-| Covariate leakage | `E_COVARIATE_LEAKAGE` | Future covariates |
-| TSFM required | `E_TSFM_REQUIRED_UNAVAILABLE` | TSFM policy violation |
-
-Handle errors with structured hints:
-
-```python
-from tsagentkit import TSAgentKitError, repair
-
-try:
-    result = forecast(df, h=7)
-except TSAgentKitError as e:
-    print(f"{e.code}: {e.hint}")  # Auto-fix suggestion
-    df = repair(df, e)            # Apply fix automatically
-```
-
----
-
-## Usage Patterns
-
-### Pattern 1: Zero-Config Forecast (Fastest)
+### Run a Forecast
 
 ```python
 from tsagentkit import forecast
 
-result = forecast(df, h=7)
-print(result.forecast.df)
+# df must contain columns: unique_id, ds, y
+result = forecast(df, horizon=7, freq="D")
+print(result.forecast.df.head())
 ```
 
-**When to use**: Exploration, prototyping, quick answers.
+### Verify Environment
 
-### Assembly-First (Recommended)
+```bash
+python -m tsagentkit doctor
+python -m tsagentkit version
+python -m tsagentkit describe
+```
+
+## Choose Your API Level
+
+| If you want... | Use | Typical code size |
+|---|---|---|
+| Fastest path from dataframe to forecast | `forecast(df, horizon=...)` | 1-2 lines |
+| Full run artifact with standard orchestration | `run_forecast(df, spec, mode=...)` | 2-4 lines |
+| Full control and inspectable intermediate artifacts | assembly-first pipeline (`validate` -> `qa` -> `plan` -> `fit/predict`) | 10+ lines |
+
+## Data Contract
+
+Required input columns:
+- `unique_id`: series identifier
+- `ds`: timestamp
+- `y`: numeric target
+
+Example shape:
 
 ```python
-from tsagentkit import (
-    TaskSpec, validate_contract, run_qa,
-    build_dataset, make_plan, build_plan_graph, attach_plan_graph,
-    list_adapter_capabilities, get_adapter_capability,
-    fit, predict, package_run,
-)
+import pandas as pd
 
-spec = TaskSpec(h=7, freq="D")
-
-# 1) Validate
-report = validate_contract(df)
-report.raise_if_errors()
-
-# 2) QA check
-qa = run_qa(df, spec, mode="standard")
-
-# 3) Build dataset
-dataset = build_dataset(df, spec)
-
-# 4) Plan routing
-plan, decision = make_plan(dataset, spec)
-plan_graph = build_plan_graph(plan, include_backtest=True)
-plan = attach_plan_graph(plan, include_backtest=True)
-capabilities = list_adapter_capabilities()
-chronos_capability = get_adapter_capability("chronos")
-
-# 5) Fit & predict
-model = fit(dataset, plan)
-result = predict(dataset, model, spec)
-
-# 6) Package
-artifact = package_run(
-    forecast=result,
-    plan=plan,
-    task_spec=spec.model_dump(),
-    qa_report=qa,
-    model_artifact=model,
-    provenance=result.provenance,
+df = pd.DataFrame(
+    {
+        "unique_id": ["A", "A", "A", "B", "B", "B"],
+        "ds": pd.date_range("2025-01-01", periods=3, freq="D").tolist() * 2,
+        "y": [10, 12, 11, 30, 29, 31],
+    }
 )
 ```
 
-**When to use**: Custom preprocessing, intermediate inspection, complex pipelines.
+## Core Guardrails
 
-### Convenience Wrapper (`run_forecast`)
+These are enforced by design:
+- `E_SPLIT_RANDOM_FORBIDDEN`: no random train/test splits on time series
+- `E_DS_NOT_MONOTONIC`: timestamps must be monotonic within each series
+- `E_COVARIATE_LEAKAGE`: observed covariates cannot leak into the future
+- `E_TSFM_REQUIRED_UNAVAILABLE`: TSFM policy required adapters but none are available
+
+Basic error handling pattern:
+
+```python
+from tsagentkit import TSAgentKitError, forecast
+
+try:
+    result = forecast(df, horizon=7)
+except TSAgentKitError as e:
+    print(e.code, e.hint)
+    raise
+```
+
+## Workflows
+
+### Production Wrapper (`run_forecast`)
 
 ```python
 from tsagentkit import TaskSpec, run_forecast
 
-spec = TaskSpec(h=7, freq="D")
+spec = TaskSpec.production(h=14, freq="D")
 result = run_forecast(df, spec, mode="standard")
-print(result.forecast.df)
+print(result.forecast.df.head())
 ```
 
-**When to use**: Production jobs needing provenance and backtesting.
-
-**TaskSpec presets** (v1.1.1):
+### Assembly-First Pipeline
 
 ```python
-# Quick iteration — allows fallback to baselines
-spec = TaskSpec.starter(h=7, freq="D")
+from tsagentkit import (
+    TaskSpec,
+    build_dataset,
+    fit,
+    make_plan,
+    package_run,
+    predict,
+    run_qa,
+    validate_contract,
+)
 
-# Production — requires TSFM, full backtest
 spec = TaskSpec.production(h=14, freq="D")
+
+validation = validate_contract(df)
+validation.raise_if_errors()
+
+qa_report = run_qa(df, spec, mode="standard")
+dataset = build_dataset(df, spec)
+plan, _route_decision = make_plan(dataset, spec)
+model_artifact = fit(dataset, plan)
+forecast_result = predict(dataset, model_artifact, spec)
+
+run_artifact = package_run(
+    forecast=forecast_result,
+    plan=plan,
+    task_spec=spec.model_dump(),
+    qa_report=qa_report,
+    model_artifact=model_artifact,
+    provenance=forecast_result.provenance,
+)
 ```
 
-### Diagnose & Repair (Debugging)
+### Diagnose and Auto-Repair
 
 ```python
 from tsagentkit import diagnose, repair
 
-# Dry-run: validate + QA + plan without fitting
-report = diagnose(df)
-print(report["plan"])  # See what router would select
+report = diagnose(df, horizon=7)
+print(report["validation"]["valid"])
 
-# Auto-fix common issues
-df_fixed = repair(df, error)
+repaired_df, actions = repair(df)
+print(actions)
 ```
 
-**When to use**: Data quality issues, understanding routing decisions.
+### Hierarchical Forecasting
 
----
-
-## TSFM Policy
-
-Control TSFM (Chronos/Moirai/TimesFM) routing behavior:
+Hierarchy APIs live in `tsagentkit.hierarchy`:
 
 ```python
-from tsagentkit import TaskSpec
+import pandas as pd
 
-# Default: TSFM required, fail if unavailable
-spec = TaskSpec(h=7, freq="D")
-
-# Allow fallback to baselines
-spec = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "preferred"})
-
-# Disable TSFM entirely
-spec = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "disabled"})
-```
-
----
-
-## Hierarchical Forecasting
-
-```python
-import numpy as np
+from tsagentkit import TaskSpec, run_forecast
 from tsagentkit.hierarchy import HierarchyStructure
 
-# Define hierarchy
-hierarchy = HierarchyStructure(
-    aggregation_graph={"Total": ["A", "B"]},
-    bottom_nodes=["A", "B"],
-    s_matrix=np.array([[1, 0], [0, 1], [1, 1]]),
+df_with_hierarchy = df.assign(region="all", store=df["unique_id"])
+hierarchy = HierarchyStructure.from_dataframe(
+    df=df_with_hierarchy,
+    hierarchy_columns=["region", "store"],
 )
 
-# Attach and forecast
-dataset = dataset.with_hierarchy(hierarchy)
-plan, _ = make_plan(dataset, spec)  # Auto-reconciles
+spec = TaskSpec.production(h=7, freq="D")
+result = run_forecast(
+    df,
+    spec,
+    hierarchy=hierarchy,
+    reconciliation_method="min_trace",
+)
 ```
 
-**Methods**: Bottom-Up, Top-Down, Middle-Out, OLS, WLS, MinT
-
----
-
-## Artifact Lifecycle
-
-Save and replay forecasts deterministically:
+### Artifact Lifecycle
 
 ```python
 from tsagentkit import (
-    save_run_artifact,
     load_run_artifact,
-    validate_run_artifact_for_serving,
     replay_forecast_from_artifact,
+    save_run_artifact,
+    validate_run_artifact_for_serving,
 )
 
-# Save
-save_run_artifact(artifact, "run.json")
-
-# Load and validate
+save_run_artifact(run_artifact, "run.json")
 loaded = load_run_artifact("run.json")
 validate_run_artifact_for_serving(
     loaded,
     expected_task_signature=loaded.provenance.task_signature,
 )
-
-# Replay
-result = replay_forecast_from_artifact(loaded)
+replayed = replay_forecast_from_artifact(loaded)
 ```
 
----
+## TSFM Policy
 
-## CLI Reference
+```python
+from tsagentkit import TaskSpec
 
-```bash
-# Environment check
-python -m tsagentkit doctor
+# default in TaskSpec(): required
+spec_required = TaskSpec(h=7, freq="D")
 
-# Version
-python -m tsagentkit version
+# allow fallback to non-TSFM baselines
+spec_preferred = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "preferred"})
 
-# API schema (JSON)
-python -m tsagentkit describe
+# disable TSFM routing entirely
+spec_disabled = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "disabled"})
 ```
 
----
-
-## API Quick Reference
+## API Reference (Imports)
 
 ```python
 from tsagentkit import (
-    # High-level (2-3 lines)
-    forecast,           # Zero-config forecast
-    diagnose,           # Dry-run validation
-    repair,             # Auto-fix errors
-    describe,           # API discovery
-
-    # Mid-level
-    run_forecast,       # Convenience wrapper
-    TaskSpec,           # Task configuration
-    get_adapter_capability,
-    list_adapter_capabilities,
-
-    # Assembly-first (step-by-step)
-    validate_contract,  # Input validation
-    run_qa,             # Data quality
-    build_dataset,      # Create TSDataset
-    make_plan,          # Routing plan
-    build_plan_graph,   # Plan graph extraction
-    attach_plan_graph,  # Attach graph to plan metadata
-    fit,                # Train model
-    predict,            # Generate forecast
-    package_run,        # Package results
-
+    # High-level
+    forecast,
+    diagnose,
+    repair,
+    run_forecast,
+    TaskSpec,
+    describe,
+    # Assembly-first
+    validate_contract,
+    run_qa,
+    build_dataset,
+    make_plan,
+    fit,
+    predict,
+    package_run,
     # Lifecycle
     save_run_artifact,
     load_run_artifact,
     validate_run_artifact_for_serving,
     replay_forecast_from_artifact,
+    # Adapter capability
+    get_adapter_capability,
+    list_adapter_capabilities,
+)
 
-    # Hierarchical
+from tsagentkit.hierarchy import (
     HierarchyStructure,
     reconcile_forecasts,
 )
 ```
 
----
-
-## Architecture
-
-```
-Input Data
-    │
-    ▼
-┌─────────────┐
-│  Validation │── Guardrails (E_SPLIT_RANDOM_FORBIDDEN)
-└─────────────┘
-    │
-    ▼
-┌─────────────┐
-│     QA      │── Leakage detection, data quality
-└─────────────┘
-    │
-    ▼
-┌─────────────┐
-│   Router    │── TSFM selection, fallback ladder
-└─────────────┘
-    │
-    ▼
-┌─────────────┐
-│  Backtest   │── Rolling validation (optional)
-└─────────────┘
-    │
-    ▼
-┌─────────────┐
-│    Fit      │
-└─────────────┘
-    │
-    ▼
-┌─────────────┐
-│   Predict   │
-└─────────────┘
-    │
-    ▼
-┌─────────────┐
-│   Package   │── Provenance, signatures
-└─────────────┘
-```
-
----
-
-## Documentation
-
-| Document | Purpose |
-|----------|---------|
-| `skill/QUICKSTART.md` | 3-minute guide |
-| `skill/README.md` | Agent module guide |
-| `skill/recipes.md` | End-to-end templates |
-| `skill/tool_map.md` | API reference |
-| `skill/TROUBLESHOOTING.md` | Error codes & fixes |
-| `docs/ARCHITECTURE.md` | System design |
-| `docs/API_STABILITY.md` | Compatibility |
-
----
-
-## Testing
+## Developer Commands
 
 ```bash
-# Unit tests
+uv sync
 uv run pytest
-
-# Real TSFM tests (downloads models)
 TSFM_RUN_REAL=1 uv run pytest -m tsfm
 ```
 
----
+## Documentation Map
 
-## Roadmap
-
-- **v0.1** ✅: Minimum loop
-- **v0.2** ✅: Enhanced robustness
-- **v1.0** ✅: TSFM adapters, hierarchical
-- **v1.1** ✅: TSFM-required policy
-- **v1.1.1** ✅: Error hints, `repair()`, quick APIs, CLI
-- **v1.2**: Distributed, streaming
-
----
+- `skill/QUICKSTART.md`: 3-minute guide for agent users
+- `skill/README.md`: agent-facing workflow and module map
+- `skill/recipes.md`: end-to-end recipes
+- `skill/tool_map.md`: task-to-API lookup
+- `skill/TROUBLESHOOTING.md`: error codes and fixes
+- `docs/ARCHITECTURE.md`: technical architecture
+- `docs/API_STABILITY.md`: compatibility guarantees
+- `docs/PRD.md`: full product requirements
 
 ## License
 

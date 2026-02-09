@@ -1,59 +1,75 @@
 # tsagentkit Documentation
 
-Complete documentation for the tsagentkit assembly-first time-series forecasting toolkit.
+Deterministic execution engine for time-series forecasting, designed to be called by coding agents.
 
-## Getting Started
+Use this page as the documentation index.
 
-- [Main README](../README.md) - Overview and quick start
-- [Installation](#installation) - Setup instructions
-- [Quick Start Guide](#quick-start) - First steps
-- [ADR 001: Assembly-First Integration](ADR_001_assembly_first.md) - Product direction and API posture
+## Start Here
 
-## Quick Start
+Read in this order:
+1. [Main README](../README.md) - quick install and runnable examples
+2. [PRD](PRD.md) - contract-level requirements and guardrails
+3. [Architecture](ARCHITECTURE.md) - module boundaries and system design
+4. [API Stability](API_STABILITY.md) - compatibility guarantees
 
-- Primary integration path: assembly-first step composition from `README.md`
-- Compatibility path: `run_forecast(...)` convenience wrapper when step-level control is not needed
+## Use Cases
 
-## TSFM Adapters
+### Agent Integration
 
-Adapters are available under `src/tsagentkit/models/adapters/` with
-configuration via `AdapterConfig`. Refer to the module docstrings for
-model-specific options.
+- Start with `forecast(...)` for the fastest integration.
+- Move to `run_forecast(...)` for full orchestration and run artifacts.
+- Use assembly-first APIs when you need step-level control.
+- Agent-facing docs:
+- [skill/QUICKSTART.md](../skill/QUICKSTART.md)
+- [skill/README.md](../skill/README.md)
+- [skill/recipes.md](../skill/recipes.md)
+- [skill/tool_map.md](../skill/tool_map.md)
+- [skill/TROUBLESHOOTING.md](../skill/TROUBLESHOOTING.md)
 
-## Hierarchical Forecasting
+### Production Operation
 
-Reconciliation uses `hierarchicalforecast` with `S_df` and `tags`
-as the canonical hierarchy inputs.
+- Use `TaskSpec.production(...)` and `run_forecast(...)`.
+- Persist and validate artifacts before serving with:
+- `save_run_artifact`
+- `load_run_artifact`
+- `validate_run_artifact_for_serving`
+- `replay_forecast_from_artifact`
+- Review:
+- [API Stability](API_STABILITY.md)
+- [Release v1.1 Checklist](RELEASE_V1_1.md)
 
-## Agent Recipes
+### Repository Contribution
 
-Agent-facing recipes live in `skill/recipes.md` and `skill/README.md`.
-Package-distributed mirrors are kept in `src/tsagentkit/skill/` and should stay byte-for-byte consistent.
+- Use `uv` for environment and command execution.
+- See [AGENTS.md](../AGENTS.md) for contribution rules and test commands.
 
-## API Reference
+## API Surfaces
 
-### Stability & Compatibility
-
-- [Stable API Contract](API_STABILITY.md) - Backward-compatibility guarantees
-- [v1.1 Release Checklist & Migration Note](RELEASE_V1_1.md) - Release-blocker checks and migration guidance for TSFM-required default and CI gate updates
-
-### Core Components
+### Top-level user-facing API
 
 ```python
 from tsagentkit import (
     TaskSpec,
-    align_covariates,
-    build_dataset,
-    fit,
-    make_plan,
-    package_run,
-    predict,
-    run_qa,
+    forecast,
+    diagnose,
+    repair,
+    run_forecast,
     validate_contract,
+    run_qa,
+    build_dataset,
+    make_plan,
+    fit,
+    predict,
+    package_run,
+    save_run_artifact,
+    load_run_artifact,
+    validate_run_artifact_for_serving,
+    replay_forecast_from_artifact,
+    describe,
 )
 ```
 
-### Hierarchical
+### Hierarchy
 
 ```python
 from tsagentkit.hierarchy import (
@@ -64,132 +80,58 @@ from tsagentkit.hierarchy import (
 )
 ```
 
-### TSFM Adapters
+### TSFM adapters (optional, `tsagentkit[tsfm]`)
 
 ```python
 from tsagentkit.models.adapters import (
-    ChronosAdapter,
-    MoiraiAdapter,
-    TimesFMAdapter,
+    AdapterConfig,
     AdapterRegistry,
 )
+
+available = AdapterRegistry.list_available()
+print(available)
 ```
 
-### Serving
+### Serving submodule
 
 ```python
 from tsagentkit.serving import (
-    TSFMModelCache,
-    run_forecast,  # convenience wrapper
+    MonitoringConfig,
+    run_forecast,
     package_run,
     save_run_artifact,
     load_run_artifact,
     validate_run_artifact_for_serving,
     replay_forecast_from_artifact,
+    TSFMModelCache,
     get_tsfm_model,
     clear_tsfm_cache,
 )
 ```
 
-## Feature Engineering
-
-`FeatureFactory` supports multiple feature backends via `FeatureConfig.engine`:
-
-- `auto` (default): use `tsfeatures` if available, otherwise fallback to native features.
-- `tsfeatures`: use `tsfeatures` for statistical features (requires `tsfeatures`).
-- `native`: use the built-in point-in-time safe feature generator (legacy).
-
-Key configuration fields:
-
-- `tsfeatures_features`: list of `tsfeatures` function names to apply.
-- `tsfeatures_freq`: optional season length for `tsfeatures`.
-- `tsfeatures_dict_freqs`: optional mapping of pandas freq to season length.
-- `allow_fallback`: allow auto fallback to native when `tsfeatures` is unavailable.
-
-Example:
+### Features submodule
 
 ```python
 from tsagentkit.features import FeatureConfig, FeatureFactory
-
-config = FeatureConfig(
-    engine="tsfeatures",
-    tsfeatures_features=["acf_features", "stl_features"],
-    tsfeatures_freq=7,
-    known_covariates=["holiday"],
-)
-
-factory = FeatureFactory(config)
-matrix = factory.create_features(dataset)
 ```
 
-## Best Practices
+## Canonical Execution Flow
 
-### 1. Model Selection
+`validate_contract` -> `run_qa` -> `build_dataset` -> `make_plan` -> `fit` -> `predict` -> `package_run`
 
-- Start with smaller models for prototyping
-- Use `get_tsfm_model()` for caching in production
-- Configure fallback ladder for robustness
+For one-call orchestration, use `run_forecast(...)`.
 
-### 2. Hierarchical Data
-
-- Validate S-matrix before forecasting
-- Use MinT for maximum accuracy
-- Check coherence scores
-
-### 3. Performance
-
-- Use GPU when available
-- Batch process multiple series
-- Cache models in serving environment
-
-### 4. Guardrails
-
-- Never disable temporal validation
-- Handle `ESplitRandomForbidden` properly
-- Monitor for data leakage
-
-## Version History
-
-### v1.1 - TSFM-First Release Gate (Current)
-
-- TSFM policy default set to required (`TSFMPolicy.mode="required"`)
-- Deterministic TSFM policy matrix tests in CI
-- Real non-mock TSFM adapter smoke gate in CI
-- Release checklist and migration note published (`RELEASE_V1_1.md`)
-
-### v1.0 - Ecosystem
-
-- TSFM adapters (Chronos, Moirai, TimesFM)
-- Hierarchical reconciliation (6 methods)
-- Model caching for serving
-- Complete documentation and recipes
-
-### v0.2 - Enhanced Robustness
-
-- Drift detection
-- Retrain triggers
-- Stability metrics
-
-### v0.1 - Minimum Loop
-
-- Core pipeline
-- Baseline models
-- Backtesting
-
-## Contributing
-
-See [AGENTS.md](../AGENTS.md) for contribution guidelines.
-
-## Architecture Checks
-
-To validate dependency boundaries during refactors:
+## Developer Commands
 
 ```bash
+uv sync
+uv run pytest
+TSFM_RUN_REAL=1 uv run pytest -m tsfm
 uv run lint-imports
 ```
 
-## Support
+## Additional References
 
-- GitHub Issues: Bug reports and feature requests
-- Recipes: Check `skill/recipes.md` for common scenarios
-- API Docs: See module docstrings
+- [ADR 001: Assembly-First Integration](ADR_001_assembly_first.md)
+- [Release v1.1 Checklist](RELEASE_V1_1.md)
+- Historical planning notes: `docs/v1.1.1/`
