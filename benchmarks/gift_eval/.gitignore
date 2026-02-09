@@ -1,0 +1,21 @@
+# Benchmark runtime artifacts
+data/*
+results/*
+logs/*
+submissions/*
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Keep folder structure in git
+!data/.gitkeep
+!results/.gitkeep
+!logs/.gitkeep
+!submissions/.gitkeep
+
+# Local benchmark run state
+progress.json
+eval.log
+analysis_report.txt
+analysis.json
