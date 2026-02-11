@@ -71,6 +71,7 @@ class GIFTEvalRunner:
         output_path: Path | str | None = None,
         storage_path: Path | str | None = None,
         mode: str = "standard",
+        preload_adapters: list[str] | None = None,
         dataset_properties_path: Path | str | None = None,
     ):
         self.dataset_properties = self._load_dataset_properties(dataset_properties_path)
@@ -88,6 +89,7 @@ class GIFTEvalRunner:
         self.ds_config = f"{pretty_key}/{ds_freq}/{term}"
         self.dataset_name = dataset_name
         self.mode = mode
+        self.preload_adapters = preload_adapters
         self.output_path = Path(output_path) if output_path else None
 
         temp_dataset = GIFTEvalDataset(
@@ -123,8 +125,14 @@ class GIFTEvalRunner:
         overwrite: bool = False,
     ) -> pd.DataFrame:
         """Evaluate one dataset/term pair and append to all_results.csv."""
+        created_predictor = False
         if predictor is None:
-            predictor = TSAgentKitPredictor(mode=self.mode, batch_size=batch_size)
+            predictor = TSAgentKitPredictor(
+                mode=self.mode,
+                batch_size=batch_size,
+                preload_adapters=self.preload_adapters,
+            )
+            created_predictor = True
 
         logger.info(
             "Evaluating %s/%s with TSAgentKit (%s mode)",
@@ -133,15 +141,19 @@ class GIFTEvalRunner:
             self.mode,
         )
 
-        res = evaluate_model(
-            predictor,
-            test_data=self.dataset.test_data,
-            metrics=METRICS,
-            axis=None,
-            mask_invalid_label=True,
-            allow_nan_forecast=False,
-            seasonality=self.seasonality,
-        )
+        try:
+            res = evaluate_model(
+                predictor,
+                test_data=self.dataset.test_data,
+                metrics=METRICS,
+                axis=None,
+                mask_invalid_label=True,
+                allow_nan_forecast=False,
+                seasonality=self.seasonality,
+            )
+        finally:
+            if created_predictor:
+                predictor.close()
 
         results_data = [
             [

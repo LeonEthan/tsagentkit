@@ -194,6 +194,13 @@ class EModelLoadFailed(TSAgentKitError):
     error_code = "E_MODEL_LOAD_FAILED"
 
 
+class EModelNotLoaded(TSAgentKitError):
+    """Model operation attempted before explicit load_model()."""
+
+    error_code = "E_MODEL_NOT_LOADED"
+    fix_hint = "Preload adapter in ModelPool or call adapter.load_model() during init stage."
+
+
 class EAdapterNotAvailable(TSAgentKitError):
     """TSFM adapter not available."""
 
@@ -318,6 +325,7 @@ ERROR_REGISTRY: dict[str, type[TSAgentKitError]] = {
     "E_MODEL_FIT_FAIL": EModelFitFailed,
     "E_MODEL_PREDICT_FAIL": EModelPredictFailed,
     "E_MODEL_LOAD_FAILED": EModelLoadFailed,
+    "E_MODEL_NOT_LOADED": EModelNotLoaded,
     "E_ADAPTER_NOT_AVAILABLE": EAdapterNotAvailable,
     "E_TSFM_REQUIRED_UNAVAILABLE": ETSFMRequiredUnavailable,
     "E_FALLBACK_EXHAUSTED": EFallbackExhausted,
@@ -359,6 +367,7 @@ __all__ = [
     "EModelFitFailed",
     "EModelPredictFailed",
     "EModelLoadFailed",
+    "EModelNotLoaded",
     "EAdapterNotAvailable",
     "ETSFMRequiredUnavailable",
     "EFallbackExhausted",

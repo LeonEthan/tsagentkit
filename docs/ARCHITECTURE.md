@@ -87,7 +87,11 @@ flowchart TD
 - `eval/`: metric computation and aggregation
 - `calibration/`: interval/quantile calibration
 - `anomaly/`: anomaly scoring and detection
-- `serving/`: orchestration, artifact packaging, structured logging
+- `serving/`: orchestration, artifact packaging, structured logging, and session runtime (`TSAgentSession` + `ModelPool`)
+
+Serving runtime note:
+- `ModelPool` is the canonical TSFM lifecycle manager for session-oriented runs.
+- `TSFMModelCache` remains a compatibility utility and delegates model loading through the same adapter-loading path.
 
 ## 5. Maintainability and Reuse Strategy (Ecosystem Alignment)
 
@@ -202,6 +206,7 @@ The following should be treated as **stable APIs** (assembly-first primary path)
 
 Compatibility API:
 - `run_forecast()` (convenience wrapper, stable semantics)
+- `TSFMModelCache` / `get_tsfm_model()` / `clear_tsfm_cache()` (compatibility helpers)
 
 Compatibility boundary (must remain stable):
 - Step-level composition semantics and `package_run()` artifact field semantics

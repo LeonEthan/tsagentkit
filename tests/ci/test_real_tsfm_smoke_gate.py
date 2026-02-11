@@ -66,6 +66,8 @@ def test_real_adapter_minimal_smoke_gate() -> None:
             _adapter = get_tsfm_model(adapter_name, **kwargs)
             # Build config explicitly to validate creation path without mocks.
             _ = AdapterConfig(model_name=adapter_name, **kwargs)
+            if not _adapter.is_loaded:
+                _adapter.load_model()
             result = _adapter.predict(dataset, horizon=dataset.task_spec.horizon)
 
             assert not result.df.empty

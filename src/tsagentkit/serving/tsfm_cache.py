@@ -7,6 +7,7 @@ Provides model caching and lazy loading for TSFM adapters to enable
 from __future__ import annotations
 
 import threading
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -104,6 +105,11 @@ class TSFMModelCache:
         """
         with self._lock:
             if model_name is None:
+                for model in self._cache.values():
+                    try:
+                        model.unload_model()
+                    except Exception:  # noqa: BLE001
+                        continue
                 self._cache.clear()
                 self._metadata.clear()
             else:
@@ -111,6 +117,10 @@ class TSFMModelCache:
                     k for k, v in self._metadata.items() if v.get("model_name") == model_name
                 ]
                 for key in keys_to_remove:
+                    model = self._cache.get(key)
+                    if model is not None:
+                        with suppress(Exception):
+                            model.unload_model()
                     del self._cache[key]
                     del self._metadata[key]
 
@@ -146,11 +156,12 @@ class TSFMModelCache:
         return f"{model_name}:{kv_str}"
 
     def _load_model(self, model_name: str, **kwargs) -> TSFMAdapter:
-        """Load a TSFM model via the adapter registry."""
-        from tsagentkit.models.adapters import AdapterConfig, AdapterRegistry
+        """Load a TSFM model via ModelPool-backed adapter loading."""
+        from tsagentkit.models.adapters import AdapterRegistry
+        from tsagentkit.serving.model_pool import ModelPool, ModelPoolConfig
 
         try:
-            adapter_class = AdapterRegistry.get(model_name)
+            AdapterRegistry.get(model_name)
         except ValueError as exc:
             from tsagentkit.contracts import EAdapterNotAvailable
 
@@ -159,9 +170,22 @@ class TSFMModelCache:
                 context={"adapter_name": model_name, "error": str(exc)},
             ) from exc
 
+        load_kwargs = dict(kwargs)
+        model_size = str(load_kwargs.pop("model_size", load_kwargs.pop("pipeline", "base")))
+        device = load_kwargs.pop("device", None)
+        pool = ModelPool(
+            ModelPoolConfig(
+                adapters=(model_name,),
+                model_size_by_adapter={model_name: model_size},
+                adapter_kwargs_by_adapter={model_name: load_kwargs},
+                device=device,
+                preload=False,
+                allow_lazy_load_on_miss=True,
+            )
+        )
+
         try:
-            config = AdapterConfig(model_name=model_name, **kwargs)
-            return adapter_class(config)
+            return pool.get(model_name)
         except Exception as exc:
             from tsagentkit.contracts import EModelLoadFailed
 

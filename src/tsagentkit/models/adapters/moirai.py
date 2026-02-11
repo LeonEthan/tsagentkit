@@ -8,11 +8,13 @@ Reference: https://github.com/SalesforceAIResearch/uni2ts
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
+from tsagentkit.models.telemetry import record_tsfm_model_load
 from tsagentkit.time import normalize_pandas_freq
 from tsagentkit.utils import quantile_col_name
 
@@ -65,7 +67,11 @@ class MoiraiAdapter(TSFMAdapter):
                 "Install with: pip install 'uni2ts @ git+https://github.com/SalesforceAIResearch/uni2ts.git'"
             ) from e
 
+        start = time.perf_counter()
         self._module = Moirai2Module.from_pretrained(self.MODEL_ID)
+        self._model = self._module
+        duration_ms = (time.perf_counter() - start) * 1000.0
+        record_tsfm_model_load(self.config.model_name, duration_ms)
 
     def fit(
         self,
@@ -87,8 +93,7 @@ class MoiraiAdapter(TSFMAdapter):
         """
         from tsagentkit.contracts import ModelArtifact
 
-        if not self.is_loaded:
-            self.load_model()
+        self._require_loaded("fit")
 
         self._validate_dataset(dataset)
 
@@ -119,8 +124,7 @@ class MoiraiAdapter(TSFMAdapter):
         Returns:
             ForecastResult with predictions and provenance
         """
-        if not self.is_loaded:
-            self.load_model()
+        self._require_loaded("predict")
 
         try:
             from gluonts.dataset.common import ListDataset

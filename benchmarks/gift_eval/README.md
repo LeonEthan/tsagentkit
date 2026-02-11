@@ -49,14 +49,29 @@ uv run python run_eval.py --download --storage-path ./data
 Run one dataset:
 
 ```bash
-uv run python run_eval.py --dataset m4_hourly --term short --mode standard
+uv run python run_eval.py \
+  --dataset m4_hourly \
+  --term short \
+  --mode standard \
+  --preload-adapters chronos
 ```
 
 Run all configurations with resume:
 
 ```bash
-uv run python run_eval.py --all --mode standard --resume --batch-size 512
+uv run python run_eval.py \
+  --all \
+  --mode standard \
+  --resume \
+  --batch-size 512 \
+  --preload-adapters chronos moirai
 ```
+
+Runtime notes:
+- The benchmark runner uses one long-lived `TSAgentKitPredictor` process-wide.
+- Predictor runtime is session-oriented (`TSAgentSession` + `ModelPool`) with eager preload.
+- `--preload-adapters` supports up to 3 adapters; default is `chronos`.
+- `results/runtime_stats.jsonl` records per-dataset load/predict timings.
 
 Analyze results:
 
@@ -104,3 +119,4 @@ cat RUNBOOK.md
 - Phase 2: implemented
 - Phase 4: implemented
 - Phase 5: implemented
+- Phase 6: implemented
