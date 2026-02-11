@@ -120,6 +120,21 @@ def make_plan(
             )
         allow_baseline = availability.allow_non_tsfm_fallback
 
+    # For multi-mode backtest, ensure all candidates are included for evaluation
+    # This allows per-series model selection based on backtest metrics
+    if task_spec.backtest.mode == "multi" and task_spec.backtest.select_from_candidates:
+        # Combine TSFM models with all statistical candidates
+        all_candidates = tsfm_models + list(thresholds.default_candidates)
+        # Remove duplicates while preserving order
+        seen: set[str] = set()
+        unique_candidates: list[str] = []
+        for c in all_candidates:
+            if c not in seen:
+                seen.add(c)
+                unique_candidates.append(c)
+        candidates = unique_candidates
+        allow_baseline = True  # Allow all candidates in multi-mode
+
     plan = PlanSpec(
         plan_name="default",
         candidate_models=candidates,

@@ -19,7 +19,10 @@ __version__ = "1.1.3"
 from tsagentkit.anomaly import detect_anomalies
 from tsagentkit.backtest import (
     BacktestReport,
+    MultiModelBacktestReport,
+    SeriesModelRanking,
     mase,
+    multi_model_backtest,
     rolling_backtest,
     smape,
     wape,
@@ -27,6 +30,7 @@ from tsagentkit.backtest import (
 from tsagentkit.calibration import apply_calibrator, fit_calibrator
 from tsagentkit.contracts import (
     AdapterCapabilitySpec,
+    BacktestMode,
     DryRunResult,
     ECovariateLeakage,
     ESplitRandomForbidden,
@@ -50,9 +54,12 @@ from tsagentkit.discovery import describe
 from tsagentkit.eval import MetricFrame, ScoreSummary, evaluate_forecasts
 from tsagentkit.models import (
     fit,
+    fit_per_series,
+    fit_predict_per_series,
     get_adapter_capability,
     list_adapter_capabilities,
     predict,
+    predict_per_series,
 )
 from tsagentkit.qa import run_qa
 
@@ -111,6 +118,7 @@ __all__ = [
     # Core contracts
     "TaskSpec",
     "TSFMPolicy",
+    "BacktestMode",
     "ValidationReport",
     "ForecastResult",
     "ModelArtifact",
@@ -144,6 +152,9 @@ __all__ = [
     "ScoreSummary",
     "fit",
     "predict",
+    "fit_per_series",
+    "predict_per_series",
+    "fit_predict_per_series",
     "get_adapter_capability",
     "list_adapter_capabilities",
     # Router
@@ -164,7 +175,10 @@ __all__ = [
     "SeriesBucket",
     # Backtest
     "BacktestReport",
+    "MultiModelBacktestReport",
+    "SeriesModelRanking",
     "rolling_backtest",
+    "multi_model_backtest",
     "wape",
     "smape",
     "mase",

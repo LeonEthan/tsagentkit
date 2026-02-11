@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
 
-from tsagentkit.backtest import rolling_backtest
+from tsagentkit.backtest import multi_model_backtest, rolling_backtest
 from tsagentkit.contracts import (
     AnomalySpec,
     CalibratorSpec,
@@ -481,6 +481,7 @@ def _run_forecast_impl(
 
     # Step 5: Backtest (if standard or strict mode)
     backtest_report = None
+    selection_map: dict[str, str] | None = None  # For per-series model selection
     if mode in ("standard", "strict"):
         step_start = time.time()
         try:
@@ -499,29 +500,59 @@ def _run_forecast_impl(
             # the caller explicitly sets backtest.step.
             step_size = backtest_cfg.step if "step" in backtest_cfg.model_fields_set else None
 
-            backtest_report = rolling_backtest(
-                dataset=dataset,
-                spec=task_spec,
-                plan=plan,
-                fit_func=fit_func,
-                predict_func=predict_func,
-                n_windows=n_windows,
-                step_size=step_size,
-                min_train_size=min_train_size,
-                route_decision=route_decision,
-            )
-            events.append(
-                log_event(
-                    step_name="rolling_backtest",
-                    status="success",
-                    duration_ms=(time.time() - step_start) * 1000,
-                    artifacts_generated=["backtest_report"],
+            # Check if multi-mode backtest is enabled
+            if backtest_cfg.mode == "multi":
+                # Multi-model backtest with per-series selection
+                multi_report = multi_model_backtest(
+                    dataset=dataset,
+                    spec=task_spec,
+                    plan=plan,
+                    selection_metric=backtest_cfg.selection_metric,
+                    n_windows=n_windows,
+                    min_train_size=min_train_size,
+                    step_size=step_size,
+                    fit_func=fit_func,
+                    predict_func=predict_func,
                 )
-            )
+                backtest_report = multi_report
+                selection_map = multi_report.selection_map
+                events.append(
+                    log_event(
+                        step_name="multi_model_backtest",
+                        status="success",
+                        duration_ms=(time.time() - step_start) * 1000,
+                        artifacts_generated=["multi_model_backtest_report", "selection_map"],
+                        context={
+                            "n_candidates": len(multi_report.candidate_models),
+                            "model_distribution": multi_report.get_model_distribution(),
+                        },
+                    )
+                )
+            else:
+                # Legacy single-model backtest
+                backtest_report = rolling_backtest(
+                    dataset=dataset,
+                    spec=task_spec,
+                    plan=plan,
+                    fit_func=fit_func,
+                    predict_func=predict_func,
+                    n_windows=n_windows,
+                    step_size=step_size,
+                    min_train_size=min_train_size,
+                    route_decision=route_decision,
+                )
+                events.append(
+                    log_event(
+                        step_name="rolling_backtest",
+                        status="success",
+                        duration_ms=(time.time() - step_start) * 1000,
+                        artifacts_generated=["backtest_report"],
+                    )
+                )
         except Exception as e:
             events.append(
                 log_event(
-                    step_name="rolling_backtest",
+                    step_name="backtest",
                     status="failed",
                     duration_ms=(time.time() - step_start) * 1000,
                     error_code=type(e).__name__,
@@ -543,43 +574,96 @@ def _run_forecast_impl(
             }
         )
 
-    model_artifact = _step_fit(
-        dataset=dataset,
-        plan=plan,
-        fit_func=fit_func,
-        on_fallback=on_fallback,
-        covariates=aligned_dataset,
-    )
+    # Track whether we're using per-series or single-model fitting
+    model_artifact = None  # Single model artifact (legacy)
+    model_artifacts: dict[str, Any] | None = None  # Per-series model artifacts (multi-mode)
 
-    events.append(
-        log_event(
-            step_name="fit",
-            status="success",
-            duration_ms=(time.time() - step_start) * 1000,
-            artifacts_generated=["model_artifact"],
+    if selection_map is not None:
+        # Per-series model selection: fit each model on its assigned series
+        from tsagentkit.models import fit_per_series
+
+        model_artifacts = fit_per_series(
+            dataset=dataset,
+            plan=plan,
+            selection_map=selection_map,
+            fit_func=fit_func,
+            on_fallback=on_fallback,
         )
-    )
+        events.append(
+            log_event(
+                step_name="fit_per_series",
+                status="success",
+                duration_ms=(time.time() - step_start) * 1000,
+                artifacts_generated=["model_artifacts"],
+                context={
+                    "n_models": len(model_artifacts),
+                    "models": list(model_artifacts.keys()),
+                },
+            )
+        )
+    else:
+        # Legacy single-model fitting
+        model_artifact = _step_fit(
+            dataset=dataset,
+            plan=plan,
+            fit_func=fit_func,
+            on_fallback=on_fallback,
+            covariates=aligned_dataset,
+        )
+        events.append(
+            log_event(
+                step_name="fit",
+                status="success",
+                duration_ms=(time.time() - step_start) * 1000,
+                artifacts_generated=["model_artifact"],
+            )
+        )
 
     # Step 7: Predict
     step_start = time.time()
     try:
-        forecast_df = _step_predict(
-            artifact=model_artifact,
-            dataset=dataset,
-            task_spec=task_spec,
-            predict_func=predict_func,
-            plan=plan,
-            covariates=aligned_dataset,
-            reconciliation_method=reconciliation_method,
-        )
-        events.append(
-            log_event(
-                step_name="predict",
-                status="success",
-                duration_ms=(time.time() - step_start) * 1000,
-                artifacts_generated=["forecast"],
+        if selection_map is not None and model_artifacts is not None:
+            # Per-series prediction using fitted model for each series
+            from tsagentkit.models import predict_per_series
+
+            forecast_df = predict_per_series(
+                dataset=dataset,
+                artifacts=model_artifacts,
+                selection_map=selection_map,
+                spec=task_spec,
+                predict_func=predict_func,
             )
-        )
+            # Normalize forecast dataframe
+            forecast_df = normalize_quantile_columns(forecast_df)
+            if {"unique_id", "ds"}.issubset(forecast_df.columns):
+                forecast_df = forecast_df.sort_values(["unique_id", "ds"]).reset_index(drop=True)
+            events.append(
+                log_event(
+                    step_name="predict_per_series",
+                    status="success",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    artifacts_generated=["forecast"],
+                )
+            )
+        else:
+            # Legacy single-model prediction
+            forecast_df = _step_predict(
+                artifact=model_artifact,
+                dataset=dataset,
+                task_spec=task_spec,
+                predict_func=predict_func,
+                plan=plan,
+                covariates=aligned_dataset,
+                reconciliation_method=reconciliation_method,
+            )
+            events.append(
+                log_event(
+                    step_name="predict",
+                    status="success",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    artifacts_generated=["forecast"],
+                )
+            )
     except Exception as e:
         events.append(
             log_event(
@@ -591,6 +675,9 @@ def _run_forecast_impl(
         )
         if not should_trigger_fallback(e):
             raise
+        # Fallback only available for single-model mode
+        if selection_map is not None:
+            raise  # Per-series mode doesn't support fallback
         try:
             model_artifact, forecast_df = _fit_predict_with_fallback(
                 dataset=dataset,
@@ -630,13 +717,15 @@ def _run_forecast_impl(
         try:
             from tsagentkit.calibration import apply_calibrator, fit_calibrator
 
-            if backtest_report is None or backtest_report.cv_frame is None:
+            # Check for cv_frame (may not exist in MultiModelBacktestReport)
+            cv_frame = getattr(backtest_report, "cv_frame", None)
+            if cv_frame is None:
                 raise ECalibrationFail(
-                    "Calibration requires CV residuals from backtest.",
-                    context={"mode": mode},
+                    "Calibration requires CV residuals from backtest. "
+                    "Multi-model backtest mode does not support calibration.",
+                    context={"mode": mode, "backtest_mode": getattr(backtest_report, "mode", "single")},
                 )
 
-            cv_frame = backtest_report.cv_frame
             if hasattr(cv_frame, "df"):
                 cv_frame = cv_frame.df
 
@@ -771,10 +860,23 @@ def _run_forecast_impl(
     )
 
     # Step 12: Package
+    # Determine model name(s) for provenance
+    if selection_map is not None and model_artifacts is not None:
+        # Per-series mode: summarize the model distribution
+        model_names = sorted(set(selection_map.values()))
+        model_name_str = f"per_series({','.join(model_names)})"
+        # For per-series mode, use the first artifact as reference for packaging
+        # (the actual model used varies per series and is in selection_map)
+        primary_artifact = next(iter(model_artifacts.values())) if model_artifacts else None
+    else:
+        # Single-model mode
+        model_name_str = model_artifact.model_name if model_artifact else "unknown"
+        primary_artifact = model_artifact
+
     forecast_result = ForecastResult(
         df=forecast_df,
         provenance=provenance,
-        model_name=model_artifact.model_name,
+        model_name=model_name_str,
         horizon=task_spec.horizon,
     )
     artifact = package_run(
@@ -784,7 +886,7 @@ def _run_forecast_impl(
         validation_report=validation.to_dict() if validation else None,
         backtest_report=backtest_report,
         qa_report=qa_report,
-        model_artifact=model_artifact,
+        model_artifact=primary_artifact,
         provenance=provenance,
         calibration_artifact=calibration_payload_dict(calibration_artifact),
         anomaly_report=anomaly_payload_dict(anomaly_report),
@@ -793,6 +895,7 @@ def _run_forecast_impl(
             "mode": mode,
             "total_duration_ms": (time.time() - start_time) * 1000,
             "events": events,
+            "per_series_selection": selection_map is not None,
         },
     )
 
