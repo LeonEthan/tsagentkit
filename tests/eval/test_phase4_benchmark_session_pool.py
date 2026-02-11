@@ -2,23 +2,11 @@
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
 
-_PREDICTOR_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "benchmarks"
-    / "gift_eval"
-    / "eval"
-    / "predictor.py"
-)
-_SPEC = importlib.util.spec_from_file_location("gift_eval_predictor", _PREDICTOR_PATH)
-assert _SPEC is not None and _SPEC.loader is not None
-predictor_mod = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(predictor_mod)
+from tsagentkit.gift_eval import predictor as predictor_mod
 
 
 def _fake_panel_and_meta() -> tuple[pd.DataFrame, dict[str, dict[str, object]]]:

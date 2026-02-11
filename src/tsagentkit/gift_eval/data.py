@@ -239,3 +239,18 @@ MED_LONG_DATASETS = [
     "bizitobs_l2c/5T",
     "bizitobs_l2c/H",
 ]
+
+
+def get_all_dataset_terms() -> list[tuple[str, str]]:
+    """Return the canonical full matrix of (dataset, term) configurations."""
+    configs: list[tuple[str, str]] = [(dataset, "short") for dataset in SHORT_DATASETS]
+    for dataset in MED_LONG_DATASETS:
+        configs.extend([(dataset, "medium"), (dataset, "long")])
+    return configs
+
+
+DATASETS_WITH_TERMS = tuple(get_all_dataset_terms())
+FULL_MATRIX_SIZE = len(DATASETS_WITH_TERMS)
+
+# Keep this alias to match upstream naming conventions (`gift_eval.data.Dataset`).
+Dataset = GIFTEvalDataset

@@ -3630,16 +3630,20 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "chronos-forecasting" },
+    { name = "datasets" },
     { name = "gluonts" },
     { name = "hierarchicalforecast" },
     { name = "huggingface-hub" },
     { name = "import-linter" },
     { name = "mypy" },
+    { name = "pyarrow" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "sktime" },
+    { name = "toolz" },
     { name = "torch" },
+    { name = "tqdm" },
     { name = "tsagentkit-timesfm" },
     { name = "tsagentkit-uni2ts" },
     { name = "tsfeatures" },
@@ -3652,15 +3656,27 @@ features = [
 ]
 full = [
     { name = "chronos-forecasting" },
+    { name = "datasets" },
     { name = "gluonts" },
     { name = "hierarchicalforecast" },
     { name = "huggingface-hub" },
+    { name = "pyarrow" },
     { name = "sktime" },
+    { name = "toolz" },
     { name = "torch" },
+    { name = "tqdm" },
     { name = "tsagentkit-timesfm" },
     { name = "tsagentkit-uni2ts" },
     { name = "tsfeatures" },
     { name = "tsfresh" },
+]
+gift-eval = [
+    { name = "datasets" },
+    { name = "gluonts" },
+    { name = "huggingface-hub" },
+    { name = "pyarrow" },
+    { name = "toolz" },
+    { name = "tqdm" },
 ]
 hierarchy = [
     { name = "hierarchicalforecast" },
@@ -3677,13 +3693,17 @@ tsfm = [
 [package.metadata]
 requires-dist = [
     { name = "chronos-forecasting", marker = "extra == 'tsfm'", specifier = ">=2.0.0" },
+    { name = "datasets", marker = "extra == 'gift-eval'", specifier = ">=2.14.0" },
+    { name = "gluonts", marker = "extra == 'gift-eval'" },
     { name = "gluonts", marker = "extra == 'tsfm'" },
     { name = "hierarchicalforecast", marker = "extra == 'hierarchy'", specifier = ">=1.0.0" },
+    { name = "huggingface-hub", marker = "extra == 'gift-eval'" },
     { name = "huggingface-hub", marker = "extra == 'tsfm'" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pandas", specifier = ">=2.0.0" },
+    { name = "pyarrow", marker = "extra == 'gift-eval'", specifier = ">=12.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
@@ -3691,9 +3711,11 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.11.3,<1.12.0" },
     { name = "sktime", marker = "extra == 'features'", specifier = ">=0.24.0" },
     { name = "statsforecast", specifier = ">=1.7.0" },
+    { name = "toolz", marker = "extra == 'gift-eval'", specifier = ">=0.12.0" },
     { name = "torch", marker = "extra == 'tsfm'" },
+    { name = "tqdm", marker = "extra == 'gift-eval'", specifier = ">=4.65.0" },
     { name = "tsagentkit", extras = ["full"], marker = "extra == 'dev'" },
-    { name = "tsagentkit", extras = ["tsfm", "hierarchy", "features"], marker = "extra == 'full'" },
+    { name = "tsagentkit", extras = ["tsfm", "gift-eval", "hierarchy", "features"], marker = "extra == 'full'" },
     { name = "tsagentkit-timesfm", marker = "extra == 'tsfm'" },
     { name = "tsagentkit-uni2ts", marker = "extra == 'tsfm'" },
     { name = "tsfeatures", marker = "extra == 'features'", specifier = ">=0.4.5" },
@@ -3701,7 +3723,7 @@ requires-dist = [
     { name = "typing-extensions", specifier = ">=4.0.0" },
     { name = "utilsforecast", specifier = ">=0.1.0" },
 ]
-provides-extras = ["tsfm", "hierarchy", "features", "full", "dev"]
+provides-extras = ["tsfm", "gift-eval", "hierarchy", "features", "full", "dev"]
 
 [[package]]
 name = "tsagentkit-timesfm"

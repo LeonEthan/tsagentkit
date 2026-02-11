@@ -23,6 +23,14 @@ tsfm = [
     "tsagentkit-uni2ts",
     "gluonts",
 ]
+gift-eval = [
+    "datasets>=2.14.0",
+    "gluonts",
+    "huggingface-hub",
+    "pyarrow>=12.0.0",
+    "toolz>=0.12.0",
+    "tqdm>=4.65.0",
+]
 hierarchy = [
     "hierarchicalforecast>=1.0.0",
 ]
@@ -32,7 +40,7 @@ features = [
     "sktime>=0.24.0",
 ]
 full = [
-    "tsagentkit[tsfm,hierarchy,features]",
+    "tsagentkit[tsfm,gift-eval,hierarchy,features]",
 ]
 dev = [
     "tsagentkit[full]",
