@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "Isolated GIFT-Eval benchmark workspace for local tsagentkit development"
 requires-python = ">=3.11"
 dependencies = [
-    "tsagentkit",
+    "tsagentkit[tsfm]",
     "datasets>=2.14.0",
-    "gluonts>=0.15.0",
+    "gluonts>=0.14.3,<0.15",
     "huggingface-hub>=0.16.0",
     "numpy>=1.24.0",
     "pandas>=2.0.0",
