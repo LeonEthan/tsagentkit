@@ -63,6 +63,7 @@ class MultiModelBacktestReport:
         selection_map: Quick lookup mapping unique_id to best model
         n_windows: Number of backtest windows
         strategy: Window strategy used
+        metadata: Additional backtest metadata (e.g., step_size)
     """
 
     per_model_reports: dict[str, BacktestReport] = field(default_factory=dict)
@@ -72,6 +73,7 @@ class MultiModelBacktestReport:
     selection_map: dict[str, str] = field(default_factory=dict)
     n_windows: int = 0
     strategy: str = "expanding"
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def get_model_for_series(self, unique_id: str) -> str | None:
         """Get the best model for a specific series.
@@ -114,6 +116,7 @@ class MultiModelBacktestReport:
             "selection_map": self.selection_map,
             "n_windows": self.n_windows,
             "strategy": self.strategy,
+            "metadata": self.metadata,
             "model_distribution": self.get_model_distribution(),
             "series_rankings": {
                 uid: ranking.to_dict() for uid, ranking in self.series_rankings.items()
@@ -235,6 +238,7 @@ def multi_model_backtest(
         selection_map=selection_map,
         n_windows=actual_n_windows,
         strategy=strategy,
+        metadata={"step_size": step_size if step_size is not None else spec.h},
     )
 
 

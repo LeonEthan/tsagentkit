@@ -28,7 +28,6 @@ AnomalyMethod = Literal["interval_breach", "conformal", "mad_residual"]
 SeasonalityMethod = Literal["acf", "stl", "periodogram"]
 CovariatePolicy = Literal["ignore", "known", "observed", "auto", "spec"]
 TSFMMode = Literal["preferred", "required", "disabled"]
-BacktestMode = Literal["single", "multi"]  # single=legacy, multi=per-series selection
 PlanNodeKind = Literal[
     "validate",
     "qa",
@@ -101,20 +100,15 @@ class BacktestSpec(BaseSpec):
         step: Step size between windows
         min_train_size: Minimum training observations per series
         regularize_grid: Whether to regularize the time grid
-        mode: Backtest mode - "single" (legacy) or "multi" (per-series selection)
         selection_metric: Metric for per-series model selection (default: "smape")
-        select_from_candidates: Whether to select best model from all candidates
     """
 
     h: int | None = Field(None, gt=0)
     n_windows: int = Field(5, gt=0)
-    step: int = Field(1, gt=0)
+    step: int | None = Field(None, gt=0)  # Defaults to horizon in orchestration
     min_train_size: int = Field(56, gt=1)
     regularize_grid: bool = True
-    # Multi-model backtest fields
-    mode: BacktestMode = "single"  # default to legacy behavior for backward compat
     selection_metric: str = "smape"  # metric for per-series selection
-    select_from_candidates: bool = True  # whether to select from all candidates
 
 
 class TaskSpec(BaseSpec):
@@ -261,7 +255,7 @@ class TaskSpec(BaseSpec):
 
         Uses ``tsfm_policy.mode='preferred'`` (falls back to statistical
         baselines when TSFM adapters are unavailable) and a small backtest
-        with 2 windows. Uses single-model backtest mode for simplicity.
+        with 2 windows.
 
         Args:
             h: Forecast horizon.
@@ -274,7 +268,7 @@ class TaskSpec(BaseSpec):
             h=h,
             freq=freq,
             tsfm_policy=TSFMPolicy(mode="preferred"),
-            backtest=BacktestSpec(n_windows=2, mode="single"),
+            backtest=BacktestSpec(n_windows=2),
         )
 
     @classmethod
@@ -476,7 +470,6 @@ __all__ = [
     "AggregationMode",
     "AnomalyMethod",
     "AnomalySpec",
-    "BacktestMode",
     "BacktestSpec",
     "BaseSpec",
     "CalibratorSpec",

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
 
-from tsagentkit.backtest import multi_model_backtest, rolling_backtest
+from tsagentkit.backtest import multi_model_backtest
 from tsagentkit.contracts import (
     AnomalySpec,
     CalibratorSpec,
@@ -498,57 +498,34 @@ def _run_forecast_impl(
             min_train_size = backtest_cfg.min_train_size
             # Preserve historical default behavior (step=horizon) unless
             # the caller explicitly sets backtest.step.
-            step_size = backtest_cfg.step if "step" in backtest_cfg.model_fields_set else None
+            step_size = backtest_cfg.step if backtest_cfg.step is not None else task_spec.h
 
-            # Check if multi-mode backtest is enabled
-            if backtest_cfg.mode == "multi":
-                # Multi-model backtest with per-series selection
-                multi_report = multi_model_backtest(
-                    dataset=dataset,
-                    spec=task_spec,
-                    plan=plan,
-                    selection_metric=backtest_cfg.selection_metric,
-                    n_windows=n_windows,
-                    min_train_size=min_train_size,
-                    step_size=step_size,
-                    fit_func=fit_func,
-                    predict_func=predict_func,
+            # Multi-model backtest with per-series selection (default behavior)
+            multi_report = multi_model_backtest(
+                dataset=dataset,
+                spec=task_spec,
+                plan=plan,
+                selection_metric=backtest_cfg.selection_metric,
+                n_windows=n_windows,
+                min_train_size=min_train_size,
+                step_size=step_size,
+                fit_func=fit_func,
+                predict_func=predict_func,
+            )
+            backtest_report = multi_report
+            selection_map = multi_report.selection_map
+            events.append(
+                log_event(
+                    step_name="backtest",
+                    status="success",
+                    duration_ms=(time.time() - step_start) * 1000,
+                    artifacts_generated=["backtest_report", "selection_map"],
+                    context={
+                        "n_candidates": len(multi_report.candidate_models),
+                        "model_distribution": multi_report.get_model_distribution(),
+                    },
                 )
-                backtest_report = multi_report
-                selection_map = multi_report.selection_map
-                events.append(
-                    log_event(
-                        step_name="multi_model_backtest",
-                        status="success",
-                        duration_ms=(time.time() - step_start) * 1000,
-                        artifacts_generated=["multi_model_backtest_report", "selection_map"],
-                        context={
-                            "n_candidates": len(multi_report.candidate_models),
-                            "model_distribution": multi_report.get_model_distribution(),
-                        },
-                    )
-                )
-            else:
-                # Legacy single-model backtest
-                backtest_report = rolling_backtest(
-                    dataset=dataset,
-                    spec=task_spec,
-                    plan=plan,
-                    fit_func=fit_func,
-                    predict_func=predict_func,
-                    n_windows=n_windows,
-                    step_size=step_size,
-                    min_train_size=min_train_size,
-                    route_decision=route_decision,
-                )
-                events.append(
-                    log_event(
-                        step_name="rolling_backtest",
-                        status="success",
-                        duration_ms=(time.time() - step_start) * 1000,
-                        artifacts_generated=["backtest_report"],
-                    )
-                )
+            )
         except Exception as e:
             events.append(
                 log_event(

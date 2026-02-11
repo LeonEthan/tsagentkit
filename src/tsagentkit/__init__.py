@@ -30,7 +30,6 @@ from tsagentkit.backtest import (
 from tsagentkit.calibration import apply_calibrator, fit_calibrator
 from tsagentkit.contracts import (
     AdapterCapabilitySpec,
-    BacktestMode,
     DryRunResult,
     ECovariateLeakage,
     ESplitRandomForbidden,
@@ -118,7 +117,6 @@ __all__ = [
     # Core contracts
     "TaskSpec",
     "TSFMPolicy",
-    "BacktestMode",
     "ValidationReport",
     "ForecastResult",
     "ModelArtifact",
