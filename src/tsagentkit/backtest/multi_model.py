@@ -124,7 +124,7 @@ class MultiModelBacktestReport:
     def summary(self) -> str:
         """Generate a human-readable summary."""
         lines = [
-            f"Multi-Model Backtest Report",
+            "Multi-Model Backtest Report",
             f"Selection Metric: {self.selection_metric}",
             f"Candidate Models: {', '.join(self.candidate_models)}",
             f"Windows: {self.n_windows} ({self.strategy})",

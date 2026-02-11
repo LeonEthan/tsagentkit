@@ -8,7 +8,8 @@ backtest results.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -121,10 +122,7 @@ def predict_per_series(
 
         try:
             result = predict_callable(subset, artifact, spec)
-            if isinstance(result, ForecastResult):
-                forecast_df = result.df.copy()
-            else:
-                forecast_df = result.copy()
+            forecast_df = result.df.copy() if isinstance(result, ForecastResult) else result.copy()
 
             # Ensure model column is set
             if "model" not in forecast_df.columns:
