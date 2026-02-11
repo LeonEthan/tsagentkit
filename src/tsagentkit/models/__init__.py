@@ -23,6 +23,11 @@ from tsagentkit.contracts import (
 # Import adapters submodules
 from tsagentkit.models import adapters
 from tsagentkit.models.baselines import fit_baseline, is_baseline_model, predict_baseline
+from tsagentkit.models.per_series import (
+    fit_per_series,
+    fit_predict_per_series,
+    predict_per_series,
+)
 from tsagentkit.models.sktime import SktimeModelBundle, fit_sktime, predict_sktime
 from tsagentkit.utils import normalize_quantile_columns
 
@@ -248,6 +253,9 @@ def list_adapter_capabilities(
 __all__ = [
     "fit",
     "predict",
+    "fit_per_series",
+    "predict_per_series",
+    "fit_predict_per_series",
     "adapters",
     "get_adapter_capability",
     "list_adapter_capabilities",

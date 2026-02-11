@@ -17,6 +17,11 @@ from .metrics import (
     wape,
     wql,
 )
+from .multi_model import (
+    MultiModelBacktestReport,
+    SeriesModelRanking,
+    multi_model_backtest,
+)
 from .report import (
     BacktestReport,
     SegmentMetrics,
@@ -29,6 +34,10 @@ __all__ = [
     # Engine
     "rolling_backtest",
     "cross_validation_split",
+    # Multi-model
+    "multi_model_backtest",
+    "MultiModelBacktestReport",
+    "SeriesModelRanking",
     # Report
     "BacktestReport",
     "WindowResult",
