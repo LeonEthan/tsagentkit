@@ -8,11 +8,13 @@ Reference: https://github.com/google-research/timesfm
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
+from tsagentkit.models.telemetry import record_tsfm_model_load
 from tsagentkit.time import normalize_pandas_freq
 from tsagentkit.utils import quantile_col_name
 
@@ -70,10 +72,13 @@ class TimesFMAdapter(TSFMAdapter):
         self._compiled_max_horizon = 0
 
         # Load TimesFM 2.5 model using the new API
+        start = time.perf_counter()
         self._model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
             self.MODEL_ID,
             cache_dir=self.config.cache_dir,
         )
+        duration_ms = (time.perf_counter() - start) * 1000.0
+        record_tsfm_model_load(self.config.model_name, duration_ms)
 
         # Compile with default config
         self._ensure_compiled(self.MAX_CONTEXT, self.MAX_HORIZON)
@@ -102,8 +107,7 @@ class TimesFMAdapter(TSFMAdapter):
         """
         from tsagentkit.contracts import ModelArtifact
 
-        if not self.is_loaded:
-            self.load_model()
+        self._require_loaded("fit")
 
         # Validate dataset
         self._validate_dataset(dataset)
@@ -139,8 +143,7 @@ class TimesFMAdapter(TSFMAdapter):
         Returns:
             ForecastResult with predictions and provenance
         """
-        if not self.is_loaded:
-            self.load_model()
+        self._require_loaded("predict")
 
         max_context, max_horizon = self._get_compilation_targets(dataset, horizon)
         self._ensure_compiled(max_context, max_horizon)

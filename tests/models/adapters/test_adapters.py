@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from tsagentkit.contracts import EModelNotLoaded
+
 if TYPE_CHECKING:
     pass
 
@@ -176,6 +178,40 @@ class TestTimesFMAdapter:
         signature = adapter.get_model_signature()
         assert "timesfm-2.5" in signature
         assert "cpu" in signature
+
+
+@pytest.mark.parametrize(
+    ("adapter_module", "class_name"),
+    [
+        ("tsagentkit.models.adapters.chronos", "ChronosAdapter"),
+        ("tsagentkit.models.adapters.moirai", "MoiraiAdapter"),
+        ("tsagentkit.models.adapters.timesfm", "TimesFMAdapter"),
+    ],
+)
+def test_fit_raises_when_model_not_loaded(adapter_module: str, class_name: str) -> None:
+    module = __import__(adapter_module, fromlist=[class_name])
+    adapter_cls = getattr(module, class_name)
+    adapter = adapter_cls(AdapterConfig(model_name=class_name.replace("Adapter", "").lower()))
+
+    with pytest.raises(EModelNotLoaded):
+        adapter.fit(dataset=None, prediction_length=1, quantiles=[0.5])
+
+
+@pytest.mark.parametrize(
+    ("adapter_module", "class_name"),
+    [
+        ("tsagentkit.models.adapters.chronos", "ChronosAdapter"),
+        ("tsagentkit.models.adapters.moirai", "MoiraiAdapter"),
+        ("tsagentkit.models.adapters.timesfm", "TimesFMAdapter"),
+    ],
+)
+def test_predict_raises_when_model_not_loaded(adapter_module: str, class_name: str) -> None:
+    module = __import__(adapter_module, fromlist=[class_name])
+    adapter_cls = getattr(module, class_name)
+    adapter = adapter_cls(AdapterConfig(model_name=class_name.replace("Adapter", "").lower()))
+
+    with pytest.raises(EModelNotLoaded):
+        adapter.predict(dataset=None, horizon=1, quantiles=[0.5])
 
 
 class TestAdapterRegistration:

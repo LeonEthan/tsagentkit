@@ -41,6 +41,7 @@ def test_chronos2_smoke() -> None:
         num_samples=8,
     )
     adapter = ChronosAdapter(config)
+    adapter.load_model()
     result = adapter.predict(dataset, horizon=dataset.task_spec.horizon, quantiles=[0.1, 0.5, 0.9])
 
     assert not result.df.empty
@@ -58,6 +59,7 @@ def test_timesfm25_smoke() -> None:
         device="cpu",
     )
     adapter = TimesFMAdapter(config)
+    adapter.load_model()
     result = adapter.predict(dataset, horizon=dataset.task_spec.horizon, quantiles=[0.1, 0.5, 0.9])
 
     assert not result.df.empty
@@ -76,6 +78,7 @@ def test_moirai11_smoke() -> None:
         num_samples=8,
     )
     adapter = MoiraiAdapter(config)
+    adapter.load_model()
     result = adapter.predict(dataset, horizon=dataset.task_spec.horizon, quantiles=[0.1, 0.5, 0.9])
 
     assert not result.df.empty

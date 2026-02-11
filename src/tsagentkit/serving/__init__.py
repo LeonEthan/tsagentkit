@@ -11,7 +11,8 @@ from .lifecycle import (
     save_run_artifact,
     validate_run_artifact_for_serving,
 )
-from .orchestration import MonitoringConfig, run_forecast
+from .model_pool import ModelPool, ModelPoolConfig
+from .orchestration import MonitoringConfig, TSAgentSession, run_forecast
 from .packaging import package_run
 from .provenance import (
     StructuredLogger,
@@ -26,6 +27,7 @@ from .tsfm_cache import TSFMModelCache, clear_tsfm_cache, get_tsfm_model
 __all__ = [
     # Orchestration
     "run_forecast",
+    "TSAgentSession",
     "MonitoringConfig",
     "DryRunResult",
     # Packaging
@@ -47,4 +49,7 @@ __all__ = [
     "TSFMModelCache",
     "get_tsfm_model",
     "clear_tsfm_cache",
+    # Session ModelPool (Phase 1)
+    "ModelPool",
+    "ModelPoolConfig",
 ]

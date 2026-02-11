@@ -86,6 +86,7 @@ from tsagentkit.series import (
 )
 from tsagentkit.serving import (
     MonitoringConfig,
+    TSAgentSession,
     load_run_artifact,
     package_run,
     replay_forecast_from_artifact,
@@ -169,6 +170,7 @@ __all__ = [
     "mase",
     # Serving
     "run_forecast",
+    "TSAgentSession",
     "package_run",
     "save_run_artifact",
     "load_run_artifact",

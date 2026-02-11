@@ -9,11 +9,13 @@ Reference: https://github.com/amazon-science/chronos-forecasting
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
+from tsagentkit.models.telemetry import record_tsfm_model_load
 from tsagentkit.utils import quantile_col_name
 
 from .base import TSFMAdapter
@@ -73,10 +75,13 @@ class ChronosAdapter(TSFMAdapter):
         )
 
         try:
+            start = time.perf_counter()
             self._model = Chronos2Pipeline.from_pretrained(
                 model_id,
                 device_map=self._device,
             )
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            record_tsfm_model_load(self.config.model_name, duration_ms)
         except Exception as e:
             raise RuntimeError(f"Failed to load Chronos model: {e}") from e
 
@@ -100,8 +105,7 @@ class ChronosAdapter(TSFMAdapter):
         """
         from tsagentkit.contracts import ModelArtifact
 
-        if not self.is_loaded:
-            self.load_model()
+        self._require_loaded("fit")
 
         self._validate_dataset(dataset)
 
@@ -135,8 +139,7 @@ class ChronosAdapter(TSFMAdapter):
         Returns:
             ForecastResult with predictions and provenance
         """
-        if not self.is_loaded:
-            self.load_model()
+        self._require_loaded("predict")
 
         context_df, future_df = self._to_chronos_df(dataset, horizon)
 

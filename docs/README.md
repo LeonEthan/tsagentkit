@@ -97,6 +97,9 @@ print(available)
 ```python
 from tsagentkit.serving import (
     MonitoringConfig,
+    TSAgentSession,
+    ModelPool,
+    ModelPoolConfig,
     run_forecast,
     package_run,
     save_run_artifact,
@@ -120,6 +123,7 @@ from tsagentkit.features import FeatureConfig, FeatureFactory
 `validate_contract` -> `run_qa` -> `build_dataset` -> `make_plan` -> `fit` -> `predict` -> `package_run`
 
 For one-call orchestration, use `run_forecast(...)`.
+For long-lived TSFM serving/eval loops, use `TSAgentSession` with `ModelPool`.
 
 ## Developer Commands
 

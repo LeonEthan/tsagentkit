@@ -209,6 +209,22 @@ class TSFMAdapter(ABC):
         """
         self._model = None
 
+    def _require_loaded(self, operation: str) -> None:
+        """Ensure adapter model is already loaded by caller."""
+        if self.is_loaded:
+            return
+        from tsagentkit.contracts import EModelNotLoaded
+
+        raise EModelNotLoaded(
+            f"Cannot call {operation} on adapter '{self.config.model_name}' before model is loaded.",
+            context={
+                "adapter_name": self.config.model_name,
+                "operation": operation,
+                "model_size": self.config.model_size,
+                "device": self._device,
+            },
+        )
+
     def _validate_dataset(self, dataset: TSDataset) -> None:
         """Validate dataset compatibility.
 

@@ -23,6 +23,7 @@ uv run python run_eval.py \
   --term short \
   --mode quick \
   --max-datasets 1 \
+  --preload-adapters chronos \
   --storage-path ./data \
   --output-path ./results
 ```
@@ -35,6 +36,7 @@ uv run python run_eval.py \
   --mode standard \
   --resume \
   --batch-size 512 \
+  --preload-adapters chronos moirai \
   --storage-path ./data \
   --output-path ./results
 ```
@@ -72,3 +74,13 @@ uv run python prepare_submission.py \
 ```
 
 For smoke-only artifacts, add `--allow-partial`.
+
+## 7. Runtime Policy Notes
+
+- Benchmark runtime is process-scoped and reuses one `TSAgentKitPredictor` across datasets.
+- TSFM models are preloaded once via `ModelPool` (max 3 adapters).
+- If GPU memory is constrained:
+  - Start with `--preload-adapters chronos`
+  - Add `moirai` only when needed for fallback coverage
+  - Add `timesfm` only if budget allows
+- `runtime_stats.jsonl` is the source of truth for load count/time reductions.

@@ -76,7 +76,7 @@ class MonitoringConfig:
     jitter_threshold: float = 0.1
 
 
-def run_forecast(
+def _run_forecast_impl(
     data: pd.DataFrame,
     task_spec: TaskSpec,
     covariates: CovariateBundle | None = None,
@@ -797,6 +797,136 @@ def run_forecast(
     )
 
     return artifact
+
+
+@dataclass
+class TSAgentSession:
+    """Class-backed orchestration session.
+
+    Phase 3 introduces a session abstraction while keeping existing
+    ``run_forecast`` API behavior via a compatibility wrapper.
+    """
+
+    mode: Literal["quick", "standard", "strict"] = "standard"
+    task_spec_defaults: dict[str, Any] | None = None
+    model_pool: Any | None = None
+
+    def run(
+        self,
+        data: pd.DataFrame,
+        task_spec: TaskSpec,
+        covariates: CovariateBundle | None = None,
+        mode: Literal["quick", "standard", "strict"] | None = None,
+        fit_func: Any | None = None,
+        predict_func: Any | None = None,
+        monitoring_config: MonitoringConfig | None = None,
+        reference_data: pd.DataFrame | None = None,
+        repair_strategy: dict[str, Any] | None = None,
+        hierarchy: HierarchyStructure | None = None,
+        feature_config: FeatureConfig | None = None,
+        calibrator_spec: CalibratorSpec | None = None,
+        anomaly_spec: AnomalySpec | None = None,
+        reconciliation_method: str = "bottom_up",
+        dry_run: bool = False,
+    ) -> RunArtifact | DryRunResult:
+        """Run forecasting pipeline within this session."""
+        effective_mode = mode or self.mode
+        _ = self.task_spec_defaults
+        _ = self.model_pool
+        return _run_forecast_impl(
+            data=data,
+            task_spec=task_spec,
+            covariates=covariates,
+            mode=effective_mode,
+            fit_func=fit_func,
+            predict_func=predict_func,
+            monitoring_config=monitoring_config,
+            reference_data=reference_data,
+            repair_strategy=repair_strategy,
+            hierarchy=hierarchy,
+            feature_config=feature_config,
+            calibrator_spec=calibrator_spec,
+            anomaly_spec=anomaly_spec,
+            reconciliation_method=reconciliation_method,
+            dry_run=dry_run,
+        )
+
+    def fit(
+        self,
+        dataset: TSDataset,
+        plan: Any,
+        fit_func: Any | None = None,
+        on_fallback: Any | None = None,
+        covariates: AlignedDataset | None = None,
+    ) -> Any:
+        """Fit step entrypoint for session consumers."""
+        return _step_fit(
+            dataset=dataset,
+            plan=plan,
+            fit_func=fit_func,
+            on_fallback=on_fallback,
+            covariates=covariates,
+        )
+
+    def predict(
+        self,
+        artifact: Any,
+        dataset: TSDataset,
+        task_spec: TaskSpec,
+        predict_func: Any | None = None,
+        plan: Any | None = None,
+        covariates: AlignedDataset | None = None,
+        reconciliation_method: str = "bottom_up",
+    ) -> pd.DataFrame:
+        """Predict step entrypoint for session consumers."""
+        return _step_predict(
+            artifact=artifact,
+            dataset=dataset,
+            task_spec=task_spec,
+            predict_func=predict_func,
+            plan=plan,
+            covariates=covariates,
+            reconciliation_method=reconciliation_method,
+        )
+
+
+def run_forecast(
+    data: pd.DataFrame,
+    task_spec: TaskSpec,
+    covariates: CovariateBundle | None = None,
+    mode: Literal["quick", "standard", "strict"] = "standard",
+    fit_func: Any | None = None,
+    predict_func: Any | None = None,
+    monitoring_config: MonitoringConfig | None = None,
+    reference_data: pd.DataFrame | None = None,
+    repair_strategy: dict[str, Any] | None = None,
+    hierarchy: HierarchyStructure | None = None,
+    feature_config: FeatureConfig | None = None,
+    calibrator_spec: CalibratorSpec | None = None,
+    anomaly_spec: AnomalySpec | None = None,
+    reconciliation_method: str = "bottom_up",
+    dry_run: bool = False,
+    session: TSAgentSession | None = None,
+) -> RunArtifact | DryRunResult:
+    """Compatibility wrapper around ``TSAgentSession.run``."""
+    active_session = session or TSAgentSession(mode=mode)
+    return active_session.run(
+        data=data,
+        task_spec=task_spec,
+        covariates=covariates,
+        mode=mode,
+        fit_func=fit_func,
+        predict_func=predict_func,
+        monitoring_config=monitoring_config,
+        reference_data=reference_data,
+        repair_strategy=repair_strategy,
+        hierarchy=hierarchy,
+        feature_config=feature_config,
+        calibrator_spec=calibrator_spec,
+        anomaly_spec=anomaly_spec,
+        reconciliation_method=reconciliation_method,
+        dry_run=dry_run,
+    )
 
 
 def _step_validate(

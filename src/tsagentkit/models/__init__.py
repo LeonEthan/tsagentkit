@@ -80,6 +80,7 @@ def _fit_model_name(
             adapter_name = model_name.split("tsfm-", 1)[-1]
             adapter_config = _build_adapter_config(model_name, {})
             adapter = adapters.AdapterRegistry.create(adapter_name, adapter_config)
+            adapter.load_model()
             adapter.fit(
                 dataset=dataset,
                 prediction_length=dataset.task_spec.horizon,
