@@ -63,7 +63,8 @@ def fit_per_series(
         model_plan = plan.model_copy(update={"candidate_models": [model_name]})
 
         try:
-            artifact = fit_callable(
+            artifact = _call_fit_with_kwargs(
+                fit_callable,
                 subset,
                 model_plan,
                 on_fallback=on_fallback,
@@ -75,6 +76,29 @@ def fit_per_series(
             continue
 
     return artifacts
+
+
+def _call_fit_with_kwargs(
+    func: Callable[..., Any],
+    dataset: "TSDataset",
+    plan: "PlanSpec",
+    on_fallback: Callable[[str, str, Exception], None] | None = None,
+) -> Any:
+    """Call fit function with optional kwargs, handling signature differences."""
+    if on_fallback is None:
+        return func(dataset, plan)
+
+    import inspect
+
+    kwargs: dict[str, Any] = {"on_fallback": on_fallback}
+    try:
+        params = inspect.signature(func).parameters
+    except (ValueError, TypeError):
+        # Fall back to direct call when signature introspection is unsupported.
+        return func(dataset, plan, **kwargs)
+
+    accepted = {k: v for k, v in kwargs.items() if k in params}
+    return func(dataset, plan, **accepted)
 
 
 def _call_predict_with_kwargs(
