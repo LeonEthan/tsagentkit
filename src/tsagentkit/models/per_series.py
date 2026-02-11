@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
@@ -77,6 +77,38 @@ def fit_per_series(
     return artifacts
 
 
+def _call_predict_with_kwargs(
+    func: Callable[..., Any],
+    dataset: "TSDataset",
+    artifact: ModelArtifact,
+    spec: "TaskSpec",
+) -> Any:
+    """Call predict function with kwargs, handling different signatures."""
+    import inspect
+
+    try:
+        sig = inspect.signature(func)
+        params = list(sig.parameters.keys())
+    except (ValueError, TypeError):
+        # Fall back to positional args if introspection fails
+        return func(dataset, artifact, spec)
+
+    # Build kwargs based on common parameter names
+    kwargs: dict[str, Any] = {}
+    for param in params:
+        if param in ("dataset", "data"):
+            kwargs[param] = dataset
+        elif param in ("artifact", "model"):
+            kwargs[param] = artifact
+        elif param in ("spec", "task_spec"):
+            kwargs[param] = spec
+
+    if kwargs:
+        return func(**kwargs)
+    # Fall back to positional if no recognized params
+    return func(dataset, artifact, spec)
+
+
 def predict_per_series(
     dataset: TSDataset,
     artifacts: dict[str, ModelArtifact],
@@ -121,7 +153,8 @@ def predict_per_series(
         subset = dataset.filter_series(series_ids)
 
         try:
-            result = predict_callable(subset, artifact, spec)
+            # Use kwargs to handle different predict function signatures gracefully
+            result = _call_predict_with_kwargs(predict_callable, subset, artifact, spec)
             forecast_df = result.df.copy() if isinstance(result, ForecastResult) else result.copy()
 
             # Ensure model column is set
