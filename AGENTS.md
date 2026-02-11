@@ -6,7 +6,7 @@
 - Dependencies: Listed in `pyproject.toml`.
 - Always use `uv` to manage dependencies. 
   - Add packages to `pyproject.toml` as needed.
-  - Use `uv sync` to install dependencies.
+  - Use `uv sync --extra dev` to install development dependencies.
   - Use `uv run <command>` to run commands with the correct environment.
 
 ## Project Structure & Module Organization
@@ -16,8 +16,8 @@ This repository contains implementation and documentation:
 - `tests/`: Test suite mirroring the package structure (e.g., `tests/contracts/`).
 
 ## Build, Test, and Development Commands
-- Run unit/integration tests: `uv run pytest`
-- Run real TSFM smoke tests (downloads models): `TSFM_RUN_REAL=1 uv run pytest -m tsfm`
+- Run unit/integration tests: `uv run python -m pytest`
+- Run real TSFM smoke tests (downloads models): `TSFM_RUN_REAL=1 uv run python -m pytest -m tsfm`
 - Prefer single-entry commands (e.g., `python -m pytest`) over custom scripts unless needed.
 
 ## Coding Style & Naming Conventions

@@ -100,7 +100,7 @@ uv run python prepare_submission.py \
   --replication-code-available Yes
 ```
 
-For smoke runs (non-98-row results), add `--allow-partial`.
+For non-full runs (the current full matrix is 97 rows), add `--allow-partial`.
 
 Runbook:
 
@@ -110,7 +110,7 @@ cat RUNBOOK.md
 
 ## Note
 
-- No project-level CI/testing is configured for GIFT-Eval in this repository.
+- Repository CI includes benchmark integration tests under `tests/eval`, but does not run full GIFT-Eval benchmark end-to-end by default.
 - `benchmarks/gift_eval` remains code-only tooling so you can run benchmark tasks manually when needed.
 
 ## Status

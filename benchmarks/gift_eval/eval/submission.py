@@ -43,7 +43,9 @@ ALLOWED_MODEL_TYPES = {
     "zero-shot",
 }
 YES_NO_VALUES = {"Yes", "No"}
-DEFAULT_EXPECTED_ROWS = 98
+# Current benchmark matrix:
+# 55 short datasets + (21 medium/long datasets * 2 terms) = 97 rows.
+DEFAULT_EXPECTED_ROWS = 97
 
 
 class SubmissionValidationError(ValueError):

@@ -89,7 +89,7 @@ from tsagentkit import TSAgentKitError, forecast
 try:
     result = forecast(df, horizon=7)
 except TSAgentKitError as e:
-    print(e.code, e.hint)
+    print(e.error_code, e.fix_hint)
     raise
 ```
 
@@ -251,9 +251,9 @@ from tsagentkit.hierarchy import (
 ## Developer Commands
 
 ```bash
-uv sync
-uv run pytest
-TSFM_RUN_REAL=1 uv run pytest -m tsfm
+uv sync --extra dev
+uv run python -m pytest
+TSFM_RUN_REAL=1 uv run python -m pytest -m tsfm
 ```
 
 ## Documentation Map

@@ -128,9 +128,9 @@ For long-lived TSFM serving/eval loops, use `TSAgentSession` with `ModelPool`.
 ## Developer Commands
 
 ```bash
-uv sync
-uv run pytest
-TSFM_RUN_REAL=1 uv run pytest -m tsfm
+uv sync --extra dev
+uv run python -m pytest
+TSFM_RUN_REAL=1 uv run python -m pytest -m tsfm
 uv run lint-imports
 ```
 

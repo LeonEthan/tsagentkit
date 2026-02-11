@@ -148,3 +148,11 @@ def test_architecture_doc_assembly_first_consistency() -> None:
     assert "assembly-first" in architecture
     assert "`package_run()`" in architecture
     assert "`run_forecast()` (convenience wrapper" in architecture
+
+
+def test_readme_error_fields_use_current_names() -> None:
+    readme = (_repo_root() / "README.md").read_text(encoding="utf-8")
+    assert "e.code" not in readme
+    assert "e.hint" not in readme
+    assert "e.error_code" in readme
+    assert "e.fix_hint" in readme

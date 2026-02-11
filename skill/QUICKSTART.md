@@ -88,18 +88,18 @@ useful for checking data quality and seeing what the router would do.
 ## Repair Errors Programmatically
 
 ```python
-from tsagentkit import repair
+from tsagentkit import repair, validate_contract
 from tsagentkit.contracts.errors import EDSNotMonotonic
 
 try:
     report = validate_contract(df)
     report.raise_if_errors()
-except EDSNotMonotonic as e:
-    df = repair(df, e)
+except EDSNotMonotonic:
+    df, actions = repair(df)
 ```
 
-`repair()` inspects the error code and applies the recommended fix automatically
-(e.g., sorting, deduplicating, renaming columns).
+`repair()` re-validates and applies deterministic safe fixes automatically
+(e.g., sorting, deduplicating, dropping future null rows).
 
 ## Environment Check
 

@@ -10,14 +10,15 @@ programmatic handling.
 ## Quick Triage
 
 ```python
-from tsagentkit import repair
+from tsagentkit import repair, run_forecast
+from tsagentkit.contracts import TSAgentKitError
 
 try:
     result = run_forecast(df, spec)
 except TSAgentKitError as e:
     print(e.error_code, e.fix_hint)
-    df = repair(df, e)          # auto-fix when possible
-    result = run_forecast(df, spec)
+    repaired_df, actions = repair(df)
+    result = run_forecast(repaired_df, spec)
 ```
 
 ---

@@ -158,3 +158,16 @@ def test_skill_docs_assembly_first_headings_present() -> None:
     assert readme.index("Pattern 1: Assembly-First Pipeline (Recommended)") < readme.index(
         "Pattern 2: Quick Forecast Wrapper (Convenience)"
     )
+
+
+def test_skill_docs_repair_examples_match_api_signature() -> None:
+    files = [
+        _repo_root() / "skill" / "QUICKSTART.md",
+        _repo_root() / "skill" / "TROUBLESHOOTING.md",
+        _repo_root() / "src" / "tsagentkit" / "skill" / "QUICKSTART.md",
+        _repo_root() / "src" / "tsagentkit" / "skill" / "TROUBLESHOOTING.md",
+    ]
+    text = "\n".join(path.read_text(encoding="utf-8") for path in files)
+
+    assert "repair(df, e)" not in text
+    assert "repair(df)" in text

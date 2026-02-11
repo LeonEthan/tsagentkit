@@ -49,7 +49,7 @@ uv run python analyze.py --results-file ./results/all_results.csv
 
 ## 6. Validate and Package Submission
 
-Strict full-run validation (expects 98 rows):
+Strict full-run validation (expects 97 rows with the current dataset matrix):
 
 ```bash
 uv run python prepare_submission.py \
