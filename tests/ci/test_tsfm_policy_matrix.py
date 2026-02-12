@@ -51,8 +51,9 @@ def test_matrix_required_mode_available_uses_tsfm_chain(monkeypatch: pytest.Monk
     )
 
     plan, _decision = make_plan(dataset, spec, tsfm_preference=["chronos", "moirai", "timesfm"])
-    assert plan.candidate_models == ["tsfm-chronos"]
-    assert plan.allow_baseline is False
+    assert plan.candidate_models[0] == "tsfm-chronos"
+    assert "tsfm-chronos" in plan.candidate_models
+    assert plan.allow_baseline is True  # Baselines allowed for competitive selection
 
 
 def test_matrix_preferred_disallow_non_tsfm_fallback_unavailable_fails(

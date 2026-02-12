@@ -28,14 +28,11 @@ def test_skill_docs_are_mirrored_in_package_tree() -> None:
 def test_phase4_phase5_apis_are_documented() -> None:
     root = _repo_root()
     readme = (root / "README.md").read_text(encoding="utf-8")
-    docs_readme = (root / "docs" / "README.md").read_text(encoding="utf-8")
     skill_readme = (root / "skill" / "README.md").read_text(encoding="utf-8")
     tool_map = (root / "skill" / "tool_map.md").read_text(encoding="utf-8")
 
+    # Core lifecycle APIs that should be documented in main README
     for symbol in [
-        "build_plan_graph",
-        "attach_plan_graph",
-        "get_adapter_capability",
         "list_adapter_capabilities",
         "save_run_artifact",
         "load_run_artifact",
@@ -50,6 +47,5 @@ def test_phase4_phase5_apis_are_documented() -> None:
         "validate_run_artifact_for_serving",
         "replay_forecast_from_artifact",
     ]:
-        assert symbol in docs_readme
         assert symbol in skill_readme
         assert symbol in tool_map

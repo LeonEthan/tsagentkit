@@ -133,14 +133,14 @@ def test_readme_run_forecast_wrapper_accessors() -> None:
 
 def test_readme_assembly_first_headings_present() -> None:
     readme = (_repo_root() / "README.md").read_text(encoding="utf-8")
-    docs_readme = (_repo_root() / "docs" / "README.md").read_text(encoding="utf-8")
+    architecture = (_repo_root() / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
 
     assert "### Assembly-First (Recommended)" in readme
     assert "### Convenience Wrapper (`run_forecast`)" in readme
     assert readme.index("### Assembly-First (Recommended)") < readme.index(
         "### Convenience Wrapper (`run_forecast`)"
     )
-    assert "package_run" in docs_readme
+    assert "package_run" in architecture
 
 
 def test_architecture_doc_assembly_first_consistency() -> None:

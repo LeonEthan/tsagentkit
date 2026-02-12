@@ -66,12 +66,14 @@ def test_cli_doctor_detects_core_deps(capsys) -> None:
 
 
 def test_cli_doctor_detects_optional_deps(capsys) -> None:
-    """Doctor output mentions optional dep sections."""
+    """Doctor output mentions dependency sections."""
     main(["doctor"])
     captured = capsys.readouterr()
-    assert "TSFM tier" in captured.out
-    assert "Hierarchy tier" in captured.out
-    assert "Features tier" in captured.out
+    # All dependencies are now core (not optional tiers)
+    assert "Core dependencies" in captured.out
+    # Check that key packages are mentioned
+    for dep in ["pandas", "numpy", "torch", "chronos"]:
+        assert dep in captured.out
 
 
 def test_cli_doctor_shows_adapter_status(capsys) -> None:
