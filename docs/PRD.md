@@ -40,9 +40,9 @@ It is intended to be the **execution engine** for external coding agents: agents
 | `time/` | Frequency inference/validation, regular grids, future index building. | `TimeIndex`, `FreqSpec` |
 | `covariates/` | Covariate typing (`static/past/future`), alignment, coverage/leakage checks, imputation. | `CovariateSpec`, `CovariateBundle`, `AlignedDataset` |
 | `features/` | Deterministic feature blocks (lags/rolling/calendar), version hashing. | `FeatureSpec`, `FeatureMatrix`, `signatures` |
-| `router/` | Deterministic bucketing & plan composition (no LLM). | `PlanSpec`, `RouteDecision` |
+| `router/` | Deterministic bucketing, feature-driven candidate pool assembly (TSFM mandatory + statistical models), and selection policy. | `PlanSpec`, `RouteDecision` |
 | `models/` | Model protocol + adapters, fit/predict orchestration hooks. | `ModelArtifact`, `ForecastResult` |
-| `backtest/` | Rolling-origin CV, fold management, out-of-sample prediction assembly. | `CVFrame`, `BacktestReport` |
+| `backtest/` | Competitive rolling-origin CV; all candidates evaluated per unique_id; winner selection. | `CVFrame`, `BacktestReport` |
 | `eval/` | Metrics (point + quantile), summaries, leaderboards. | `MetricFrame`, `ScoreSummary` |
 | `calibration/` | Forecast uncertainty calibration (e.g., conformal). | `CalibratorArtifact` |
 | `anomaly/` | Anomaly detection using (calibrated) forecast uncertainty. | `AnomalyReport`, `AnomalyFrame` |
@@ -169,12 +169,29 @@ Covariates are categorized as:
 
 **FR-13 PlanSpec**
 A `PlanSpec` is a deterministic, serializable object describing:
-* candidate models (ordered)
+* candidate models (assembled via competitive pool, see FR-13a)
 * covariate usage rules (`use_static`, `use_past`, `use_future`)
 * feature spec reference (optional)
 * training window policy (min history, truncation)
 * prediction format (point/interval/quantiles, desired levels)
 * fallback policy (see FR-15)
+
+**FR-13a Competitive Candidate Pool Assembly**
+The router assembles a competitive candidate pool for backtesting:
+1. **TSFM is mandatory**: At least one TSFM adapter must be included in candidates (raises `E_TSFM_REQUIRED_UNAVAILABLE` if none available)
+2. **Statistical models via feature analysis**: Based on series characteristics from `RouteDecision.stats`, select appropriate statistical models:
+   * Short history → Naive, SeasonalNaive only
+   * Intermittent demand → Croston, IMAPA
+   * Strong seasonality → SeasonalNaive, STL decomposition models
+   * High frequency/irregular → Robust baselines
+   * Sparse data → Simple baselines (Naive, mean forecast)
+3. The assembled pool is evaluated competitively in backtesting (see FR-20)
+
+**FR-13b Model Selection Policy**
+Final model selection is performed per `unique_id` based on backtest performance:
+* The model with the best `metric` (default: `MASE` or specified in `TaskSpec.selection_metric`) wins
+* Ties broken by: 1) simpler model preference, 2) deterministic ordering
+* Selection rationale logged per-series in `BacktestReport.selection_decision`
 
 **FR-14 Bucketing Rules (Deterministic)**
 A series is bucketed using transparent thresholds (defaults can be overridden):
@@ -182,10 +199,13 @@ A series is bucketed using transparent thresholds (defaults can be overridden):
 * `sparse`: missing ratio > `max_missing_ratio`
 * `intermittent`: intermittency score > `max_intermittency`
 * `seasonal_candidate`: seasonality detected with confidence > `min_seasonality_conf`
+* `high_frequency`: frequency in ('H', 'min', 'S')
+* `strong_trend`: trend strength > trend threshold (via statistical test)
 The router produces a `RouteDecision` containing:
 * bucket tags
-* selected PlanSpec template
-* reasons and computed statistics
+* computed statistics for feature-driven model selection
+* selected PlanSpec template (with assembled candidate pool per FR-13a)
+* reasons and deterministic feature analysis summary
 
 
 **Router Default Thresholds (Recommended Defaults)**  
@@ -237,12 +257,19 @@ Adapters in extras may include classical stats/ML/deep/TSFM models. They must no
 * Produces a `CVFrame` with `cutoff`, `y`, and forecast outputs
 * Must be PIT-safe for features and repairs
 
-**FR-20 BacktestReport**
+**FR-20 BacktestReport (Competitive Model Selection)**
+Backtesting serves as the competitive arena for model selection:
+* All candidate models from `PlanSpec` (per FR-13a) are evaluated across all backtest folds
+* Per-series metrics computed for each candidate (`MASE`, `sMAPE`, `RMSE`, or specified metric)
+* Winner selection per `unique_id` based on best average metric across folds
+
 Includes:
-* per-fold metrics
-* per-series metrics
+* per-fold metrics per model
+* per-series aggregated metrics per model
+* competitive ranking matrix (model × unique_id)
+* `selection_decision`: mapping of `unique_id` → winning model with rationale
 * errors encountered per model candidate
-* decision summary (which plan won and why)
+* decision summary with statistical feature analysis that drove candidate pool assembly
 
 ---
 
@@ -405,6 +432,7 @@ def run_forecast(
 | `E_COVARIATE_STATIC_INVALID` | Static covariate invalid cardinality |
 | `E_MODEL_FIT_FAIL` | Model fitting failed |
 | `E_MODEL_PREDICT_FAIL` | Model prediction failed |
+| `E_TSFM_REQUIRED_UNAVAILABLE` | TSFM is required for backtesting but no adapter available |
 | `E_OOM` | Out-of-memory during fit/predict |
 | `E_BACKTEST_FAIL` | Backtest execution failed |
 | `E_CALIBRATION_FAIL` | Calibration failed |
@@ -430,6 +458,9 @@ A3. **Known coverage**: missing `future` covariates for horizon triggers `E_COVA
 A4. **Deterministic router**: same inputs produce same PlanSpec + decision reasons.  
 A5. **Baseline fallback**: if all candidates fail, baseline runs unless disallowed.  
 A6. **RunArtifact completeness**: contains required provenance fields and outputs.
+A7. **TSFM mandatory for backtesting**: TSFM is always included in candidate pool; `E_TSFM_REQUIRED_UNAVAILABLE` raised if unavailable.
+A8. **Competitive model selection**: Backtest evaluates all candidates per `unique_id`; winner selected based on `selection_metric`.
+A9. **Feature-driven candidate assembly**: Statistical models selected based on series characteristics (seasonality, intermittency, trend, etc.).
 
 ### 7.2 Should-Have (Quality)
 
@@ -447,8 +478,8 @@ B3. **Repair auditability**: all repairs emit diffs + strategy metadata.
 ### A.2 ForecastResult
 `df` with columns `unique_id, ds, model, yhat` + optional intervals/quantiles, plus `provenance`, `model_name`, `horizon`
 
-### A.3 CVFrame
-`unique_id, ds, cutoff, model, y, yhat` + optional intervals/quantiles
+### A.3 CVFrame (Competitive Evaluation)
+`unique_id, ds, cutoff, model, y, yhat` + optional intervals/quantiles. Note: All candidate models from `PlanSpec` are evaluated for each `unique_id` during competitive backtesting.
 
 ### A.4 CovariateBundle
 * `static_x(unique_id, ...)`
@@ -561,6 +592,9 @@ class RouterThresholds(BaseSpec):
     seasonality_method: SeasonalityMethod = "acf"
     min_seasonality_conf: float = Field(0.70, ge=0.0, le=1.0)
 
+    # Trend detection for feature-driven model selection
+    min_trend_strength: float = Field(0.6, ge=0.0, le=1.0)
+
     # Practical routing guardrails
     max_series_count_for_tsfm: int = Field(20000, gt=0)
     max_points_per_series_for_tsfm: int = Field(5000, gt=0)
@@ -588,6 +622,12 @@ class PlanSpec(BaseSpec):
     allow_drop_covariates: bool = True
     allow_baseline: bool = True
 
+    # TSFM policy (mandatory for competitive backtesting)
+    tsfm_required: bool = True  # If True, raises E_TSFM_REQUIRED_UNAVAILABLE if no TSFM available
+
+    # Model selection policy
+    selection_metric: str = "MASE"  # Metric for competitive selection per unique_id
+
 
 class RouteDecision(BaseSpec):
     # Series statistics used in routing (computed deterministically)
@@ -601,6 +641,10 @@ class RouteDecision(BaseSpec):
 
     # Human-readable deterministic reasons (safe for logs)
     reasons: List[str] = Field(default_factory=list)
+
+    # Feature-driven candidate pool assembly metadata
+    candidate_pool_assembly: Dict[str, Any] = Field(default_factory=dict)
+    # Contains: tsfm_candidates, statistical_candidates, feature_analysis_summary
 
 
 class RouterConfig(BaseSpec):
@@ -647,8 +691,13 @@ class RunArtifact(BaseSpec):
 
     # Output references (implementation-defined; typically file paths or object-store keys)
     outputs: Dict[str, str] = Field(default_factory=dict)
+
+    # Competitive backtest results
+    model_selection: Optional[Dict[str, Any]] = None
+    # Contains: model_rankings, selection_decision per unique_id, winning_model_per_series
 ```
 
 **Notes**
 - `TaskSpec.backtest.h` is set to `1` by default in the model above only because Pydantic requires a value; in implementation, set `backtest.h = TaskSpec.h` if the caller does not override it.
 - `RouterThresholds` uses conservative defaults; adjust per business frequency and SLA.
+- **Competitive Backtesting Design**: The system is designed as a competitive arena where TSFM (mandatory) and feature-selected statistical models compete in backtesting. The winner per `unique_id` is selected based on the configured `selection_metric` (default: `MASE`).

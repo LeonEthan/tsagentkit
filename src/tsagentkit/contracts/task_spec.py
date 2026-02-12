@@ -108,7 +108,7 @@ class BacktestSpec(BaseSpec):
     step: int | None = Field(None, gt=0)  # Defaults to horizon in orchestration
     min_train_size: int = Field(56, gt=1)
     regularize_grid: bool = True
-    selection_metric: str = "smape"  # metric for per-series selection
+    selection_metric: str = "mase"  # metric for per-series selection
 
 
 class TaskSpec(BaseSpec):
@@ -305,14 +305,28 @@ class RouterThresholds(BaseSpec):
     seasonality_method: SeasonalityMethod = "acf"
     min_seasonality_conf: float = Field(0.70, ge=0.0, le=1.0)
 
+    # Trend detection for feature-driven model selection
+    min_trend_strength: float = Field(0.6, ge=0.0, le=1.0)
+
     # Practical routing guardrails
     max_series_count_for_tsfm: int = Field(20000, gt=0)
     max_points_per_series_for_tsfm: int = Field(5000, gt=0)
 
     # Configurable candidate model lists per bucket
-    intermittent_candidates: list[str] = Field(default_factory=lambda: ["Croston", "Naive"])
+    intermittent_candidates: list[str] = Field(
+        default_factory=lambda: ["Croston", "IMAPA", "Naive"]
+    )
     short_history_candidates: list[str] = Field(
         default_factory=lambda: ["HistoricAverage", "Naive"]
+    )
+    seasonal_candidates: list[str] = Field(
+        default_factory=lambda: ["SeasonalNaive", "STLF", "Naive"]
+    )
+    trend_candidates: list[str] = Field(
+        default_factory=lambda: ["Trend", "SeasonalNaive", "HistoricAverage"]
+    )
+    high_frequency_candidates: list[str] = Field(
+        default_factory=lambda: ["RobustBaseline", "HistoricAverage", "Naive"]
     )
     default_candidates: list[str] = Field(
         default_factory=lambda: ["SeasonalNaive", "HistoricAverage", "Naive"]

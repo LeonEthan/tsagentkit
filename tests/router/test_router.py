@@ -57,7 +57,8 @@ def test_make_plan_tsfm_required_raises_when_unavailable(monkeypatch: pytest.Mon
         make_plan(dataset, spec)
 
 
-def test_make_plan_tsfm_required_uses_tsfm_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_make_plan_tsfm_required_includes_tsfm_and_statistical(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In required mode, TSFM is mandatory AND competes alongside statistical models."""
     dataset = _make_dataset([1.0] * 30)
     spec = TaskSpec(h=7, freq="D", tsfm_policy={"mode": "required"})
 
@@ -67,8 +68,12 @@ def test_make_plan_tsfm_required_uses_tsfm_only(monkeypatch: pytest.MonkeyPatch)
     )
 
     plan, _route_decision = make_plan(dataset, spec, tsfm_preference=["chronos"])
-    assert plan.candidate_models == ["tsfm-chronos"]
-    assert plan.allow_baseline is False
+    # TSFM models are included alongside statistical models for competitive evaluation
+    assert "tsfm-chronos" in plan.candidate_models
+    # Statistical models are also included for competition
+    assert any(not m.startswith("tsfm-") for m in plan.candidate_models)
+    # Baselines allowed for competitive selection
+    assert plan.allow_baseline is True
 
 
 def test_make_plan_tsfm_disabled_ignores_available(monkeypatch: pytest.MonkeyPatch) -> None:

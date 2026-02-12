@@ -45,9 +45,9 @@ Recommended integration is step-level composition. `run_forecast()` wraps the sa
 2. `run_qa()` -> quality checks and optional repair
 3. `align_covariates()` -> covariate alignment and leakage checks
 4. `TSDataset.from_dataframe()` -> unified dataset object
-5. `make_plan()` -> produce `PlanSpec`
+5. `make_plan()` -> produce `PlanSpec` with competitively assembled candidate pool (TSFM mandatory + statistical models via feature analysis)
 6. `build_plan_graph()` / `attach_plan_graph()` -> expose orchestratable DAG nodes (optional)
-7. `rolling_backtest()` -> optional CV evaluation
+7. `rolling_backtest()` -> competitive CV evaluation; all candidates evaluated per unique_id for model selection
 8. `models.fit()` -> model adaptation and training
 9. `models.predict()` -> forecast output
 10. `fit_calibrator()` / `apply_calibrator()` -> uncertainty calibration (optional)
@@ -55,7 +55,7 @@ Recommended integration is step-level composition. `run_forecast()` wraps the sa
 12. `package_run()` -> package `RunArtifact`
 
 Backtesting note:
-Backtesting logic remains local to support TSFM and custom forecast providers; metrics and summaries should preferentially reuse `utilsforecast.evaluate`.
+Backtesting serves as the competitive arena for per-series model selection. All candidates from `PlanSpec` (TSFM mandatory + feature-selected statistical models) are evaluated across rolling windows. The best-performing model per `unique_id` is selected for final prediction. Metrics and summaries should preferentially reuse `utilsforecast.evaluate`.
 
 ### Flow Diagram
 
@@ -66,13 +66,36 @@ flowchart TD
     C --> D[Align Covariates]
     D --> E[Build TSDataset]
     E --> F[Make Plan]
-    F --> G[Backtest (optional)]
-    G --> H[Fit Model]
+    F --> G[Competitive Backtest<br/>(all candidates per unique_id)]
+    G --> H[Fit Winner<br/>(selected per unique_id)]
     H --> I[Predict]
     I --> J[Calibrate (optional)]
     J --> K[Anomaly (optional)]
     K --> L[Package RunArtifact]
 ```
+
+## 3.1 Competitive Backtesting Architecture
+
+The backtesting layer operates as a **competitive model selection arena** rather than a simple validation mechanism:
+
+### Candidate Pool Assembly (`router/`)
+- **TSFM Mandatory**: At least one TSFM adapter must be available; raises `E_TSFM_REQUIRED_UNAVAILABLE` otherwise
+- **Statistical Models via Feature Analysis**: Based on `RouteDecision.stats` (seasonality, intermittency, trend, sparsity), the router assembles appropriate statistical models:
+  - Short history → Naive family
+  - Intermittent demand → Croston, IMAPA
+  - Strong seasonality → SeasonalNaive
+  - High frequency → Robust baselines
+  - Sparse data → Simple aggregations
+
+### Competitive Evaluation (`backtest/`)
+- All candidates evaluated across all rolling CV folds
+- Per-series metric aggregation (default: `MASE`)
+- Winner selection: `unique_id` → best model mapping
+
+### Final Fit & Predict (`models/`, `serving/`)
+- Winner model fitted on full history per `unique_id`
+- Prediction uses the fitted winner model
+- `RunArtifact` records the selection decision and competitive rankings
 
 ## 4. Core Module Responsibilities
 
@@ -81,9 +104,9 @@ flowchart TD
 - `time/`: frequency inference and future index generation
 - `covariates/`: covariate typing, coverage checks, leakage checks
 - `features/`: repeatable feature engineering and signatures
-- `router/`: deterministic routing and fallback policy
+- `router/`: deterministic routing, feature-driven candidate pool assembly (TSFM mandatory + statistical models), and per-series model selection policy
 - `models/`: unified adapters for TSFM/StatsForecast/Sktime
-- `backtest/`: rolling CV and evaluation outputs
+- `backtest/`: competitive rolling CV evaluation; all candidates evaluated per unique_id; winner selection based on aggregated metrics
 - `eval/`: metric computation and aggregation
 - `calibration/`: interval/quantile calibration
 - `anomaly/`: anomaly scoring and detection
@@ -166,8 +189,12 @@ Integration constraints:
 
 ### Backtest Output Standard (`CVFrame` / `BacktestReport`)
 - `CVFrame` (long format): `unique_id`, `ds`, `cutoff`, `model`, `y`, `yhat`, optional `q_*`
-- `BacktestReport`: at least `cv_frame`, `metrics`, `summary`, `errors`, `n_windows`, `horizon`
+- `BacktestReport`: at least `cv_frame`, `metrics`, `summary`, `errors`, `n_windows`, `horizon`, plus:
+  - `model_rankings`: per-series competitive ranking matrix (model × metric)
+  - `selection_decision`: `unique_id` → winning model mapping with rationale
+  - `feature_analysis`: statistics used to assemble candidate pool
 - Backtest metrics should use `utilsforecast.evaluate`; internal pivot-to-wide transformation is acceptable for computation.
+- Competitive evaluation: all `PlanSpec.candidate_models` evaluated; winner selected per `unique_id`
 
 ### Evaluation Output Standard (`MetricFrame` / `ScoreSummary`)
 - `MetricFrame` (long format): optional `unique_id`, optional `cutoff`, `model`, `metric`, `value`

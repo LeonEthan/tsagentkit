@@ -85,22 +85,55 @@ def make_plan(
             },
         )
 
-    # Build candidate model list
+    # Build candidate model list based on feature-driven analysis
+    # Multiple buckets can apply; combine candidates from all matching buckets
+    candidate_sets: list[list[str]] = []
+
     if "intermittent" in buckets:
-        candidates = list(thresholds.intermittent_candidates)
-    elif "short_history" in buckets:
-        candidates = list(thresholds.short_history_candidates)
-    else:
-        candidates = list(thresholds.default_candidates)
+        candidate_sets.append(list(thresholds.intermittent_candidates))
+    if "short_history" in buckets:
+        candidate_sets.append(list(thresholds.short_history_candidates))
+    if "seasonal_candidate" in buckets:
+        candidate_sets.append(list(thresholds.seasonal_candidates))
+    if "trend" in buckets:
+        candidate_sets.append(list(thresholds.trend_candidates))
+    if "high_frequency" in buckets:
+        candidate_sets.append(list(thresholds.high_frequency_candidates))
+
+    # If no specific buckets matched, use defaults
+    if not candidate_sets:
+        candidate_sets.append(list(thresholds.default_candidates))
+
+    # Merge candidates preserving order (first bucket priority)
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for cset in candidate_sets:
+        for c in cset:
+            if c not in seen:
+                seen.add(c)
+                candidates.append(c)
 
     tsfm_models = [f"tsfm-{name}" for name in availability.available]
 
     if availability.mode == "disabled":
         allow_baseline = True
     elif availability.mode == "required":
-        candidates = tsfm_models
-        allow_baseline = False
+        # TSFM is mandatory: must have at least one TSFM adapter available
+        if not tsfm_models:
+            raise ETSFMRequiredUnavailable(
+                "TSFM adapters unavailable but mode is 'required'.",
+                context={
+                    "mode": availability.mode,
+                    "preferred_adapters": availability.preferred,
+                    "unavailable": availability.unavailable,
+                    "allowed_by_guardrail": availability.allowed_by_guardrail,
+                },
+            )
+        # TSFM models compete alongside statistical candidates
+        candidates = tsfm_models + candidates
+        allow_baseline = True  # Allow statistical models as baselines
     else:
+        # preferred mode: use TSFM if available, fallback to statistical
         if tsfm_models and (
             "intermittent" not in buckets or not availability.allow_non_tsfm_fallback
         ):
@@ -121,21 +154,15 @@ def make_plan(
         allow_baseline = availability.allow_non_tsfm_fallback
 
     # Ensure all candidates are included for evaluation
-    # This allows per-series model selection based on backtest metrics
-    # Combine TSFM models with all bucket-specific candidates
-    all_candidates = tsfm_models + candidates
     # Remove duplicates while preserving order
     seen: set[str] = set()
     unique_candidates: list[str] = []
-    for c in all_candidates:
+    for c in candidates:
         if c not in seen:
             seen.add(c)
             unique_candidates.append(c)
     candidates = unique_candidates
-    # In required mode, only TSFM models should be used
-    # In other modes, allow all candidates for per-series selection
-    if availability.mode != "required":
-        allow_baseline = True
+    allow_baseline = True  # Always allow baselines for competitive selection
 
     plan = PlanSpec(
         plan_name="default",
@@ -183,16 +210,23 @@ def get_model_for_series(
     task_spec: TaskSpec,
     thresholds: RouterThresholds | None = None,
 ) -> str:
-    """Get recommended model for a specific series."""
+    """Get recommended model for a specific series based on feature-driven analysis."""
     thresholds = thresholds or RouterThresholds()
     series_df = dataset.get_series(unique_id)
     stats, buckets = _compute_series_stats(series_df, task_spec, thresholds)
 
+    # Priority order for model selection
     if "intermittent" in buckets:
-        return "Croston"
+        return thresholds.intermittent_candidates[0] if thresholds.intermittent_candidates else "Croston"
     if "short_history" in buckets:
-        return "HistoricAverage"
-    return "SeasonalNaive"
+        return thresholds.short_history_candidates[0] if thresholds.short_history_candidates else "HistoricAverage"
+    if "trend" in buckets:
+        return thresholds.trend_candidates[0] if thresholds.trend_candidates else "Trend"
+    if "seasonal_candidate" in buckets:
+        return thresholds.seasonal_candidates[0] if thresholds.seasonal_candidates else "SeasonalNaive"
+    if "high_frequency" in buckets:
+        return thresholds.high_frequency_candidates[0] if thresholds.high_frequency_candidates else "RobustBaseline"
+    return thresholds.default_candidates[0] if thresholds.default_candidates else "SeasonalNaive"
 
 
 def _compute_router_stats(
@@ -229,6 +263,22 @@ def _compute_router_stats(
     if season_conf >= thresholds.min_seasonality_conf:
         buckets.append("seasonal_candidate")
 
+    # Trend detection (sample a few series for efficiency)
+    trend_ratios = []
+    sample_uids = list(df[uid_col].unique())[:10]  # Sample up to 10 series
+    for uid in sample_uids:
+        series = df[df[uid_col] == uid].sort_values(ds_col)
+        trend_strength = _compute_trend_strength(series, y_col)
+        trend_ratios.append(trend_strength)
+    avg_trend = float(np.mean(trend_ratios)) if trend_ratios else 0.0
+    stats["trend_strength"] = avg_trend
+    if avg_trend >= thresholds.min_trend_strength:
+        buckets.append("trend")
+
+    # High frequency detection
+    if task_spec.freq and task_spec.freq.upper() in ("H", "BH", "T", "MIN", "S"):
+        buckets.append("high_frequency")
+
     return stats, buckets
 
 
@@ -264,7 +314,45 @@ def _compute_series_stats(
     if season_conf >= thresholds.min_seasonality_conf:
         buckets.append("seasonal_candidate")
 
+    # Trend detection
+    trend_strength = _compute_trend_strength(series_df, y_col)
+    stats["trend_strength"] = float(trend_strength)
+    if trend_strength >= thresholds.min_trend_strength:
+        buckets.append("trend")
+
+    # High frequency detection (H, min, S frequencies)
+    if task_spec.freq and task_spec.freq.upper() in ("H", "BH", "T", "MIN", "S"):
+        buckets.append("high_frequency")
+
     return stats, buckets
+
+
+def _compute_trend_strength(df: pd.DataFrame, y_col: str) -> float:
+    """Compute trend strength using linear regression R².
+
+    Returns a value between 0 and 1, where 1 indicates strong linear trend.
+    """
+    if df.empty:
+        return 0.0
+
+    y = df[y_col].dropna().values
+    if len(y) < 3:
+        return 0.0
+
+    try:
+        x = np.arange(len(y))
+        # Linear regression
+        slope, intercept = np.polyfit(x, y, 1)
+        y_pred = slope * x + intercept
+        # R² computation
+        ss_res = np.sum((y - y_pred) ** 2)
+        ss_tot = np.sum((y - np.mean(y)) ** 2)
+        if ss_tot == 0:
+            return 0.0
+        r_squared = 1 - (ss_res / ss_tot)
+        return max(0.0, min(1.0, r_squared))
+    except Exception:
+        return 0.0
 
 
 def _compute_missing_ratio(df: pd.DataFrame, task_spec: TaskSpec) -> float:
