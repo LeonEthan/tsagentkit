@@ -104,13 +104,27 @@ def _apply_reconciler(
         y_hat_insample=y_hat_insample,
     )
     if isinstance(result, dict):
+        if not result:
+            reconciler_name = reconciler.__class__.__name__
+            raise ValueError(
+                f"Reconciler '{reconciler_name}' returned empty dict. "
+                "This may indicate incompatible input data or a configuration issue."
+            )
         if "mean" in result:
             return np.asarray(result["mean"])
         # Fallback to first array-like entry
-        for value in result.values():
+        for key, value in result.items():
             if isinstance(value, (np.ndarray, list)):
                 return np.asarray(value)
-        raise ValueError("Unsupported reconciliation output format.")
+        # No array-like values found
+        reconciler_name = reconciler.__class__.__name__
+        result_keys = list(result.keys())
+        raise ValueError(
+            f"Reconciler '{reconciler_name}' returned dict with unsupported value types. "
+            f"Expected array-like values, got keys: {result_keys} with value types: "
+            f"{[type(v).__name__ for v in result.values()]}. "
+            "Dict must contain 'mean' key or array-like values."
+        )
     return np.asarray(result)
 
 
@@ -188,6 +202,19 @@ def reconcile_forecasts(
     df = base_forecasts.copy()
     id_col = "unique_id"
     ds_col = "ds"
+
+    # Validate required columns exist
+    missing_cols = []
+    if id_col not in df.columns:
+        missing_cols.append(id_col)
+    if ds_col not in df.columns:
+        missing_cols.append(ds_col)
+    if missing_cols:
+        raise ValueError(
+            f"Missing required columns in base_forecasts: {missing_cols}. "
+            f"Expected columns: '{id_col}' (series identifier) and '{ds_col}' (timestamp)."
+        )
+
     if not pd.api.types.is_datetime64_any_dtype(df[ds_col]):
         df[ds_col] = pd.to_datetime(df[ds_col])
 

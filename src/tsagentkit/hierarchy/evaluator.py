@@ -110,18 +110,22 @@ class HierarchyEvaluator:
         forecasts: pd.DataFrame,
         actuals: pd.DataFrame | None = None,
         tolerance: float = 1e-6,
+        base_forecasts: pd.DataFrame | None = None,
     ) -> HierarchyEvaluationReport:
         """Evaluate hierarchical forecasts.
 
         Computes standard forecast metrics per level and checks coherence.
+        Optionally computes reconciliation improvement if base forecasts provided.
 
         Args:
             forecasts: Forecast DataFrame with columns [unique_id, ds, yhat]
             actuals: Optional actual values for accuracy metrics
             tolerance: Tolerance for coherence violations
+            base_forecasts: Optional base (unreconciled) forecasts for computing
+                reconciliation improvement. Requires actuals to also be provided.
 
         Returns:
-            HierarchyEvaluationReport with metrics and violations
+            HierarchyEvaluationReport with metrics, violations, and improvement
         """
         # Compute per-level metrics if actuals provided
         level_metrics = {}
@@ -138,12 +142,20 @@ class HierarchyEvaluator:
         total_checks = self._count_total_checks(forecasts)
         violation_rate = len(violations) / max(total_checks, 1)
 
+        # Compute reconciliation improvement if base forecasts and actuals provided
+        reconciliation_improvement = {}
+        if base_forecasts is not None and actuals is not None:
+            reconciliation_improvement = self.compute_improvement(
+                base_forecasts, forecasts, actuals
+            )
+
         return HierarchyEvaluationReport(
             level_metrics=level_metrics,
             coherence_violations=violations,
             coherence_score=coherence_score,
             total_violations=len(violations),
             violation_rate=violation_rate,
+            reconciliation_improvement=reconciliation_improvement,
         )
 
     def _compute_level_metrics(

@@ -249,3 +249,58 @@ class TestHierarchyEvaluator:
 
         assert len(violations_strict) == 1
         assert len(violations_loose) == 0
+
+    def test_evaluate_with_base_forecasts(self, simple_structure):
+        """Test that evaluate() computes reconciliation improvement when base_forecasts provided."""
+        evaluator = HierarchyEvaluator(simple_structure)
+
+        # Base (unreconciled) forecasts - less accurate
+        base_forecasts = pd.DataFrame({
+            "unique_id": ["Total", "A", "B"] * 2,
+            "ds": ["2024-01-01"] * 3 + ["2024-01-02"] * 3,
+            "yhat": [10, 4, 6, 12, 5, 7],  # MAE = |10-11|+|4-5|+|6-6| + |12-13|+|5-6|+|7-7| = 4
+        })
+
+        # Reconciled forecasts - more accurate
+        reconciled_forecasts = pd.DataFrame({
+            "unique_id": ["Total", "A", "B"] * 2,
+            "ds": ["2024-01-01"] * 3 + ["2024-01-02"] * 3,
+            "yhat": [11, 5, 6, 13, 6, 7],  # MAE = |11-11|+|5-5|+|6-6| + |13-13|+|6-6|+|7-7| = 0
+        })
+
+        actuals = pd.DataFrame({
+            "unique_id": ["Total", "A", "B"] * 2,
+            "ds": ["2024-01-01"] * 3 + ["2024-01-02"] * 3,
+            "y": [11, 5, 6, 13, 6, 7],
+        })
+
+        # Evaluate reconciled forecasts with base forecasts for comparison
+        report = evaluator.evaluate(
+            reconciled_forecasts,
+            actuals=actuals,
+            base_forecasts=base_forecasts
+        )
+
+        # Check that reconciliation_improvement is populated
+        assert "reconciliation_improvement" in report.to_dict()
+        improvement = report.reconciliation_improvement
+
+        # All metrics should show improvement (positive percentage)
+        assert improvement["mae"] == 100.0  # 100% improvement (4 -> 0)
+        assert improvement["rmse"] == 100.0  # 100% improvement
+        assert improvement["mape"] == 100.0  # 100% improvement
+
+    def test_evaluate_without_base_forecasts(self, simple_structure):
+        """Test that evaluate() has empty improvement when base_forecasts not provided."""
+        evaluator = HierarchyEvaluator(simple_structure)
+
+        forecasts = pd.DataFrame({
+            "unique_id": ["Total", "A", "B"],
+            "ds": ["2024-01-01"] * 3,
+            "yhat": [10, 4, 6],
+        })
+
+        report = evaluator.evaluate(forecasts)
+
+        # reconciliation_improvement should be empty when base_forecasts not provided
+        assert report.reconciliation_improvement == {}

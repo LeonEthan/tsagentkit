@@ -165,8 +165,10 @@ class HierarchyStructure:
         # Get unique combinations
         unique_combos = df[hierarchy_columns].drop_duplicates()
 
-        # Build aggregation graph
+        # Build aggregation graph with level-prefixed keys to avoid collisions
+        # Example: "country_US", "state_CA" instead of just "US", "CA"
         aggregation_graph: dict[str, list[str]] = {}
+        level_values: dict[str, set[str]] = {col: set() for col in hierarchy_columns}
 
         for level_idx in range(len(hierarchy_columns) - 1):
             parent_col = hierarchy_columns[level_idx]
@@ -174,8 +176,12 @@ class HierarchyStructure:
 
             # Group by immediate parent column to find children
             for parent_value, group in unique_combos.groupby(parent_col):
-                parent_key = str(parent_value)
-                children = group[child_col].unique().tolist()
+                # Use level-prefixed key to prevent collisions across levels
+                parent_key = f"{parent_col}__{parent_value}"
+                # Children also need to be prefixed with their level
+                children = [
+                    f"{child_col}__{v}" for v in group[child_col].unique().tolist()
+                ]
 
                 if parent_key not in aggregation_graph:
                     aggregation_graph[parent_key] = []
@@ -184,8 +190,15 @@ class HierarchyStructure:
                     dict.fromkeys(aggregation_graph[parent_key])
                 )  # Remove duplicates, preserve order
 
-        # Bottom nodes are the unique values at the lowest level
-        bottom_nodes = unique_combos[hierarchy_columns[-1]].unique().tolist()
+                # Track values at each level for validation
+                level_values[parent_col].add(str(parent_value))
+                level_values[child_col].update(group[child_col].unique().tolist())
+
+        # Bottom nodes are the unique values at the lowest level (with level prefix)
+        bottom_col = hierarchy_columns[-1]
+        bottom_nodes = [
+            f"{bottom_col}__{v}" for v in unique_combos[bottom_col].unique().tolist()
+        ]
 
         # Build summation matrix
         all_nodes = _get_all_nodes_from_graph(aggregation_graph, bottom_nodes)
@@ -208,6 +221,11 @@ class HierarchyStructure:
     ) -> HierarchyStructure:
         """Build hierarchy from explicit summation matrix.
 
+        Infers the aggregation graph by analyzing which nodes' bottom contributions
+        are strict subsets of others. This works best when parent nodes have
+        distinct contribution patterns from their children (e.g., parents aggregate
+        multiple children).
+
         Args:
             s_matrix: Summation matrix (n_nodes x n_bottom)
             node_names: Names for all nodes (length n_nodes)
@@ -215,6 +233,12 @@ class HierarchyStructure:
 
         Returns:
             HierarchyStructure
+
+        Note:
+            When a parent node has only a single child and they have identical
+            bottom contributions, the hierarchy may be flattened. This is a
+            limitation of inferring structure from the S matrix alone. For such
+            cases, use explicit HierarchyStructure construction.
         """
         if len(node_names) != s_matrix.shape[0]:
             raise ValueError(
@@ -228,27 +252,78 @@ class HierarchyStructure:
             )
 
         # Infer aggregation graph from S matrix
+        # Build proper multi-level structure by detecting intermediate nodes
         aggregation_graph: dict[str, list[str]] = {}
 
+        # Build a mapping from each node's contributions to bottom nodes
+        node_to_bottoms: dict[str, set[int]] = {}
         for i, node in enumerate(node_names):
-            if node in bottom_node_names:
-                continue  # Skip bottom nodes
+            # Get indices of bottom nodes that contribute to this node
+            contributing = set(j for j in range(len(bottom_node_names)) if s_matrix[i, j] == 1)
+            node_to_bottoms[node] = contributing
 
-            # Find children: nodes at lower level that sum to this node
+        bottom_set = set(bottom_node_names)
+        non_bottom_nodes = [n for n in node_names if n not in bottom_set]
+
+        # For each non-bottom node, find its direct children
+        for parent_node in non_bottom_nodes:
+            parent_bottoms = node_to_bottoms[parent_node]
+
             children = []
-            for j, bottom_node in enumerate(bottom_node_names):
-                if s_matrix[i, j] == 1 and node != bottom_node:
-                    # Check if this bottom node is a direct child
-                    # or if there's an intermediate node
-                    children.append(bottom_node)
+            for child_node in node_names:
+                if child_node == parent_node:
+                    continue
+
+                child_bottoms = node_to_bottoms[child_node]
+                if not child_bottoms:
+                    continue
+
+                # A child must have contributions strictly contained in parent's
+                if not child_bottoms <= parent_bottoms:
+                    continue  # Not a descendant at all
+
+                if child_bottoms == parent_bottoms:
+                    continue  # Same contributions, not a child
+
+                # Check this is a DIRECT child (no intermediate exists)
+                is_direct_child = True
+                for intermediate in node_names:
+                    if intermediate in (parent_node, child_node):
+                        continue
+
+                    intermediate_bottoms = node_to_bottoms[intermediate]
+                    if not intermediate_bottoms:
+                        continue
+
+                    # If intermediate is strictly between parent and child
+                    if child_bottoms < intermediate_bottoms < parent_bottoms:
+                        is_direct_child = False
+                        break
+
+                if is_direct_child:
+                    children.append(child_node)
 
             if children:
-                aggregation_graph[node] = children
+                aggregation_graph[parent_node] = children
+
+        # Reorder S matrix rows to match sorted all_nodes order expected by validation
+        # First create the structure to determine all_nodes order
+        temp_graph = aggregation_graph.copy()
+        all_nodes_set = set(bottom_node_names)
+        for parent, children in temp_graph.items():
+            all_nodes_set.add(parent)
+            all_nodes_set.update(children)
+        all_nodes_sorted = sorted(all_nodes_set)
+
+        # Build row permutation: new_row[i] = old_row[perm[i]]
+        name_to_old_row = {name: i for i, name in enumerate(node_names)}
+        perm = [name_to_old_row[name] for name in all_nodes_sorted]
+        s_matrix_reordered = s_matrix[perm, :]
 
         return cls(
             aggregation_graph=aggregation_graph,
             bottom_nodes=bottom_node_names,
-            s_matrix=s_matrix,
+            s_matrix=s_matrix_reordered,
         )
 
     def get_parents(self, node: str) -> list[str]:

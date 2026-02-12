@@ -392,10 +392,10 @@ class TSDataset:
         for node in target_nodes:
             # Find all bottom nodes that contribute to this node
             bottom_contributors = []
-            for bottom_node in self.hierarchy.bottom_nodes:
-                bottom_idx = self.hierarchy.all_nodes.index(bottom_node)
-                node_idx = self.hierarchy.all_nodes.index(node)
-                if self.hierarchy.s_matrix[node_idx, bottom_idx] == 1:
+            node_idx = self.hierarchy.all_nodes.index(node)
+            for j, bottom_node in enumerate(self.hierarchy.bottom_nodes):
+                # S matrix columns correspond to bottom_nodes indices (not all_nodes)
+                if self.hierarchy.s_matrix[node_idx, j] == 1:
                     bottom_contributors.append(bottom_node)
 
             # Get data for contributors

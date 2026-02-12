@@ -218,3 +218,74 @@ class TestReconcileForecastsFunction:
         assert ReconciliationMethod.OLS.value == "ols"
         assert ReconciliationMethod.WLS.value == "wls"
         assert ReconciliationMethod.MIN_TRACE.value == "min_trace"
+
+    def test_missing_unique_id_column(self, simple_structure):
+        """Test error when unique_id column is missing."""
+        from tsagentkit.hierarchy.reconciliation import reconcile_forecasts
+
+        forecasts = pd.DataFrame({
+            "ds": ["2024-01-01", "2024-01-02"],
+            "yhat": [10.0, 20.0],
+        })
+
+        with pytest.raises(ValueError, match="Missing required columns.*unique_id"):
+            reconcile_forecasts(forecasts, simple_structure)
+
+    def test_missing_ds_column(self, simple_structure):
+        """Test error when ds column is missing."""
+        from tsagentkit.hierarchy.reconciliation import reconcile_forecasts
+
+        forecasts = pd.DataFrame({
+            "unique_id": ["A", "B"],
+            "yhat": [10.0, 20.0],
+        })
+
+        with pytest.raises(ValueError, match="Missing required columns.*ds"):
+            reconcile_forecasts(forecasts, simple_structure)
+
+    def test_missing_both_columns(self, simple_structure):
+        """Test error when both required columns are missing."""
+        from tsagentkit.hierarchy.reconciliation import reconcile_forecasts
+
+        forecasts = pd.DataFrame({
+            "yhat": [10.0, 20.0],
+        })
+
+        with pytest.raises(ValueError, match="Missing required columns.*unique_id.*ds"):
+            reconcile_forecasts(forecasts, simple_structure)
+
+    def test_empty_dict_error_message(self, simple_structure):
+        """Test that empty dict from reconciler produces descriptive error."""
+        from unittest.mock import Mock
+
+        from tsagentkit.hierarchy.reconciliation import _apply_reconciler
+
+        # Create a mock reconciler that returns empty dict
+        mock_reconciler = Mock()
+        mock_reconciler.__class__.__name__ = "TestReconciler"
+        mock_reconciler.fit_predict.return_value = {}
+
+        s_matrix = np.array([[1], [1]])
+        y_hat = np.array([1.0, 2.0])
+        tags = {"level_0": np.array(["Total"])}
+
+        with pytest.raises(ValueError, match="TestReconciler.*empty dict"):
+            _apply_reconciler(mock_reconciler, s_matrix, y_hat, tags)
+
+    def test_unsupported_dict_values_error(self, simple_structure):
+        """Test that unsupported dict values produce descriptive error."""
+        from unittest.mock import Mock
+
+        from tsagentkit.hierarchy.reconciliation import _apply_reconciler
+
+        # Create a mock reconciler that returns dict with unsupported value types
+        mock_reconciler = Mock()
+        mock_reconciler.__class__.__name__ = "BadReconciler"
+        mock_reconciler.fit_predict.return_value = {"result": "string_value", "other": 123}
+
+        s_matrix = np.array([[1], [1]])
+        y_hat = np.array([1.0, 2.0])
+        tags = {"level_0": np.array(["Total"])}
+
+        with pytest.raises(ValueError, match="BadReconciler.*unsupported value types"):
+            _apply_reconciler(mock_reconciler, s_matrix, y_hat, tags)
