@@ -41,7 +41,7 @@ It is intended to be the **execution engine** for external coding agents: agents
 | `covariates/` | Covariate typing (`static/past/future`), alignment, coverage/leakage checks, imputation. | `CovariateSpec`, `CovariateBundle`, `AlignedDataset` |
 | `features/` | Deterministic feature blocks (lags/rolling/calendar), version hashing. | `FeatureSpec`, `FeatureMatrix`, `signatures` |
 | `router/` | Deterministic bucketing & plan composition (no LLM). | `PlanSpec`, `RouteDecision` |
-| `models/` | Model protocol + adapters, fit/predict orchestration hooks. | `ModelArtifact`, `ForecastFrame` |
+| `models/` | Model protocol + adapters, fit/predict orchestration hooks. | `ModelArtifact`, `ForecastResult` |
 | `backtest/` | Rolling-origin CV, fold management, out-of-sample prediction assembly. | `CVFrame`, `BacktestReport` |
 | `eval/` | Metrics (point + quantile), summaries, leaderboards. | `MetricFrame`, `ScoreSummary` |
 | `calibration/` | Forecast uncertainty calibration (e.g., conformal). | `CalibratorArtifact` |
@@ -218,7 +218,7 @@ The ladder must end with a baseline (`SeasonalNaive` or `Naive`) unless `task_sp
 **FR-16 Model Protocol**
 Every model adapter implements:
 * `fit(train: AlignedDataset, plan: PlanSpec) -> ModelArtifact`
-* `predict(context: AlignedDataset, artifact: ModelArtifact, plan: PlanSpec) -> ForecastFrame`
+* `predict(context: AlignedDataset, artifact: ModelArtifact, plan: PlanSpec) -> ForecastResult`
 
 **FR-17 Built-in Baselines (Core)**
 Core package must include:
@@ -263,7 +263,7 @@ Quantile metrics: `PinballLoss`, `WQL`
 **FR-23 Interval/Quantile Calibration**
 * Calibration uses **OOS residuals** from `CVFrame`
 * Minimum supported method: `conformal` (global or per-series)
-* Output is a `CalibratorArtifact` that can be applied to `ForecastFrame`:
+* Output is a `CalibratorArtifact` that can be applied to `ForecastResult`:
   * widen/narrow intervals or adjust quantiles
 
 ---
@@ -272,7 +272,7 @@ Quantile metrics: `PinballLoss`, `WQL`
 
 **FR-24 Anomaly Detector API**
 * `detect_anomalies()` consumes:
-  * `ForecastFrame` (ideally calibrated) + actuals `y` if available
+  * `ForecastResult` (ideally calibrated) + actuals `y` if available
 * Outputs:
   * `anomaly` (bool), `anomaly_score` (float), `threshold`, `method`, and supporting columns (`lo/hi` or quantiles)
 
@@ -371,11 +371,11 @@ def align_covariates(panel, task_spec, covariates=None) -> AlignedDataset: ...
 def make_plan(dataset: AlignedDataset, task_spec, qa: QAReport) -> PlanSpec: ...
 def rolling_backtest(dataset: AlignedDataset, spec: TaskSpec, plan: PlanSpec) -> BacktestReport: ...
 def fit(dataset: AlignedDataset, plan: PlanSpec) -> ModelArtifact: ...
-def predict(dataset: AlignedDataset, artifact: ModelArtifact, spec: TaskSpec) -> ForecastFrame: ...
+def predict(dataset: AlignedDataset, artifact: ModelArtifact, spec: TaskSpec) -> ForecastResult: ...
 
 # Calibration + Anomaly
 def fit_calibrator(cv: CVFrame, method="conformal", **kwargs) -> CalibratorArtifact: ...
-def apply_calibrator(forecast: ForecastFrame, calib: CalibratorArtifact) -> ForecastFrame: ...
+def apply_calibrator(forecast: ForecastResult, calib: CalibratorArtifact) -> ForecastResult: ...
 def detect_anomalies(forecast_with_y, method="interval_breach", **kwargs) -> AnomalyReport: ...
 
 # Unified Entry Point (Agent Friendly)
@@ -444,8 +444,8 @@ B3. **Repair auditability**: all repairs emit diffs + strategy metadata.
 ### A.1 PanelFrame
 `unique_id: str`, `ds: datetime`, `y: float`
 
-### A.2 ForecastFrame (Long)
-`unique_id, ds, model, yhat` + optional intervals/quantiles
+### A.2 ForecastResult
+`df` with columns `unique_id, ds, model, yhat` + optional intervals/quantiles, plus `provenance`, `model_name`, `horizon`
 
 ### A.3 CVFrame
 `unique_id, ds, cutoff, model, y, yhat` + optional intervals/quantiles

@@ -148,4 +148,4 @@ replayed = replay_forecast_from_artifact(loaded)
 ## Next Steps
 - Use `skill/recipes.md` for end-to-end templates.
 - Use `skill/tool_map.md` for task-to-API lookup.
-- Use `docs/API_STABILITY.md` for compatibility boundaries.
+- Use `docs/ARCHITECTURE.md` for system design and module boundaries.

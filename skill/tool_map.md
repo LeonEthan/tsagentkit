@@ -71,5 +71,4 @@ Use this map to choose the minimal stable API surface for each step.
 ## Related Docs
 - `skill/README.md`
 - `skill/recipes.md`
-- `docs/API_STABILITY.md`
 - `docs/ARCHITECTURE.md`
