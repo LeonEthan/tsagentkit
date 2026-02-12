@@ -22,8 +22,7 @@ def _import_tsfeatures():
         import tsfeatures  # type: ignore
     except ImportError as e:
         raise ImportError(
-            "tsfeatures>=0.4.5 is required for statistical feature extraction. "
-            "Install with: pip install 'tsagentkit[features]'"
+            "tsfeatures>=0.4.5 is required for statistical feature extraction."
         ) from e
 
     return tsfeatures

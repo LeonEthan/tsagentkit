@@ -16,14 +16,7 @@ tsagentkit gives you:
 ### Install
 
 ```bash
-# Core package
 pip install tsagentkit
-
-# Optional extras
-pip install tsagentkit[tsfm]       # Chronos/Moirai/TimesFM adapters
-pip install tsagentkit[hierarchy]  # hierarchical reconciliation
-pip install tsagentkit[features]   # feature engineering backends
-pip install tsagentkit[full]       # all extras
 ```
 
 ### Run a Forecast
@@ -251,7 +244,7 @@ from tsagentkit.hierarchy import (
 ## Developer Commands
 
 ```bash
-uv sync --extra dev
+uv sync
 uv run python -m pytest
 TSFM_RUN_REAL=1 uv run python -m pytest -m tsfm
 ```

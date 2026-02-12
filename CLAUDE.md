@@ -23,12 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - Use `uv sync` to install core deps.
   - Use `uv sync --all-extras` to install all optional deps.
   - Use `uv run <command>` to run commands with the correct environment.
-- Installation tiers:
-  - `pip install tsagentkit` — core (statistical baselines only)
-  - `pip install tsagentkit[tsfm]` — TSFM adapters (Chronos, Moirai, TimesFM)
-  - `pip install tsagentkit[hierarchy]` — hierarchical reconciliation
-  - `pip install tsagentkit[features]` — feature engineering
-  - `pip install tsagentkit[full]` — everything
+- Installation: `pip install tsagentkit` — includes all dependencies (TSFM adapters, hierarchical reconciliation, feature engineering)
 
 ## Architecture
 
@@ -340,5 +335,5 @@ python -m tsagentkit describe
 from tsagentkit import describe
 
 info = describe()
-# Returns: {version, apis, error_codes, install_tiers, tsfm_adapters}
+# Returns: {version, apis, error_codes, tsfm_adapters}
 ```

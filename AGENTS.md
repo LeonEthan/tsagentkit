@@ -6,7 +6,7 @@
 - Dependencies: Listed in `pyproject.toml`.
 - Always use `uv` to manage dependencies. 
   - Add packages to `pyproject.toml` as needed.
-  - Use `uv sync --extra dev` to install development dependencies.
+  - Use `uv sync` to install all dependencies.
   - Use `uv run <command>` to run commands with the correct environment.
 
 ## Project Structure & Module Organization

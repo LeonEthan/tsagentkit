@@ -80,7 +80,7 @@ from tsagentkit.hierarchy import (
 )
 ```
 
-### TSFM adapters (optional, `tsagentkit[tsfm]`)
+### TSFM adapters
 
 ```python
 from tsagentkit.models.adapters import (
@@ -128,7 +128,7 @@ For long-lived TSFM serving/eval loops, use `TSAgentSession` with `ModelPool`.
 ## Developer Commands
 
 ```bash
-uv sync --extra dev
+uv sync
 uv run python -m pytest
 TSFM_RUN_REAL=1 uv run python -m pytest -m tsfm
 uv run lint-imports

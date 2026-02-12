@@ -67,8 +67,7 @@ def _select_reconciler(
         from hierarchicalforecast.methods import BottomUp, MiddleOut, MinTrace, TopDown
     except ImportError as e:
         raise ImportError(
-            "hierarchicalforecast>=1.0.0 is required for reconciliation. "
-            "Install with: pip install 'tsagentkit[hierarchy]'"
+            "hierarchicalforecast>=1.0.0 is required for reconciliation."
         ) from e
 
     if method == ReconciliationMethod.BOTTOM_UP:
@@ -202,8 +201,7 @@ def reconcile_forecasts(
         from hierarchicalforecast.core import HierarchicalReconciliation
     except ImportError as e:
         raise ImportError(
-            "hierarchicalforecast>=1.0.0 is required for reconciliation. "
-            "Install with: pip install 'tsagentkit[hierarchy]'"
+            "hierarchicalforecast>=1.0.0 is required for reconciliation."
         ) from e
 
     tags = structure.to_tags()

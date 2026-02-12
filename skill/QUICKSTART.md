@@ -7,20 +7,7 @@ Get a forecast running in under 3 minutes.
 ## Installation
 
 ```bash
-# Core (statistical baselines only)
 pip install tsagentkit
-
-# With TSFM adapters (Chronos, Moirai, TimesFM)
-pip install tsagentkit[tsfm]
-
-# With hierarchical reconciliation
-pip install tsagentkit[hierarchy]
-
-# With feature engineering (tsfeatures, tsfresh, sktime)
-pip install tsagentkit[features]
-
-# Everything
-pip install tsagentkit[full]
 ```
 
 ## Minimal Example (2 lines)

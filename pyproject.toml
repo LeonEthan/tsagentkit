@@ -12,38 +12,25 @@ dependencies = [
     "scipy>=1.11.3,<1.12.0",
     "statsforecast>=1.7.0",
     "utilsforecast>=0.1.0",
-]
-
-[project.optional-dependencies]
-tsfm = [
+    # TSFM dependencies (formerly optional)
     "torch",
     "huggingface-hub",
     "chronos-forecasting>=2.0.0",
     "tsagentkit-timesfm",
     "tsagentkit-uni2ts",
     "gluonts",
-]
-gift-eval = [
-    "datasets>=2.14.0",
-    "gluonts",
-    "huggingface-hub",
-    "pyarrow>=12.0.0",
-    "toolz>=0.12.0",
-    "tqdm>=4.65.0",
-]
-hierarchy = [
+    # Hierarchy dependencies (formerly optional)
     "hierarchicalforecast>=1.0.0",
-]
-features = [
+    # Feature engineering dependencies (formerly optional)
     "tsfeatures>=0.4.5",
     "tsfresh>=0.20.0",
     "sktime>=0.24.0",
-]
-full = [
-    "tsagentkit[tsfm,gift-eval,hierarchy,features]",
-]
-dev = [
-    "tsagentkit[full]",
+    # GIFT-eval dependencies (formerly optional)
+    "datasets>=2.14.0",
+    "pyarrow>=12.0.0",
+    "toolz>=0.12.0",
+    "tqdm>=4.65.0",
+    # Dev/test dependencies (formerly optional)
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "mypy>=1.0.0",

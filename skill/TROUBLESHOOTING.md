@@ -63,7 +63,7 @@ except TSAgentKitError as e:
 | `E_MODEL_PREDICT_FAIL` | `EModelPredictFailed` | Model prediction failed. | Verify the fitted model artifact is valid and the prediction horizon is within supported bounds. |
 | `E_MODEL_LOAD_FAILED` | `EModelLoadFailed` | Model loading failed. | Verify the model file path exists and the serialization format is compatible. |
 | `E_ADAPTER_NOT_AVAILABLE` | `EAdapterNotAvailable` | TSFM adapter not available. | Install the required adapter package. Run `python -m tsagentkit doctor` to check adapter status. |
-| `E_TSFM_REQUIRED_UNAVAILABLE` | `ETSFMRequiredUnavailable` | TSFM is required by policy but no required adapter is available. | Install TSFM adapters: `pip install tsagentkit[tsfm]`, or set `tsfm_policy={'mode': 'preferred'}` to allow fallback. |
+| `E_TSFM_REQUIRED_UNAVAILABLE` | `ETSFMRequiredUnavailable` | TSFM is required by policy but no required adapter is available. | Set `tsfm_policy={'mode': 'preferred'}` to allow fallback to non-TSFM models. |
 | `E_FALLBACK_EXHAUSTED` | `EFallbackExhausted` | All models in the fallback ladder failed. | Verify data has enough observations (>=2 per series), or relax `router_thresholds`. |
 | `E_OOM` | `EOOM` | Out-of-memory during fit/predict. | Reduce batch size, use fewer series, or switch to a lighter model. Consider setting `max_points_per_series_for_tsfm` in RouterThresholds. |
 

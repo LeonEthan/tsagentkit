@@ -131,8 +131,7 @@ class MoiraiAdapter(TSFMAdapter):
             from uni2ts.model.moirai2 import Moirai2Forecast
         except ImportError as e:
             raise ImportError(
-                "gluonts and uni2ts>=2.0.0 are required for MoiraiAdapter. "
-                "Install with: pip install 'tsagentkit[tsfm]'"
+                "gluonts and uni2ts>=2.0.0 are required for MoiraiAdapter."
             ) from e
 
         from tsagentkit.contracts import ForecastResult

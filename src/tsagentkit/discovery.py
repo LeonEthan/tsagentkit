@@ -2,7 +2,7 @@
 
 Provides ``describe()`` which returns a machine-readable schema of
 the library's public surface: version, stable APIs, error codes with
-fix hints, installation tiers, and TSFM adapter status.
+fix hints, and TSFM adapter status.
 
 Usage:
     >>> from tsagentkit import describe
@@ -23,7 +23,6 @@ def describe() -> dict[str, Any]:
       - ``version``: library version string
       - ``apis``: mapping of task names to primary API functions
       - ``error_codes``: mapping of error codes to message/fix_hint
-      - ``install_tiers``: mapping of extra names to descriptions
       - ``tsfm_adapters``: list of adapter dicts with availability
 
     Returns:
@@ -35,7 +34,6 @@ def describe() -> dict[str, Any]:
         "version": tsagentkit.__version__,
         "apis": _get_apis(),
         "error_codes": _get_error_codes(),
-        "install_tiers": _get_install_tiers(),
         "tsfm_adapters": _get_tsfm_adapters(),
     }
 
@@ -130,32 +128,6 @@ def _get_error_codes() -> dict[str, dict[str, str]]:
             "fix_hint": cls.fix_hint if hasattr(cls, "fix_hint") else "",
         }
     return result
-
-
-def _get_install_tiers() -> dict[str, dict[str, str]]:
-    """Return installation tier descriptions."""
-    return {
-        "core": {
-            "install": "pip install tsagentkit",
-            "description": "Statistical baselines (statsforecast) + full pipeline. No GPU required.",
-        },
-        "tsfm": {
-            "install": "pip install tsagentkit[tsfm]",
-            "description": "Chronos, Moirai, TimesFM foundation model adapters. Requires PyTorch.",
-        },
-        "hierarchy": {
-            "install": "pip install tsagentkit[hierarchy]",
-            "description": "Hierarchical forecast reconciliation (hierarchicalforecast).",
-        },
-        "features": {
-            "install": "pip install tsagentkit[features]",
-            "description": "Feature engineering with tsfeatures, tsfresh, and sktime.",
-        },
-        "full": {
-            "install": "pip install tsagentkit[full]",
-            "description": "All optional dependencies (tsfm + hierarchy + features).",
-        },
-    }
 
 
 def _get_tsfm_adapters() -> list[dict[str, Any]]:

@@ -12,9 +12,9 @@ def test_describe_returns_dict() -> None:
 
 
 def test_describe_has_expected_top_level_keys() -> None:
-    """Result has version, apis, error_codes, install_tiers, tsfm_adapters."""
+    """Result has version, apis, error_codes, tsfm_adapters."""
     result = describe()
-    expected_keys = {"version", "apis", "error_codes", "install_tiers", "tsfm_adapters"}
+    expected_keys = {"version", "apis", "error_codes", "tsfm_adapters"}
     assert expected_keys.issubset(result.keys())
 
 
@@ -67,25 +67,6 @@ def test_describe_tsfm_adapter_entries_have_expected_keys() -> None:
         assert "registered" in adapter
         assert "available" in adapter
         assert "reason" in adapter
-
-
-def test_describe_install_tiers_has_expected_keys() -> None:
-    """install_tiers has tsfm, hierarchy, features keys."""
-    result = describe()
-    tiers = result["install_tiers"]
-    assert "tsfm" in tiers
-    assert "hierarchy" in tiers
-    assert "features" in tiers
-    assert "core" in tiers
-    assert "full" in tiers
-
-
-def test_describe_install_tiers_have_install_and_description() -> None:
-    """Each tier has install and description fields."""
-    result = describe()
-    for tier_name, tier_info in result["install_tiers"].items():
-        assert "install" in tier_info, f"Tier {tier_name} missing 'install'"
-        assert "description" in tier_info, f"Tier {tier_name} missing 'description'"
 
 
 def test_describe_apis_is_dict() -> None:

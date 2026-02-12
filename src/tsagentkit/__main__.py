@@ -56,42 +56,21 @@ def _cmd_doctor() -> int:
 
     print()
 
-    # Optional dependencies — TSFM tier
-    tsfm_deps = [
+    # All dependencies now included by default
+    all_deps = [
         ("torch", "torch"),
         ("chronos-forecasting", "chronos"),
         ("uni2ts (moirai)", "uni2ts"),
         ("timesfm", "timesfm"),
         ("gluonts", "gluonts"),
-    ]
-
-    print("TSFM tier (pip install tsagentkit[tsfm]):")
-    for display_name, module_name in tsfm_deps:
-        ok, version = _check_import(module_name)
-        status = f"  {version}" if ok else "  not installed"
-        marker = "ok" if ok else "---"
-        print(f"  [{marker:>7s}] {display_name}{status}")
-
-    print()
-
-    # Hierarchy tier
-    print("Hierarchy tier (pip install tsagentkit[hierarchy]):")
-    ok, version = _check_import("hierarchicalforecast")
-    status = f"  {version}" if ok else "  not installed"
-    marker = "ok" if ok else "---"
-    print(f"  [{marker:>7s}] hierarchicalforecast{status}")
-
-    print()
-
-    # Features tier
-    features_deps = [
+        ("hierarchicalforecast", "hierarchicalforecast"),
         ("tsfeatures", "tsfeatures"),
         ("tsfresh", "tsfresh"),
         ("sktime", "sktime"),
     ]
 
-    print("Features tier (pip install tsagentkit[features]):")
-    for display_name, module_name in features_deps:
+    print("Additional dependencies:")
+    for display_name, module_name in all_deps:
         ok, version = _check_import(module_name)
         status = f"  {version}" if ok else "  not installed"
         marker = "ok" if ok else "---"

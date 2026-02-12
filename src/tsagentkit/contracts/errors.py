@@ -211,7 +211,7 @@ class ETSFMRequiredUnavailable(TSAgentKitError):
     """TSFM is required by policy but no required adapter is available."""
 
     error_code = "E_TSFM_REQUIRED_UNAVAILABLE"
-    fix_hint = "Install TSFM adapters: pip install tsagentkit[tsfm], or set tsfm_policy={'mode': 'preferred'} to allow fallback."
+    fix_hint = "Set tsfm_policy={'mode': 'preferred'} to allow fallback to non-TSFM models, or check that TSFM adapters are properly installed."
 
 
 class EFallbackExhausted(TSAgentKitError):
