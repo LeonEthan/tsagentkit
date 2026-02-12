@@ -3618,17 +3618,6 @@ name = "tsagentkit"
 version = "1.1.3"
 source = { editable = "." }
 dependencies = [
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "pydantic" },
-    { name = "scipy" },
-    { name = "statsforecast" },
-    { name = "typing-extensions" },
-    { name = "utilsforecast" },
-]
-
-[package.optional-dependencies]
-dev = [
     { name = "chronos-forecasting" },
     { name = "datasets" },
     { name = "gluonts" },
@@ -3636,11 +3625,16 @@ dev = [
     { name = "huggingface-hub" },
     { name = "import-linter" },
     { name = "mypy" },
+    { name = "numpy" },
+    { name = "pandas" },
     { name = "pyarrow" },
+    { name = "pydantic" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "scipy" },
     { name = "sktime" },
+    { name = "statsforecast" },
     { name = "toolz" },
     { name = "torch" },
     { name = "tqdm" },
@@ -3648,82 +3642,39 @@ dev = [
     { name = "tsagentkit-uni2ts" },
     { name = "tsfeatures" },
     { name = "tsfresh" },
-]
-features = [
-    { name = "sktime" },
-    { name = "tsfeatures" },
-    { name = "tsfresh" },
-]
-full = [
-    { name = "chronos-forecasting" },
-    { name = "datasets" },
-    { name = "gluonts" },
-    { name = "hierarchicalforecast" },
-    { name = "huggingface-hub" },
-    { name = "pyarrow" },
-    { name = "sktime" },
-    { name = "toolz" },
-    { name = "torch" },
-    { name = "tqdm" },
-    { name = "tsagentkit-timesfm" },
-    { name = "tsagentkit-uni2ts" },
-    { name = "tsfeatures" },
-    { name = "tsfresh" },
-]
-gift-eval = [
-    { name = "datasets" },
-    { name = "gluonts" },
-    { name = "huggingface-hub" },
-    { name = "pyarrow" },
-    { name = "toolz" },
-    { name = "tqdm" },
-]
-hierarchy = [
-    { name = "hierarchicalforecast" },
-]
-tsfm = [
-    { name = "chronos-forecasting" },
-    { name = "gluonts" },
-    { name = "huggingface-hub" },
-    { name = "torch" },
-    { name = "tsagentkit-timesfm" },
-    { name = "tsagentkit-uni2ts" },
+    { name = "typing-extensions" },
+    { name = "utilsforecast" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "chronos-forecasting", marker = "extra == 'tsfm'", specifier = ">=2.0.0" },
-    { name = "datasets", marker = "extra == 'gift-eval'", specifier = ">=2.14.0" },
-    { name = "gluonts", marker = "extra == 'gift-eval'" },
-    { name = "gluonts", marker = "extra == 'tsfm'" },
-    { name = "hierarchicalforecast", marker = "extra == 'hierarchy'", specifier = ">=1.0.0" },
-    { name = "huggingface-hub", marker = "extra == 'gift-eval'" },
-    { name = "huggingface-hub", marker = "extra == 'tsfm'" },
-    { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
+    { name = "chronos-forecasting", specifier = ">=2.0.0" },
+    { name = "datasets", specifier = ">=2.14.0" },
+    { name = "gluonts" },
+    { name = "hierarchicalforecast", specifier = ">=1.0.0" },
+    { name = "huggingface-hub" },
+    { name = "import-linter", specifier = ">=2.0.0" },
+    { name = "mypy", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pandas", specifier = ">=2.0.0" },
-    { name = "pyarrow", marker = "extra == 'gift-eval'", specifier = ">=12.0.0" },
+    { name = "pyarrow", specifier = ">=12.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "pytest", specifier = ">=7.0.0" },
+    { name = "pytest-cov", specifier = ">=4.0.0" },
+    { name = "ruff", specifier = ">=0.1.0" },
     { name = "scipy", specifier = ">=1.11.3,<1.12.0" },
-    { name = "sktime", marker = "extra == 'features'", specifier = ">=0.24.0" },
+    { name = "sktime", specifier = ">=0.24.0" },
     { name = "statsforecast", specifier = ">=1.7.0" },
-    { name = "toolz", marker = "extra == 'gift-eval'", specifier = ">=0.12.0" },
-    { name = "torch", marker = "extra == 'tsfm'" },
-    { name = "tqdm", marker = "extra == 'gift-eval'", specifier = ">=4.65.0" },
-    { name = "tsagentkit", extras = ["full"], marker = "extra == 'dev'" },
-    { name = "tsagentkit", extras = ["tsfm", "gift-eval", "hierarchy", "features"], marker = "extra == 'full'" },
-    { name = "tsagentkit-timesfm", marker = "extra == 'tsfm'" },
-    { name = "tsagentkit-uni2ts", marker = "extra == 'tsfm'" },
-    { name = "tsfeatures", marker = "extra == 'features'", specifier = ">=0.4.5" },
-    { name = "tsfresh", marker = "extra == 'features'", specifier = ">=0.20.0" },
+    { name = "toolz", specifier = ">=0.12.0" },
+    { name = "torch" },
+    { name = "tqdm", specifier = ">=4.65.0" },
+    { name = "tsagentkit-timesfm" },
+    { name = "tsagentkit-uni2ts" },
+    { name = "tsfeatures", specifier = ">=0.4.5" },
+    { name = "tsfresh", specifier = ">=0.20.0" },
     { name = "typing-extensions", specifier = ">=4.0.0" },
     { name = "utilsforecast", specifier = ">=0.1.0" },
 ]
-provides-extras = ["tsfm", "gift-eval", "hierarchy", "features", "full", "dev"]
 
 [[package]]
 name = "tsagentkit-timesfm"
