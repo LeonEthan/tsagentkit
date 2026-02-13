@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -14,10 +14,12 @@ from tsagentkit.contracts import (
     ECovariateStaticInvalid,
     EQARepairPeeksFuture,
     RepairReport,
-    TaskSpec,
 )
 from tsagentkit.covariates import align_covariates
 from tsagentkit.time import normalize_pandas_freq
+
+if TYPE_CHECKING:
+    from tsagentkit.contracts import TaskSpec
 
 
 @dataclass(frozen=True)
@@ -50,10 +52,178 @@ class QAReport:
         }
 
 
+def _check_missing_values(
+    df: pd.DataFrame,
+    uid_col: str,
+    ds_col: str,
+    y_col: str,
+    last_observed: dict[str, Any],
+    mode: str,
+) -> dict[str, Any] | None:
+    """Check for missing values in observed history."""
+    missing_mask = df[y_col].isna()
+    if last_observed:
+        mask = df[uid_col].map(last_observed)
+        missing_mask = missing_mask & (df[ds_col] <= mask)
+    missing_count = int(missing_mask.sum())
+
+    if missing_count > 0:
+        return {
+            "type": "missing_values",
+            "column": y_col,
+            "count": missing_count,
+            "severity": "critical" if mode == "strict" else "warning",
+        }
+    return None
+
+
+def _check_gaps(
+    df: pd.DataFrame,
+    uid_col: str,
+    ds_col: str,
+    freq: str | None,
+) -> dict[str, Any] | None:
+    """Check for temporal gaps per series."""
+    gap_count = 0
+    gap_ratio = 0.0
+
+    for uid in df[uid_col].unique():
+        series = df[df[uid_col] == uid].sort_values(ds_col)
+        if series.empty:
+            continue
+        full_range = pd.date_range(
+            start=series[ds_col].min(),
+            end=series[ds_col].max(),
+            freq=normalize_pandas_freq(freq),
+        )
+        missing = len(full_range) - len(series)
+        if missing > 0:
+            gap_count += missing
+            gap_ratio += missing / max(len(full_range), 1)
+
+    if gap_count > 0:
+        return {
+            "type": "gaps",
+            "count": gap_count,
+            "ratio": gap_ratio / max(df[uid_col].nunique(), 1),
+            "severity": "warning",
+        }
+    return None
+
+
+def _check_zero_density(
+    df: pd.DataFrame,
+    y_col: str,
+    zero_threshold: float,
+) -> dict[str, Any] | None:
+    """Check for high zero density in the target variable."""
+    zero_ratio = float(np.mean(df[y_col] == 0)) if len(df) > 0 else 0.0
+    if zero_ratio > zero_threshold:
+        return {
+            "type": "zero_density",
+            "ratio": zero_ratio,
+            "threshold": zero_threshold,
+            "severity": "warning",
+        }
+    return None
+
+
+def _check_outliers(
+    df: pd.DataFrame,
+    uid_col: str,
+    y_col: str,
+    outlier_z: float,
+) -> dict[str, Any] | None:
+    """Check for outliers using z-score per series."""
+    outlier_count = 0
+    for uid in df[uid_col].unique():
+        series = df[df[uid_col] == uid][y_col].astype(float)
+        if series.empty:
+            continue
+        mean = series.mean()
+        std = series.std()
+        if std == 0 or np.isnan(std):
+            continue
+        z_scores = (series - mean) / std
+        outlier_count += int((np.abs(z_scores) > outlier_z).sum())
+
+    if outlier_count > 0:
+        return {
+            "type": "outliers",
+            "count": outlier_count,
+            "z_threshold": outlier_z,
+            "severity": "warning",
+        }
+    return None
+
+
+def _check_monotonicity(
+    df: pd.DataFrame,
+    uid_col: str,
+    ds_col: str,
+    mode: str,
+) -> dict[str, Any] | None:
+    """Check that timestamps are monotonically increasing per series."""
+    monotonic_violations = 0
+    for uid in df[uid_col].unique():
+        series = df[df[uid_col] == uid]
+        if not series[ds_col].is_monotonic_increasing:
+            monotonic_violations += 1
+
+    if monotonic_violations > 0:
+        return {
+            "type": "ds_not_monotonic",
+            "count": monotonic_violations,
+            "severity": "critical" if mode == "strict" else "warning",
+        }
+    return None
+
+
+def _check_min_history(
+    df: pd.DataFrame,
+    uid_col: str,
+    y_col: str,
+    min_history: int | None,
+    mode: str,
+) -> dict[str, Any] | None:
+    """Check that each series has sufficient history."""
+    if not min_history:
+        return None
+
+    lengths = df[df[y_col].notna()].groupby(uid_col).size()
+    short = lengths[lengths < min_history]
+    if not short.empty:
+        return {
+            "type": "min_history",
+            "count": int(short.shape[0]),
+            "min_train_size": min_history,
+            "severity": "critical" if mode == "strict" else "warning",
+        }
+    return None
+
+
+def _run_covariate_checks(
+    df: pd.DataFrame,
+    task_spec: TaskSpec,
+) -> tuple[dict[str, Any] | None, bool]:
+    """Run covariate guardrails. Returns (issue, leakage_detected)."""
+    try:
+        align_covariates(df, task_spec)
+        return None, False
+    except (ECovariateLeakage, ECovariateIncompleteKnown, ECovariateStaticInvalid) as exc:
+        leakage_detected = isinstance(exc, ECovariateLeakage)
+        issue = {
+            "type": "covariate_guardrail",
+            "error": str(exc),
+            "severity": "critical",
+        }
+        return issue, leakage_detected
+
+
 def run_qa(
     data: pd.DataFrame,
     task_spec: TaskSpec,
-    mode: Literal["quick", "standard", "strict"] = "standard",
+    mode: str = "standard",
     zero_threshold: float = 0.3,
     outlier_z: float = 3.0,
     apply_repairs: bool = False,
@@ -68,7 +238,6 @@ def run_qa(
     outlier_z = float(repair_strategy.get("outlier_z", outlier_z))
 
     issues: list[dict[str, Any]] = []
-    repairs: list[dict[str, Any]] = []
     leakage_detected = False
 
     contract = task_spec.panel_contract
@@ -88,128 +257,30 @@ def run_qa(
         .to_dict()
     )
 
-    # Missing values in observed history only
-    missing_mask = df[y_col].isna()
-    if last_observed:
-        mask = df[uid_col].map(last_observed)
-        missing_mask = missing_mask & (df[ds_col] <= mask)
-    missing_count = int(missing_mask.sum())
-    if missing_count > 0:
-        issues.append(
-            {
-                "type": "missing_values",
-                "column": y_col,
-                "count": missing_count,
-                "severity": "critical" if mode == "strict" else "warning",
-            }
-        )
+    # Run all checks
+    check_results = [
+        _check_missing_values(df, uid_col, ds_col, y_col, last_observed, mode),
+        _check_gaps(df, uid_col, ds_col, task_spec.freq),
+        _check_zero_density(df, y_col, zero_threshold),
+        _check_outliers(df, uid_col, y_col, outlier_z),
+        _check_monotonicity(df, uid_col, ds_col, mode),
+        _check_min_history(df, uid_col, y_col, task_spec.backtest.min_train_size, mode),
+    ]
 
-    # Gaps per series
-    gap_count = 0
-    gap_ratio = 0.0
-    for uid in df[uid_col].unique():
-        series = df[df[uid_col] == uid].sort_values(ds_col)
-        if series.empty:
-            continue
-        full_range = pd.date_range(
-            start=series[ds_col].min(),
-            end=series[ds_col].max(),
-            freq=normalize_pandas_freq(task_spec.freq),
-        )
-        missing = len(full_range) - len(series)
-        if missing > 0:
-            gap_count += missing
-            gap_ratio += missing / max(len(full_range), 1)
+    # Collect issues from standard checks
+    for issue in check_results:
+        if issue is not None:
+            issues.append(issue)
 
-    if gap_count > 0:
-        issues.append(
-            {
-                "type": "gaps",
-                "count": gap_count,
-                "ratio": gap_ratio / max(df[uid_col].nunique(), 1),
-                "severity": "warning",
-            }
-        )
-
-    # Zero density
-    zero_ratio = float(np.mean(df[y_col] == 0)) if len(df) > 0 else 0.0
-    if zero_ratio > zero_threshold:
-        issues.append(
-            {
-                "type": "zero_density",
-                "ratio": zero_ratio,
-                "threshold": zero_threshold,
-                "severity": "warning",
-            }
-        )
-
-    # Outliers (z-score per series)
-    outlier_count = 0
-    for uid in df[uid_col].unique():
-        series = df[df[uid_col] == uid][y_col].astype(float)
-        if series.empty:
-            continue
-        mean = series.mean()
-        std = series.std()
-        if std == 0 or np.isnan(std):
-            continue
-        z_scores = (series - mean) / std
-        outlier_count += int((np.abs(z_scores) > outlier_z).sum())
-
-    if outlier_count > 0:
-        issues.append(
-            {
-                "type": "outliers",
-                "count": outlier_count,
-                "z_threshold": outlier_z,
-                "severity": "warning",
-            }
-        )
-
-    # Monotonicity check per series
-    monotonic_violations = 0
-    for uid in df[uid_col].unique():
-        series = df[df[uid_col] == uid]
-        if not series[ds_col].is_monotonic_increasing:
-            monotonic_violations += 1
-    if monotonic_violations > 0:
-        issues.append(
-            {
-                "type": "ds_not_monotonic",
-                "count": monotonic_violations,
-                "severity": "critical" if mode == "strict" else "warning",
-            }
-        )
-
-    # Minimum history length check
-    min_history = task_spec.backtest.min_train_size
-    if min_history:
-        lengths = df[df[y_col].notna()].groupby(uid_col).size()
-        short = lengths[lengths < min_history]
-        if not short.empty:
-            issues.append(
-                {
-                    "type": "min_history",
-                    "count": int(short.shape[0]),
-                    "min_train_size": min_history,
-                    "severity": "critical" if mode == "strict" else "warning",
-                }
-            )
-
-    # Covariate guardrails
+    # Covariate guardrails (may raise)
     if not skip_covariate_checks:
-        try:
-            align_covariates(df, task_spec)
-        except (ECovariateLeakage, ECovariateIncompleteKnown, ECovariateStaticInvalid) as exc:
-            leakage_detected = isinstance(exc, ECovariateLeakage)
-            issues.append(
-                {
-                    "type": "covariate_guardrail",
-                    "error": str(exc),
-                    "severity": "critical",
-                }
+        covariate_issue, leakage_detected = _run_covariate_checks(df, task_spec)
+        if covariate_issue is not None:
+            issues.append(covariate_issue)
+            raise ECovariateLeakage(
+                covariate_issue["error"],
+                context={"issues": issues},
             )
-            raise
 
     repairs: list[RepairReport] = []
     if apply_repairs:

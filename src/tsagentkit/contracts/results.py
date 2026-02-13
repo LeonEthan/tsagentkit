@@ -5,6 +5,8 @@ Defines the data structures for forecast outputs including provenance tracking.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -28,8 +30,6 @@ def _parse_quantile_column(col: str) -> float | None:
 
 def _is_datetime_like(series: Any) -> bool:
     try:
-        import pandas as pd  # Optional import for accurate dtype checks.
-
         return bool(pd.api.types.is_datetime64_any_dtype(series))
     except Exception:
         dtype = getattr(series, "dtype", None)
@@ -44,7 +44,7 @@ class ForecastFrame:
     Expected columns: unique_id, ds, model, yhat (+ intervals/quantiles).
     """
 
-    df: Any
+    df: pd.DataFrame
 
 
 @dataclass(frozen=True)
@@ -54,7 +54,7 @@ class CVFrame:
     Expected columns: unique_id, ds, cutoff, model, y, yhat (+ intervals/quantiles).
     """
 
-    df: Any
+    df: pd.DataFrame
 
 
 @dataclass(frozen=True)
@@ -120,7 +120,7 @@ class ForecastResult:
         horizon: Forecast horizon
     """
 
-    df: Any
+    df: pd.DataFrame
     provenance: Provenance
     model_name: str
     horizon: int
@@ -244,9 +244,6 @@ class ModelArtifact:
     def __post_init__(self) -> None:
         """Compute signature if not provided."""
         if not self.signature:
-            import hashlib
-            import json
-
             # Create deterministic signature from config
             config_str = json.dumps(self.config, sort_keys=True, separators=(",", ":"))
             object.__setattr__(  # Bypass frozen

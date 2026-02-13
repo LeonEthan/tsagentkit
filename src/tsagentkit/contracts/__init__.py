@@ -50,6 +50,7 @@ from .errors import (
     TSAgentKitError,
     get_error_class,
 )
+from .normalize import normalize_task_spec_payload
 from .results import (
     CVFrame,
     DryRunResult,
@@ -150,6 +151,8 @@ __all__ = [
     "RepairReport",
     "RunArtifact",
     "ValidationReport",
+    # Normalization
+    "normalize_task_spec_payload",
     # Schema
     "validate_contract",
     # Specs

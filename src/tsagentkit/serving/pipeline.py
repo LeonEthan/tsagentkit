@@ -270,48 +270,67 @@ class ForecastPipeline:
             self.state.qa_repairs = report.repairs
             self._log_event("qa", "success", step_start)
         except (ECovariateLeakage, ECovariateIncompleteKnown, ECovariateStaticInvalid) as e:
-            self._handle_covariate_qa_error(e, step_start)
+            self._handle_covariate_error(e, step_start, "qa", rerun_qa=True)
         except Exception:
             self._log_event("qa", "failed", step_start)
             raise
 
-    def _handle_covariate_qa_error(self, error: Exception, step_start: float) -> None:
-        """Handle covariate-related QA errors with graceful degradation."""
+    def _handle_covariate_error(
+        self,
+        error: Exception,
+        step_start: float,
+        step_name: str,
+        *,
+        rerun_qa: bool = False,
+    ) -> None:
+        """Handle covariate-related errors with graceful degradation.
+
+        Args:
+            error: The covariate error that occurred
+            step_start: Timestamp when the step started
+            step_name: Name of the step ("qa" or "align_covariates")
+            rerun_qa: Whether to re-run QA without covariate checks (QA step only)
+        """
         self.state.covariate_error = error
 
+        # Log failure with error code
+        self._log_event(step_name, "failed", step_start, error_code=type(error).__name__)
+
+        # In strict mode, always raise
         if self.mode == "strict":
-            self._log_event("qa", "failed", step_start, error_code=type(error).__name__)
             raise error
 
-        # Re-run QA without covariate checks
-        report = run_qa(
-            self.state.data,
-            self.state.task_spec,
-            self.mode,
-            apply_repairs=self.mode != "strict",
-            repair_strategy=self.repair_strategy,
-            skip_covariate_checks=True,
-        )
+        # For QA step with rerun enabled, re-run without covariate checks
+        if rerun_qa and step_name == "qa":
+            report = run_qa(
+                self.state.data,
+                self.state.task_spec,
+                self.mode,
+                apply_repairs=self.mode != "strict",
+                repair_strategy=self.repair_strategy,
+                skip_covariate_checks=True,
+            )
 
-        # Augment report with covariate issue
-        issues = list(report.issues)
-        issues.append({
-            "type": "covariate_guardrail",
-            "error": str(error),
-            "severity": "critical",
-            "action": "dropped_covariates",
-        })
-        self.state.qa_report = QAReport(
-            issues=issues,
-            repairs=report.repairs,
-            leakage_detected=isinstance(error, ECovariateLeakage),
-        )
-        self.state.qa_repairs = report.repairs
+            # Augment report with covariate issue
+            issues = list(report.issues)
+            issues.append({
+                "type": "covariate_guardrail",
+                "error": str(error),
+                "severity": "critical",
+                "action": "dropped_covariates",
+            })
+            self.state.qa_report = QAReport(
+                issues=issues,
+                repairs=report.repairs,
+                leakage_detected=isinstance(error, ECovariateLeakage),
+            )
+            self.state.qa_repairs = report.repairs
+            self._log_event("qa", "success", step_start, {"covariates_dropped": True})
 
-        self._log_event("qa", "success", step_start, {"covariates_dropped": True})
+        # Record degradation event
         self.degradation_events.append({
             "type": "covariates_dropped",
-            "step": "qa",
+            "step": step_name,
             "error_type": type(error).__name__,
             "error": str(error),
             "action": "dropped_covariates",
@@ -334,27 +353,11 @@ class ForecastPipeline:
                 "align_covariates", "success", step_start, artifacts=["aligned_covariates"]
             )
         except (ECovariateLeakage, ECovariateIncompleteKnown, ECovariateStaticInvalid) as e:
-            self._handle_covariate_align_error(e, step_start)
+            self._handle_covariate_error(e, step_start, "align_covariates")
         except Exception:
             self._log_event("align_covariates", "failed", step_start)
             if self.mode == "strict":
                 raise
-
-    def _handle_covariate_align_error(self, error: Exception, step_start: float) -> None:
-        """Handle covariate alignment errors with graceful degradation."""
-        self.state.covariate_error = error
-        self._log_event("align_covariates", "failed", step_start, error_code=type(error).__name__)
-
-        if self.mode == "strict":
-            raise error
-
-        self.degradation_events.append({
-            "type": "covariates_dropped",
-            "step": "align_covariates",
-            "error_type": type(error).__name__,
-            "error": str(error),
-            "action": "dropped_covariates",
-        })
 
     def _step_drop_future_rows(self) -> None:
         """Drop rows where target is null (future data)."""

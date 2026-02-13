@@ -7,6 +7,7 @@ temporal integrity (no random splits allowed).
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
@@ -27,9 +28,6 @@ from .aggregation import (
 )
 from .report import (
     BacktestReport,
-    SegmentMetrics,
-    SeriesMetrics,
-    TemporalMetrics,
     WindowResult,
 )
 from .splitting import (
@@ -146,187 +144,268 @@ def rolling_backtest(
         strategy=window_strategy,
     )
 
+    # Evaluate each window
     for window_idx, (cutoff_date, test_dates) in enumerate(cutoffs):
-        try:
-            # Split data
-            train_df = df[df["ds"] < cutoff_date].copy()
-            test_df = df[df["ds"].isin(test_dates)].copy()
+        result = _evaluate_single_window(
+            window_idx=window_idx,
+            cutoff_date=cutoff_date,
+            test_dates=test_dates,
+            df=df,
+            dataset=dataset,
+            spec=spec,
+            plan=plan,
+            fit_func=fit_func,
+            predict_func=predict_func,
+            reconcile=reconcile,
+            season_length=season_length,
+        )
 
-            if len(train_df) == 0 or len(test_df) == 0:
-                errors.append(
-                    {
-                        "window": window_idx,
-                        "error": "Empty train or test set",
-                        "cutoff": str(cutoff_date),
-                    }
-                )
-                continue
-
-            from tsagentkit.series import TSDataset
-
-            train_ds = TSDataset.from_dataframe(train_df, spec, validate=False)
-            if dataset.is_hierarchical() and dataset.hierarchy:
-                train_ds = train_ds.with_hierarchy(dataset.hierarchy)
-            window_covariates = None
-            try:
-                window_covariates = build_window_covariates(
-                    dataset=dataset,
-                    task_spec=spec,
-                    cutoff_date=pd.Timestamp(cutoff_date),
-                    panel_for_index=train_df,
-                )
-            except (ValueError, TypeError, KeyError) as e:
-                errors.append(
-                    {
-                        "window": window_idx,
-                        "stage": "covariate_alignment",
-                        "error": str(e),
-                        "type": type(e).__name__,
-                    }
-                )
-                if not plan.allow_drop_covariates:
-                    raise
-            if window_covariates is not None:
-                train_ds = train_ds.with_covariates(
-                    window_covariates,
-                    panel_with_covariates=dataset.panel_with_covariates,
-                    covariate_bundle=dataset.covariate_bundle,
-                )
-
-            # Fit model (with fallback handled by fit_func)
-            try:
-                model = call_with_optional_kwargs(
-                    fit_func,
-                    train_ds,
-                    plan,
-                    covariates=window_covariates,
-                )
-            except (RuntimeError, ValueError, MemoryError) as e:
-                errors.append(
-                    {
-                        "window": window_idx,
-                        "stage": "fit",
-                        "error": str(e),
-                        "type": type(e).__name__,
-                        "model": plan.candidate_models[0] if plan.candidate_models else None,
-                    }
-                )
-                continue
-
-            model_name = getattr(model, "model_name", None)
-            if model_name is None and hasattr(model, "metadata"):
-                model_name = model.metadata.get("model_name") if model.metadata else None
-            if model_name is None:
-                model_name = plan.candidate_models[0] if plan.candidate_models else "model"
-
-            # Predict using training context
-            try:
-                predictions = call_with_optional_kwargs(
-                    predict_func,
-                    train_ds,
-                    model,
-                    spec,
-                    covariates=window_covariates,
-                )
-            except (RuntimeError, ValueError, MemoryError) as e:
-                errors.append(
-                    {
-                        "window": window_idx,
-                        "stage": "predict",
-                        "error": str(e),
-                        "type": type(e).__name__,
-                        "model": model_name,
-                    }
-                )
-                continue
-            if isinstance(predictions, dict):
-                raise ValueError("predict_func must return DataFrame or ForecastResult")
-            if hasattr(predictions, "df"):
-                predictions = predictions.df
-
-            # Align predictions to test dates only
-            predictions = predictions.merge(
-                test_df[["unique_id", "ds"]],
-                on=["unique_id", "ds"],
-                how="inner",
-            )
-            predictions["model"] = model_name
-
-            cv_frame = predictions.merge(
-                test_df[["unique_id", "ds", "y"]],
-                on=["unique_id", "ds"],
-                how="left",
-            )
-            cv_frame["cutoff"] = pd.Timestamp(cutoff_date)
-            cv_frames.append(cv_frame)
-
-            # Apply reconciliation if hierarchical
-            if reconcile and dataset.is_hierarchical() and dataset.hierarchy:
-                predictions = reconcile_forecast(
-                    predictions,
-                    dataset.hierarchy,
-                    "bottom_up",
-                )
-            predictions = normalize_quantile_columns(predictions)
-            predictions["model"] = model_name
-
-            # Compute window + series metrics via eval utilities
-            merged_metrics = predictions.merge(
-                test_df[["unique_id", "ds", "y"]],
-                on=["unique_id", "ds"],
-                how="left",
-            )
-            metric_frame, summary = evaluate_forecasts(
-                merged_metrics,
-                train_df=train_df,
-                season_length=season_length,
-                id_col="unique_id",
-                ds_col="ds",
-                target_col="y",
-                model_col="model",
-                pred_col="yhat",
-                cutoff_col=None,
-            )
-
-            window_metrics = summary_to_metrics(summary.df, model_name)
-            series_window_metrics = series_metrics_from_frame(metric_frame.df, model_name)
-            for uid, metrics in series_window_metrics.items():
-                if not metrics:
-                    continue
+        if result.error:
+            errors.append(result.error)
+        if result.cv_frame is not None:
+            cv_frames.append(result.cv_frame)
+        if result.window_result is not None:
+            window_results.append(result.window_result)
+        if result.series_metrics:
+            for uid, metrics in result.series_metrics.items():
                 if uid not in series_metrics_agg:
                     series_metrics_agg[uid] = []
                 series_metrics_agg[uid].append(metrics)
 
-            # Create window result
-            window_result = WindowResult(
-                window_index=window_idx,
-                train_start=str(train_df["ds"].min()),
-                train_end=str(train_df["ds"].max()),
-                test_start=str(test_df["ds"].min()),
-                test_end=str(test_df["ds"].max()),
-                metrics=window_metrics,
-                num_series=test_df["unique_id"].nunique(),
-                num_observations=len(test_df),
-            )
-            window_results.append(window_result)
+    return _aggregate_backtest_results(
+        window_results=window_results,
+        series_metrics_agg=series_metrics_agg,
+        cv_frames=cv_frames,
+        errors=errors,
+        dataset=dataset,
+        df=df,
+        horizon=horizon,
+        step=step,
+        min_train_size=min_train_size,
+        window_strategy=window_strategy,
+        plan=plan,
+        route_decision=route_decision,
+    )
 
-        except Exception as e:
-            errors.append(
-                {
+
+@dataclass
+class _WindowEvaluationResult:
+    """Result from evaluating a single backtest window."""
+
+    error: dict[str, Any] | None = None
+    cv_frame: pd.DataFrame | None = None
+    window_result: WindowResult | None = None
+    series_metrics: dict[str, dict[str, float]] | None = None
+
+
+def _evaluate_single_window(
+    window_idx: int,
+    cutoff_date: Any,
+    test_dates: list[Any],
+    df: pd.DataFrame,
+    dataset: TSDataset,
+    spec: TaskSpec,
+    plan: PlanSpec,
+    fit_func: Callable[[TSDataset, PlanSpec], Any],
+    predict_func: Callable[[TSDataset, Any, TaskSpec], Any],
+    reconcile: bool,
+    season_length: int,
+) -> _WindowEvaluationResult:
+    """Evaluate a single backtest window.
+
+    Fits model on training data, generates predictions, and computes metrics.
+
+    Returns:
+        _WindowEvaluationResult containing any error, cv_frame, window_result, and series_metrics
+    """
+    try:
+        # Split data
+        train_df = df[df["ds"] < cutoff_date].copy()
+        test_df = df[df["ds"].isin(test_dates)].copy()
+
+        if len(train_df) == 0 or len(test_df) == 0:
+            return _WindowEvaluationResult(
+                error={
                     "window": window_idx,
-                    "error": str(e),
-                    "type": type(e).__name__,
+                    "error": "Empty train or test set",
+                    "cutoff": str(cutoff_date),
                 }
             )
 
-    # Aggregate metrics across all windows
+        from tsagentkit.series import TSDataset
+
+        train_ds = TSDataset.from_dataframe(train_df, spec, validate=False)
+        if dataset.is_hierarchical() and dataset.hierarchy:
+            train_ds = train_ds.with_hierarchy(dataset.hierarchy)
+
+        window_covariates = None
+        try:
+            window_covariates = build_window_covariates(
+                dataset=dataset,
+                task_spec=spec,
+                cutoff_date=pd.Timestamp(cutoff_date),
+                panel_for_index=train_df,
+            )
+        except (ValueError, TypeError, KeyError) as e:
+            error = {
+                "window": window_idx,
+                "stage": "covariate_alignment",
+                "error": str(e),
+                "type": type(e).__name__,
+            }
+            if not plan.allow_drop_covariates:
+                raise
+            return _WindowEvaluationResult(error=error)
+
+        if window_covariates is not None:
+            train_ds = train_ds.with_covariates(
+                window_covariates,
+                panel_with_covariates=dataset.panel_with_covariates,
+                covariate_bundle=dataset.covariate_bundle,
+            )
+
+        # Fit model (with fallback handled by fit_func)
+        try:
+            model = call_with_optional_kwargs(
+                fit_func,
+                train_ds,
+                plan,
+                covariates=window_covariates,
+            )
+        except (RuntimeError, ValueError, MemoryError) as e:
+            return _WindowEvaluationResult(
+                error={
+                    "window": window_idx,
+                    "stage": "fit",
+                    "error": str(e),
+                    "type": type(e).__name__,
+                    "model": plan.candidate_models[0] if plan.candidate_models else None,
+                }
+            )
+
+        model_name = getattr(model, "model_name", None)
+        if model_name is None and hasattr(model, "metadata"):
+            model_name = model.metadata.get("model_name") if model.metadata else None
+        if model_name is None:
+            model_name = plan.candidate_models[0] if plan.candidate_models else "model"
+
+        # Predict using training context
+        try:
+            predictions = call_with_optional_kwargs(
+                predict_func,
+                train_ds,
+                model,
+                spec,
+                covariates=window_covariates,
+            )
+        except (RuntimeError, ValueError, MemoryError) as e:
+            return _WindowEvaluationResult(
+                error={
+                    "window": window_idx,
+                    "stage": "predict",
+                    "error": str(e),
+                    "type": type(e).__name__,
+                    "model": model_name,
+                }
+            )
+
+        if isinstance(predictions, dict):
+            raise ValueError("predict_func must return DataFrame or ForecastResult")
+        if hasattr(predictions, "df"):
+            predictions = predictions.df
+
+        # Align predictions to test dates only
+        predictions = predictions.merge(
+            test_df[["unique_id", "ds"]],
+            on=["unique_id", "ds"],
+            how="inner",
+        )
+        predictions["model"] = model_name
+
+        cv_frame = predictions.merge(
+            test_df[["unique_id", "ds", "y"]],
+            on=["unique_id", "ds"],
+            how="left",
+        )
+        cv_frame["cutoff"] = pd.Timestamp(cutoff_date)
+
+        # Apply reconciliation if hierarchical
+        if reconcile and dataset.is_hierarchical() and dataset.hierarchy:
+            predictions = reconcile_forecast(
+                predictions,
+                dataset.hierarchy,
+                "bottom_up",
+            )
+        predictions = normalize_quantile_columns(predictions)
+        predictions["model"] = model_name
+
+        # Compute window + series metrics via eval utilities
+        merged_metrics = predictions.merge(
+            test_df[["unique_id", "ds", "y"]],
+            on=["unique_id", "ds"],
+            how="left",
+        )
+        metric_frame, summary = evaluate_forecasts(
+            merged_metrics,
+            train_df=train_df,
+            season_length=season_length,
+            id_col="unique_id",
+            ds_col="ds",
+            target_col="y",
+            model_col="model",
+            pred_col="yhat",
+            cutoff_col=None,
+        )
+
+        window_metrics = summary_to_metrics(summary.df, model_name)
+        series_window_metrics = series_metrics_from_frame(metric_frame.df, model_name)
+
+        # Create window result
+        window_result = WindowResult(
+            window_index=window_idx,
+            train_start=str(train_df["ds"].min()),
+            train_end=str(train_df["ds"].max()),
+            test_start=str(test_df["ds"].min()),
+            test_end=str(test_df["ds"].max()),
+            metrics=window_metrics,
+            num_series=test_df["unique_id"].nunique(),
+            num_observations=len(test_df),
+        )
+
+        return _WindowEvaluationResult(
+            cv_frame=cv_frame,
+            window_result=window_result,
+            series_metrics=series_window_metrics,
+        )
+
+    except Exception as e:
+        return _WindowEvaluationResult(
+            error={
+                "window": window_idx,
+                "error": str(e),
+                "type": type(e).__name__,
+            }
+        )
+
+
+def _aggregate_backtest_results(
+    window_results: list[WindowResult],
+    series_metrics_agg: dict[str, list[dict]],
+    cv_frames: list[pd.DataFrame],
+    errors: list[dict],
+    dataset: TSDataset,
+    df: pd.DataFrame,
+    horizon: int,
+    step: int,
+    min_train_size: int,
+    window_strategy: str,
+    plan: PlanSpec,
+    route_decision: Any | None,
+) -> BacktestReport:
+    """Aggregate results from all backtest windows into final report."""
     aggregate_metrics = compute_aggregate_metrics(series_metrics_agg)
     series_metrics = build_series_metrics(series_metrics_agg)
-
-    # Compute segment metrics (by sparsity class) if sparsity profile available
     segment_metrics = compute_segment_metrics(series_metrics, dataset)
-
-    # Compute temporal metrics if datetime information available
     temporal_metrics = compute_temporal_metrics(series_metrics_agg, df)
 
     return BacktestReport(
@@ -355,85 +434,26 @@ def rolling_backtest(
     )
 
 
-def _summary_to_metrics(summary_df: pd.DataFrame, model_name: str | None) -> dict[str, float]:
-    return summary_to_metrics(summary_df, model_name)
-
-
-def _series_metrics_from_frame(
-    metrics_df: pd.DataFrame,
-    model_name: str | None,
-) -> dict[str, dict[str, float]]:
-    return series_metrics_from_frame(metrics_df, model_name)
-
-
-def _aggregate_metrics(
-    series_metrics_agg: dict[str, list[dict[str, float]]]
-) -> dict[str, float]:
-    return compute_aggregate_metrics(series_metrics_agg)
-
-
-def _validate_temporal_ordering(df: pd.DataFrame) -> None:
-    validate_temporal_ordering(df)
-
-
-def _generate_cutoffs(
-    all_dates: list[pd.Timestamp],
-    n_windows: int,
-    horizon: int,
-    step: int,
-    min_train_size: int,
-    strategy: Literal["expanding", "sliding"],
-) -> list[tuple[pd.Timestamp, list[pd.Timestamp]]]:
-    return generate_cutoffs(
-        all_dates=all_dates,
-        n_windows=n_windows,
-        horizon=horizon,
-        step=step,
-        min_train_size=min_train_size,
-        strategy=strategy,
-    )
-
-
 def cross_validation_split(
     df: pd.DataFrame,
     n_splits: int = 5,
     horizon: int = 1,
     gap: int = 0,
 ) -> list[tuple[pd.DataFrame, pd.DataFrame]]:
+    """Split data into train/test pairs for cross-validation.
+
+    Args:
+        df: DataFrame with time series data
+        n_splits: Number of splits (default: 5)
+        horizon: Forecast horizon (default: 1)
+        gap: Gap between train and test (default: 0)
+
+    Returns:
+        List of (train_df, test_df) tuples
+    """
     return _cross_validation_split(
         df=df,
         n_splits=n_splits,
         horizon=horizon,
         gap=gap,
     )
-
-
-def _reconcile_forecast(
-    forecast_df: pd.DataFrame,
-    hierarchy: Any,
-    method: Any,
-) -> pd.DataFrame:
-    return reconcile_forecast(forecast_df, hierarchy, method)
-
-
-def _build_window_covariates(
-    dataset: TSDataset,
-    task_spec: TaskSpec,
-    cutoff_date: pd.Timestamp,
-    panel_for_index: pd.DataFrame,
-) -> Any:
-    return build_window_covariates(dataset, task_spec, cutoff_date, panel_for_index)
-
-
-def _compute_segment_metrics(
-    series_metrics: dict[str, SeriesMetrics],
-    dataset: TSDataset,
-) -> dict[str, SegmentMetrics]:
-    return compute_segment_metrics(series_metrics, dataset)
-
-
-def _compute_temporal_metrics(
-    series_metrics_agg: dict[str, list[dict[str, float]]],
-    df: pd.DataFrame,
-) -> dict[str, TemporalMetrics]:
-    return compute_temporal_metrics(series_metrics_agg, df)

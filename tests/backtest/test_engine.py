@@ -57,7 +57,7 @@ class TestValidateTemporalOrdering:
 
     def test_sorted_data_passes(self) -> None:
         """Test that sorted data passes validation."""
-        from tsagentkit.backtest.engine import _validate_temporal_ordering
+        from tsagentkit.backtest.splitting import validate_temporal_ordering
 
         df = pd.DataFrame({
             "unique_id": ["A", "A", "B", "B"],
@@ -65,11 +65,11 @@ class TestValidateTemporalOrdering:
             "y": [1.0, 2.0, 3.0, 4.0],
         })
         # Should not raise
-        _validate_temporal_ordering(df)
+        validate_temporal_ordering(df)
 
     def test_unsorted_data_raises(self) -> None:
         """Test that unsorted data raises error."""
-        from tsagentkit.backtest.engine import _validate_temporal_ordering
+        from tsagentkit.backtest.splitting import validate_temporal_ordering
 
         df = pd.DataFrame({
             "unique_id": ["A", "A"],
@@ -77,7 +77,7 @@ class TestValidateTemporalOrdering:
             "y": [2.0, 1.0],
         })
         with pytest.raises(ESplitRandomForbidden):
-            _validate_temporal_ordering(df)
+            validate_temporal_ordering(df)
 
 
 class TestGenerateCutoffs:
@@ -85,10 +85,10 @@ class TestGenerateCutoffs:
 
     def test_expanding_window(self) -> None:
         """Test expanding window cutoffs."""
-        from tsagentkit.backtest.engine import _generate_cutoffs
+        from tsagentkit.backtest.splitting import generate_cutoffs
 
         dates = pd.date_range("2024-01-01", periods=20, freq="D")
-        cutoffs = _generate_cutoffs(
+        cutoffs = generate_cutoffs(
             dates.tolist(),
             n_windows=3,
             horizon=2,
@@ -103,10 +103,10 @@ class TestGenerateCutoffs:
 
     def test_sliding_window(self) -> None:
         """Test sliding window cutoffs."""
-        from tsagentkit.backtest.engine import _generate_cutoffs
+        from tsagentkit.backtest.splitting import generate_cutoffs
 
         dates = pd.date_range("2024-01-01", periods=20, freq="D")
-        cutoffs = _generate_cutoffs(
+        cutoffs = generate_cutoffs(
             dates.tolist(),
             n_windows=3,
             horizon=2,

@@ -146,68 +146,10 @@ class TaskSpec(BaseSpec):
         if not isinstance(data, dict):
             return data
 
-        payload = dict(data)
+        # Import here to avoid circular imports
+        from tsagentkit.contracts.normalize import normalize_task_spec_payload
 
-        # Backward-compat aliases for TSFM policy
-        if "tsfm" in payload and "tsfm_policy" not in payload:
-            payload["tsfm_policy"] = payload.pop("tsfm")
-
-        tsfm_policy = payload.get("tsfm_policy")
-        if isinstance(tsfm_policy, TSFMPolicy):
-            tsfm_policy = tsfm_policy.model_dump()
-
-        if "require_tsfm" in payload:
-            require_tsfm = bool(payload.pop("require_tsfm"))
-            if not isinstance(tsfm_policy, dict):
-                tsfm_policy = {}
-            tsfm_policy = dict(tsfm_policy)
-            tsfm_policy["mode"] = (
-                "required"
-                if require_tsfm
-                else tsfm_policy.get(
-                    "mode",
-                    "preferred",
-                )
-            )
-
-        if "tsfm_preference" in payload:
-            preference = payload.pop("tsfm_preference")
-            if not isinstance(tsfm_policy, dict):
-                tsfm_policy = {}
-            tsfm_policy = dict(tsfm_policy)
-            if "adapters" not in tsfm_policy:
-                tsfm_policy["adapters"] = preference
-
-        if tsfm_policy is not None:
-            payload["tsfm_policy"] = tsfm_policy
-
-        # Backward-compat aliases
-        if "horizon" in payload and "h" not in payload:
-            payload["h"] = payload.pop("horizon")
-        if "rolling_step" in payload:
-            backtest = payload.get("backtest", {})
-            if isinstance(backtest, BacktestSpec):
-                backtest = backtest.model_dump()
-            if isinstance(backtest, dict):
-                backtest = dict(backtest)
-                if "step" not in backtest:
-                    backtest["step"] = payload.pop("rolling_step")
-                payload["backtest"] = backtest
-
-        # Legacy quantiles/levels mapping to forecast_contract
-        if "quantiles" in payload or "levels" in payload:
-            fc = payload.get("forecast_contract", {})
-            if isinstance(fc, ForecastContract):
-                fc = fc.model_dump()
-            if isinstance(fc, dict):
-                fc = dict(fc)
-                if "quantiles" in payload:
-                    fc["quantiles"] = payload.pop("quantiles")
-                if "levels" in payload:
-                    fc["levels"] = payload.pop("levels")
-                payload["forecast_contract"] = fc
-
-        return payload
+        return normalize_task_spec_payload(dict(data))
 
     @model_validator(mode="after")
     def _apply_backtest_defaults(self) -> TaskSpec:
