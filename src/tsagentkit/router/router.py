@@ -50,6 +50,132 @@ def inspect_tsfm_adapters(
     return report
 
 
+def _build_candidate_list(
+    buckets: list[str],
+    thresholds: RouterThresholds,
+) -> list[str]:
+    """Build merged candidate list from buckets preserving priority order.
+
+    Multiple buckets can apply; combine candidates from all matching buckets
+    while preserving order (first bucket priority).
+    """
+    candidate_sets: list[list[str]] = []
+
+    if "intermittent" in buckets:
+        candidate_sets.append(list(thresholds.intermittent_candidates))
+    if "short_history" in buckets:
+        candidate_sets.append(list(thresholds.short_history_candidates))
+    if "seasonal_candidate" in buckets:
+        candidate_sets.append(list(thresholds.seasonal_candidates))
+    if "trend" in buckets:
+        candidate_sets.append(list(thresholds.trend_candidates))
+    if "high_frequency" in buckets:
+        candidate_sets.append(list(thresholds.high_frequency_candidates))
+
+    # If no specific buckets matched, use defaults
+    if not candidate_sets:
+        candidate_sets.append(list(thresholds.default_candidates))
+
+    # Merge candidates preserving order (first bucket priority)
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for cset in candidate_sets:
+        for c in cset:
+            if c not in seen:
+                seen.add(c)
+                candidates.append(c)
+
+    return candidates
+
+
+def _resolve_tsfm_policy(
+    mode: str,
+    tsfm_models: list[str],
+    candidates: list[str],
+    buckets: list[str],
+    availability: TSFMAvailabilityReport,
+) -> tuple[list[str], bool]:
+    """Apply TSFM policy to determine final candidates and baseline allowance.
+
+    Args:
+        mode: TSFM policy mode ("disabled", "required", "preferred")
+        tsfm_models: List of available TSFM model names
+        candidates: Current candidate list
+        buckets: Detected buckets for this dataset
+        availability: TSFM availability report
+
+    Returns:
+        Tuple of (final_candidates, allow_baseline)
+    """
+    if mode == "disabled":
+        return candidates, True
+
+    if mode == "required":
+        # TSFM is mandatory: must have at least one TSFM adapter available
+        if not tsfm_models:
+            raise ETSFMRequiredUnavailable(
+                "TSFM adapters unavailable but mode is 'required'.",
+                context={
+                    "mode": mode,
+                    "preferred_adapters": availability.preferred,
+                    "unavailable": availability.unavailable,
+                    "allowed_by_guardrail": availability.allowed_by_guardrail,
+                },
+            )
+        # TSFM models compete alongside statistical candidates
+        return tsfm_models + candidates, True
+
+    # preferred mode: use TSFM if available, fallback to statistical
+    if tsfm_models and (
+        "intermittent" not in buckets or not availability.allow_non_tsfm_fallback
+    ):
+        if availability.allow_non_tsfm_fallback:
+            return tsfm_models + candidates, True
+        return tsfm_models, False
+
+    if not tsfm_models and not availability.allow_non_tsfm_fallback:
+        raise ETSFMRequiredUnavailable(
+            "TSFM adapters unavailable and policy disallows non-TSFM fallback.",
+            context={
+                "mode": mode,
+                "preferred_adapters": availability.preferred,
+                "unavailable": availability.unavailable,
+                "allowed_by_guardrail": availability.allowed_by_guardrail,
+            },
+        )
+
+    return candidates, availability.allow_non_tsfm_fallback
+
+
+def _build_route_decision(
+    stats: dict[str, float],
+    buckets: list[str],
+    plan: PlanSpec,
+    availability: TSFMAvailabilityReport,
+) -> RouteDecision:
+    """Build RouteDecision with audit trail."""
+    reasons = [
+        f"selected_models: {plan.candidate_models}",
+        f"buckets: {buckets}",
+        f"tsfm_mode: {availability.mode}",
+        f"tsfm_enabled: {availability.enabled}",
+        f"tsfm_allowed_by_guardrail: {availability.allowed_by_guardrail}",
+        f"tsfm_available: {bool(availability.available)}",
+        f"allow_non_tsfm_fallback: {availability.allow_non_tsfm_fallback}",
+    ]
+    if availability.available:
+        reasons.append(f"tsfm_models: {availability.available}")
+    if availability.unavailable:
+        reasons.append(f"tsfm_unavailable: {availability.unavailable}")
+
+    return RouteDecision(
+        stats=stats,
+        buckets=buckets,
+        selected_plan=plan,
+        reasons=reasons,
+    )
+
+
 def make_plan(
     dataset: TSDataset,
     task_spec: TaskSpec,
@@ -86,76 +212,21 @@ def make_plan(
         )
 
     # Build candidate model list based on feature-driven analysis
-    # Multiple buckets can apply; combine candidates from all matching buckets
-    candidate_sets: list[list[str]] = []
-
-    if "intermittent" in buckets:
-        candidate_sets.append(list(thresholds.intermittent_candidates))
-    if "short_history" in buckets:
-        candidate_sets.append(list(thresholds.short_history_candidates))
-    if "seasonal_candidate" in buckets:
-        candidate_sets.append(list(thresholds.seasonal_candidates))
-    if "trend" in buckets:
-        candidate_sets.append(list(thresholds.trend_candidates))
-    if "high_frequency" in buckets:
-        candidate_sets.append(list(thresholds.high_frequency_candidates))
-
-    # If no specific buckets matched, use defaults
-    if not candidate_sets:
-        candidate_sets.append(list(thresholds.default_candidates))
-
-    # Merge candidates preserving order (first bucket priority)
-    seen: set[str] = set()
-    candidates: list[str] = []
-    for cset in candidate_sets:
-        for c in cset:
-            if c not in seen:
-                seen.add(c)
-                candidates.append(c)
-
+    candidates = _build_candidate_list(buckets, thresholds)
     tsfm_models = [f"tsfm-{name}" for name in availability.available]
 
-    if availability.mode == "disabled":
-        allow_baseline = True
-    elif availability.mode == "required":
-        # TSFM is mandatory: must have at least one TSFM adapter available
-        if not tsfm_models:
-            raise ETSFMRequiredUnavailable(
-                "TSFM adapters unavailable but mode is 'required'.",
-                context={
-                    "mode": availability.mode,
-                    "preferred_adapters": availability.preferred,
-                    "unavailable": availability.unavailable,
-                    "allowed_by_guardrail": availability.allowed_by_guardrail,
-                },
-            )
-        # TSFM models compete alongside statistical candidates
-        candidates = tsfm_models + candidates
-        allow_baseline = True  # Allow statistical models as baselines
-    else:
-        # preferred mode: use TSFM if available, fallback to statistical
-        if tsfm_models and (
-            "intermittent" not in buckets or not availability.allow_non_tsfm_fallback
-        ):
-            if availability.allow_non_tsfm_fallback:
-                candidates = tsfm_models + candidates
-            else:
-                candidates = tsfm_models
-        elif not tsfm_models and not availability.allow_non_tsfm_fallback:
-            raise ETSFMRequiredUnavailable(
-                "TSFM adapters unavailable and policy disallows non-TSFM fallback.",
-                context={
-                    "mode": availability.mode,
-                    "preferred_adapters": availability.preferred,
-                    "unavailable": availability.unavailable,
-                    "allowed_by_guardrail": availability.allowed_by_guardrail,
-                },
-            )
-        allow_baseline = availability.allow_non_tsfm_fallback
+    # Apply TSFM policy
+    final_candidates, allow_baseline = _resolve_tsfm_policy(
+        mode=availability.mode,
+        tsfm_models=tsfm_models,
+        candidates=candidates,
+        buckets=buckets,
+        availability=availability,
+    )
 
     plan = PlanSpec(
         plan_name="default",
-        candidate_models=candidates,
+        candidate_models=final_candidates,
         use_static=True,
         use_past=True,
         use_future_known=True,
@@ -168,27 +239,7 @@ def make_plan(
         allow_baseline=allow_baseline,
     )
 
-    # Build RouteDecision for audit trail
-    reasons = [
-        f"selected_models: {candidates}",
-        f"buckets: {buckets}",
-        f"tsfm_mode: {availability.mode}",
-        f"tsfm_enabled: {availability.enabled}",
-        f"tsfm_allowed_by_guardrail: {availability.allowed_by_guardrail}",
-        f"tsfm_available: {bool(availability.available)}",
-        f"allow_non_tsfm_fallback: {availability.allow_non_tsfm_fallback}",
-    ]
-    if availability.available:
-        reasons.append(f"tsfm_models: {availability.available}")
-    if availability.unavailable:
-        reasons.append(f"tsfm_unavailable: {availability.unavailable}")
-
-    route_decision = RouteDecision(
-        stats=stats,
-        buckets=buckets,
-        selected_plan=plan,
-        reasons=reasons,
-    )
+    route_decision = _build_route_decision(stats, buckets, plan, availability)
 
     return plan, route_decision
 
@@ -387,7 +438,7 @@ def _compute_trend_strength(df: pd.DataFrame, y_col: str) -> float:
             return 0.0
         r_squared = 1 - (ss_res / ss_tot)
         return max(0.0, min(1.0, r_squared))
-    except Exception:
+    except (ValueError, np.linalg.LinAlgError):
         return 0.0
 
 

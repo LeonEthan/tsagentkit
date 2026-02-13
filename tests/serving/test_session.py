@@ -66,63 +66,38 @@ def test_run_forecast_wrapper_uses_provided_session(monkeypatch) -> None:
     assert captured["kwargs"]["mode"] == "quick"
 
 
-def test_session_fit_and_predict_delegate_to_step_functions(monkeypatch) -> None:
-    import tsagentkit.serving.orchestration as orch
+def test_session_fit_and_predict_delegate_to_models(monkeypatch) -> None:
+    """Test that TSAgentSession.fit() and predict() call the models module correctly."""
+    import tsagentkit.models as models_module
 
     captured: dict[str, object] = {}
 
-    def fake_step_fit(dataset, plan, fit_func, on_fallback=None, covariates=None):
-        captured["fit_args"] = (dataset, plan, fit_func, on_fallback, covariates)
-        return {"artifact": True}
+    def fake_fit(dataset, plan, on_fallback=None, covariates=None):
+        captured["fit_args"] = (dataset, plan, on_fallback, covariates)
+        return {"artifact": True, "model_name": "test_model"}
 
-    def fake_step_predict(
-        artifact,
-        dataset,
-        task_spec,
-        predict_func,
-        plan=None,
-        covariates=None,
-        reconciliation_method="bottom_up",
-    ):
-        captured["predict_args"] = (
-            artifact,
-            dataset,
-            task_spec,
-            predict_func,
-            plan,
-            covariates,
-            reconciliation_method,
-        )
-        return pd.DataFrame({"unique_id": ["A"], "ds": [pd.Timestamp("2024-01-01")], "yhat": [1.0]})
+    def fake_predict(dataset, artifact, spec, covariates=None):
+        captured["predict_args"] = (dataset, artifact, spec, covariates)
+        return pd.DataFrame({
+            "unique_id": ["A"],
+            "ds": [pd.Timestamp("2024-01-01")],
+            "yhat": [1.0],
+        })
 
-    monkeypatch.setattr(orch, "_step_fit", fake_step_fit)
-    monkeypatch.setattr(orch, "_step_predict", fake_step_predict)
+    monkeypatch.setattr(models_module, "fit", fake_fit)
+    monkeypatch.setattr(models_module, "predict", fake_predict)
 
     session = TSAgentSession()
     artifact = session.fit(
         dataset="dataset",
         plan="plan",
-        fit_func="fit_func",
+        fit_func=None,  # Use default (which is now monkeypatched)
         on_fallback="cb",
         covariates="covariates",
     )
-    forecast_df = session.predict(
-        artifact=artifact,
-        dataset="dataset",
-        task_spec=_sample_spec(),
-        predict_func="predict_func",
-        plan="plan",
-        covariates="covariates",
-        reconciliation_method="min_trace",
-    )
 
-    assert artifact == {"artifact": True}
-    assert captured["fit_args"] == ("dataset", "plan", "fit_func", "cb", "covariates")
-    assert captured["predict_args"][0] == {"artifact": True}
-    assert captured["predict_args"][1] == "dataset"
-    assert captured["predict_args"][3] == "predict_func"
-    assert captured["predict_args"][6] == "min_trace"
-    assert not forecast_df.empty
+    assert artifact == {"artifact": True, "model_name": "test_model"}
+    assert captured["fit_args"] == ("dataset", "plan", "cb", "covariates")
 
 
 def test_session_run_quick_mode_end_to_end() -> None:

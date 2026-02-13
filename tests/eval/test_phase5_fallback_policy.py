@@ -10,7 +10,7 @@ import pytest
 from tsagentkit import TaskSpec
 from tsagentkit.contracts import EFallbackExhausted, EModelNotLoaded, EModelPredictFailed, PlanSpec
 from tsagentkit.gift_eval import predictor as predictor_mod
-from tsagentkit.serving import orchestration as orch
+from tsagentkit.router.fallback import fit_predict_with_fallback
 
 
 class _DatasetStub:
@@ -90,7 +90,7 @@ def test_phase5_fallback_uses_next_preloaded_adapter(monkeypatch) -> None:
     )
     transitions: list[tuple[str, str]] = []
 
-    artifact, forecast = orch._fit_predict_with_fallback(
+    artifact, forecast = fit_predict_with_fallback(
         dataset=dataset,
         plan=plan,
         task_spec=task_spec,
@@ -121,7 +121,7 @@ def test_phase5_guardrail_raises_when_non_preloaded_adapter_selected(monkeypatch
     )
 
     with pytest.raises(EFallbackExhausted, match="not preloaded"):
-        orch._fit_predict_with_fallback(
+        fit_predict_with_fallback(
             dataset=dataset,
             plan=plan,
             task_spec=task_spec,

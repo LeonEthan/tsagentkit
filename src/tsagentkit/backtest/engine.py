@@ -206,7 +206,7 @@ def rolling_backtest(
 
             # Predict using training context
             try:
-                predictions = _call_with_optional_kwargs(
+                predictions = call_with_optional_kwargs(
                     predict_func,
                     train_ds,
                     model,

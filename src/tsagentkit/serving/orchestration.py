@@ -21,8 +21,6 @@ from tsagentkit.covariates import CovariateBundle
 from .pipeline import (
     ForecastPipeline,
     MonitoringConfig,
-    _step_fit,
-    _step_predict,
 )
 
 # Re-export make_plan for backward compatibility with tests
@@ -94,14 +92,19 @@ class TSAgentSession:
         on_fallback: Any | None = None,
         covariates: Any | None = None,
     ) -> Any:
-        """Fit step entrypoint for session consumers."""
-        return _step_fit(
-            dataset=dataset,
-            plan=plan,
-            fit_func=fit_func,
-            on_fallback=on_fallback,
-            covariates=covariates,
-        )
+        """Fit step entrypoint for session consumers.
+
+        Uses the ForecastPipeline._fit_single method internally.
+        """
+        from tsagentkit.models import fit as default_fit
+        from tsagentkit.utils.compat import call_with_optional_kwargs
+
+        effective_fit_func = fit_func or default_fit
+        kwargs = {"covariates": covariates} if covariates is not None else {}
+
+        if effective_fit_func is default_fit:
+            return effective_fit_func(dataset, plan, on_fallback=on_fallback, **kwargs)
+        return call_with_optional_kwargs(effective_fit_func, dataset, plan, **kwargs)
 
     def predict(
         self,
@@ -113,16 +116,49 @@ class TSAgentSession:
         covariates: Any | None = None,
         reconciliation_method: str = "bottom_up",
     ) -> pd.DataFrame:
-        """Predict step entrypoint for session consumers."""
-        return _step_predict(
-            artifact=artifact,
-            dataset=dataset,
-            task_spec=task_spec,
-            predict_func=predict_func,
-            plan=plan,
-            covariates=covariates,
-            reconciliation_method=reconciliation_method,
+        """Predict step entrypoint for session consumers.
+
+        Uses the models.predict with reconciliation if hierarchical.
+        """
+        from tsagentkit.models import predict as default_predict
+        from tsagentkit.utils.compat import call_with_optional_kwargs
+        from tsagentkit.utils import normalize_quantile_columns
+        from tsagentkit.contracts import ForecastResult
+
+        effective_predict_func = predict_func or default_predict
+        kwargs = {"covariates": covariates} if covariates is not None else {}
+
+        forecast = call_with_optional_kwargs(
+            effective_predict_func, dataset, artifact, task_spec, **kwargs
         )
+
+        if isinstance(forecast, ForecastResult):
+            forecast = forecast.df
+
+        # Add model column if missing
+        if "model" not in forecast.columns:
+            model_name = getattr(artifact, "model_name", None)
+            if model_name is None and hasattr(artifact, "metadata"):
+                model_name = artifact.metadata.get("model_name") if artifact.metadata else None
+            forecast = forecast.copy()
+            forecast["model"] = model_name or "model"
+
+        # Apply reconciliation if hierarchical
+        if plan and dataset.is_hierarchical() and dataset.hierarchy:
+            from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
+
+            method = ReconciliationMethod.from_string(reconciliation_method)
+            forecast = reconcile_forecasts(
+                base_forecasts=forecast,
+                structure=dataset.hierarchy,
+                method=method,
+            )
+
+        forecast = normalize_quantile_columns(forecast)
+        if {"unique_id", "ds"}.issubset(forecast.columns):
+            forecast = forecast.sort_values(["unique_id", "ds"]).reset_index(drop=True)
+
+        return forecast
 
 
 def run_forecast(
@@ -204,19 +240,9 @@ def run_forecast(
     )
 
 
-# Import step functions for backward compatibility
-from .pipeline import (
-    _fit_predict_with_fallback,
-    _step_fit,
-    _step_predict,
-)
-
 # Re-export for backward compatibility
 __all__ = [
     "run_forecast",
     "TSAgentSession",
     "MonitoringConfig",
-    "_fit_predict_with_fallback",
-    "_step_fit",
-    "_step_predict",
 ]

@@ -654,71 +654,27 @@ class ForecastPipeline:
 
     def _fit_predict_fallback(self, initial_error: Exception, step_start: float) -> None:
         """Fit and predict with fallback to remaining candidates."""
-        from tsagentkit.models import fit as default_fit
-        from tsagentkit.models import predict as default_predict
-        from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
-        from tsagentkit.utils.compat import call_with_optional_kwargs
+        from tsagentkit.router.fallback import fit_predict_with_fallback
 
-        fit_func = self.fit_func or default_fit
-        predict_func = self.predict_func or default_predict
         candidates = list(getattr(self.state.plan, "candidate_models", []) or [])
-
-        start_idx = 0
         start_after = self.state.model_artifact.model_name if self.state.model_artifact else None
-        if start_after in candidates:
-            start_idx = candidates.index(start_after) + 1
-        remaining = candidates[start_idx:]
 
-        if remaining and self._on_fallback:
-            self._on_fallback(start_after or "unknown", remaining[0], initial_error)
-
-        last_error = initial_error
-
-        for i, model_name in enumerate(remaining):
-            plan_for_model = self.state.plan
-            if hasattr(self.state.plan, "model_copy"):
-                plan_for_model = self.state.plan.model_copy(update={"candidate_models": [model_name]})
-
-            try:
-                artifact = call_with_optional_kwargs(
-                    fit_func, self.state.dataset, plan_for_model, covariates=self.state.aligned_dataset
-                )
-                forecast = call_with_optional_kwargs(
-                    predict_func,
-                    self.state.dataset,
-                    artifact,
-                    self.state.task_spec,
-                    covariates=self.state.aligned_dataset,
-                )
-
-                if isinstance(forecast, ForecastResult):
-                    forecast = forecast.df
-
-                # Apply reconciliation if needed
-                if self.state.plan and self.state.dataset.is_hierarchical() and self.state.dataset.hierarchy:
-                    method = ReconciliationMethod.from_string(self.reconciliation_method)
-                    forecast = reconcile_forecasts(
-                        base_forecasts=forecast,
-                        structure=self.state.dataset.hierarchy,
-                        method=method,
-                    )
-
-                self.state.model_artifact = artifact
-                self.state.forecast_df = self._normalize_forecast(forecast)
-                self._log_event("predict_fallback", "success", step_start, artifacts=["forecast"])
-                return
-
-            except Exception as e:
-                if not should_trigger_fallback(e):
-                    raise
-                last_error = e
-                if i < len(remaining) - 1:
-                    self._on_fallback(model_name, remaining[i + 1], e)
-
-        raise EFallbackExhausted(
-            f"All models failed during predict fallback. Last error: {last_error}",
-            context={"models_attempted": remaining, "last_error": str(last_error)},
+        artifact, forecast = fit_predict_with_fallback(
+            dataset=self.state.dataset,
+            plan=self.state.plan,
+            task_spec=self.state.task_spec,
+            fit_func=self.fit_func,
+            predict_func=self.predict_func,
+            covariates=self.state.aligned_dataset,
+            start_after=start_after,
+            initial_error=initial_error,
+            on_fallback=self._on_fallback,
+            reconciliation_method=self.reconciliation_method,
         )
+
+        self.state.model_artifact = artifact
+        self.state.forecast_df = self._normalize_forecast(forecast)
+        self._log_event("predict_fallback", "success", step_start, artifacts=["forecast"])
 
     def _add_model_column(self, forecast: pd.DataFrame) -> pd.DataFrame:
         """Add model name column to forecast if missing."""
@@ -988,202 +944,3 @@ def _run_forecast_impl(
         dry_run=dry_run,
     )
     return pipeline.run()
-
-
-def _fit_predict_with_fallback(
-    dataset: TSDataset,
-    plan: Any,
-    task_spec: TaskSpec,
-    fit_func: Any | None,
-    predict_func: Any | None,
-    covariates: AlignedDataset | None = None,
-    start_after: str | None = None,
-    initial_error: Exception | None = None,
-    on_fallback: Any | None = None,
-    reconciliation_method: str = "bottom_up",
-) -> tuple[Any, pd.DataFrame]:
-    """Fit and predict with fallback across remaining candidates.
-
-    This is a standalone version for backward compatibility.
-    It creates a temporary pipeline state to execute fallback logic.
-
-    Args:
-        dataset: TSDataset with prepared data
-        plan: Execution plan with candidate models
-        task_spec: Task specification
-        fit_func: Optional custom fit function
-        predict_func: Optional custom predict function
-        covariates: Optional aligned covariates
-        start_after: Model name to start fallback after
-        initial_error: Initial error that triggered fallback
-        on_fallback: Callback when fallback occurs
-        reconciliation_method: Reconciliation method for hierarchical forecasts
-
-    Returns:
-        Tuple of (model_artifact, forecast_df)
-
-    Raises:
-        EFallbackExhausted: If all models fail
-    """
-    from tsagentkit.models import fit as default_fit
-    from tsagentkit.models import predict as default_predict
-
-    fit_callable = fit_func or default_fit
-    predict_callable = predict_func or default_predict
-
-    candidates = list(getattr(plan, "candidate_models", []) or [])
-    start_idx = 0
-    if start_after in candidates:
-        start_idx = candidates.index(start_after) + 1
-    remaining = candidates[start_idx:]
-
-    last_error: Exception | None = None
-
-    if start_after and remaining and on_fallback and initial_error is not None:
-        on_fallback(start_after, remaining[0], initial_error)
-
-    for i, model_name in enumerate(remaining):
-        plan_for_model = plan
-        if hasattr(plan, "model_copy"):
-            plan_for_model = plan.model_copy(update={"candidate_models": [model_name]})
-
-        try:
-            from tsagentkit.utils.compat import call_with_optional_kwargs
-
-            artifact = call_with_optional_kwargs(
-                fit_callable,
-                dataset,
-                plan_for_model,
-                covariates=covariates,
-            )
-        except Exception as e:
-            from tsagentkit.router.fallback import should_trigger_fallback
-
-            if not should_trigger_fallback(e):
-                raise
-            last_error = e
-            if on_fallback and i < len(remaining) - 1:
-                on_fallback(model_name, remaining[i + 1], e)
-            continue
-
-        try:
-            forecast = call_with_optional_kwargs(
-                predict_callable,
-                dataset,
-                artifact,
-                task_spec,
-                covariates=covariates,
-            )
-
-            if isinstance(forecast, ForecastResult):
-                forecast = forecast.df
-
-            # Apply reconciliation if hierarchical
-            if dataset.is_hierarchical() and dataset.hierarchy:
-                from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
-
-                method = ReconciliationMethod.from_string(reconciliation_method)
-                forecast = reconcile_forecasts(
-                    base_forecasts=forecast,
-                    structure=dataset.hierarchy,
-                    method=method,
-                )
-
-            forecast = normalize_quantile_columns(forecast)
-            if {"unique_id", "ds"}.issubset(forecast.columns):
-                forecast = forecast.sort_values(["unique_id", "ds"]).reset_index(drop=True)
-
-            return artifact, forecast
-        except Exception as e:
-            from tsagentkit.router.fallback import should_trigger_fallback
-
-            if not should_trigger_fallback(e):
-                raise
-            last_error = e
-            if on_fallback and i < len(remaining) - 1:
-                on_fallback(model_name, remaining[i + 1], e)
-            continue
-
-    raise EFallbackExhausted(
-        f"All models failed during predict fallback. Last error: {last_error}",
-        context={
-            "models_attempted": remaining,
-            "last_error": str(last_error),
-        },
-    )
-
-
-def _step_fit(
-    dataset: TSDataset,
-    plan: Any,
-    fit_func: Any | None,
-    on_fallback: Any | None = None,
-    covariates: AlignedDataset | None = None,
-) -> Any:
-    """Execute fit step with fallback.
-
-    Standalone version for backward compatibility.
-    """
-    from tsagentkit.models import fit as default_fit
-    from tsagentkit.utils.compat import call_with_optional_kwargs
-
-    if fit_func is None:
-        fit_func = default_fit
-
-    kwargs = {"covariates": covariates} if covariates is not None else {}
-    if fit_func is default_fit:
-        return fit_func(dataset, plan, on_fallback=on_fallback, **kwargs)
-    return call_with_optional_kwargs(fit_func, dataset, plan, **kwargs)
-
-
-def _step_predict(
-    artifact: Any,
-    dataset: TSDataset,
-    task_spec: TaskSpec,
-    predict_func: Any | None,
-    plan: Any | None = None,
-    covariates: AlignedDataset | None = None,
-    reconciliation_method: str = "bottom_up",
-) -> pd.DataFrame:
-    """Execute predict step.
-
-    Standalone version for backward compatibility.
-    """
-    from tsagentkit.models import predict as default_predict
-    from tsagentkit.utils.compat import call_with_optional_kwargs
-
-    if predict_func is None:
-        predict_func = default_predict
-
-    kwargs = {"covariates": covariates} if covariates is not None else {}
-    forecast = call_with_optional_kwargs(
-        predict_func, dataset, artifact, task_spec, **kwargs
-    )
-
-    if isinstance(forecast, ForecastResult):
-        forecast = forecast.df
-
-    # Add model column if missing
-    if "model" not in forecast.columns:
-        model_name = getattr(artifact, "model_name", None)
-        if model_name is None and hasattr(artifact, "metadata"):
-            model_name = artifact.metadata.get("model_name") if artifact.metadata else None
-        forecast = forecast.copy()
-        forecast["model"] = model_name or "model"
-
-    # Apply reconciliation if hierarchical
-    if plan and dataset.is_hierarchical() and dataset.hierarchy:
-        from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
-
-        method = ReconciliationMethod.from_string(reconciliation_method)
-        forecast = reconcile_forecasts(
-            base_forecasts=forecast,
-            structure=dataset.hierarchy,
-            method=method,
-        )
-
-    forecast = normalize_quantile_columns(forecast)
-    if {"unique_id", "ds"}.issubset(forecast.columns):
-        forecast = forecast.sort_values(["unique_id", "ds"]).reset_index(drop=True)
-
-    return forecast
