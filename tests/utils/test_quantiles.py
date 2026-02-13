@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from tsagentkit.calibration import extract_quantiles
 from tsagentkit.utils import (
-    extract_quantiles,
     normalize_quantile_columns,
     parse_quantile_column,
     quantile_col_name,

@@ -8,13 +8,12 @@ from typing import Any
 
 import pandas as pd
 
-from tsagentkit.features.extra.native import (
+from tsagentkit.features.config import FeatureConfig, FeatureMatrix, compute_feature_hash
+from tsagentkit.features.engine import (
     create_observed_covariate_features,
     extract_panel,
     prepare_panel,
 )
-from tsagentkit.features.matrix import FeatureMatrix
-from tsagentkit.features.versioning import FeatureConfig, compute_feature_hash
 
 
 def _import_tsfeatures():

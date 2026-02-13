@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -9,9 +10,32 @@ import numpy as np
 import pandas as pd
 
 from tsagentkit.contracts import ECalibrationFail
-from tsagentkit.utils import extract_quantiles, quantile_col_name
+from tsagentkit.utils import quantile_col_name, parse_quantile_column
 
 CalibrationMethod = Literal["none", "conformal"]
+
+CalibrationMethod = Literal["none", "conformal"]
+
+
+def extract_quantiles(columns: Iterable[str]) -> list[float]:
+    """Extract sorted quantile values from column names.
+
+    Args:
+        columns: Iterable of column names to parse
+
+    Returns:
+        Sorted list of unique quantile values found in column names
+
+    Example:
+        >>> extract_quantiles(["q0.1", "yhat", "q0.9", "q_95"])
+        [0.1, 0.9, 0.95]
+    """
+    values = []
+    for col in columns:
+        q = parse_quantile_column(col)
+        if q is not None:
+            values.append(q)
+    return sorted(set(values))
 
 
 @dataclass(frozen=True)

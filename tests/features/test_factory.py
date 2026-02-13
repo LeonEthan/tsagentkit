@@ -3,8 +3,7 @@
 import pandas as pd
 import pytest
 
-from tsagentkit.features.factory import FeatureConfig, FeatureFactory
-from tsagentkit.features.matrix import FeatureMatrix
+from tsagentkit.features import FeatureConfig, FeatureFactory, FeatureMatrix
 
 
 @pytest.fixture

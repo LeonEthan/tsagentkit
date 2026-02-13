@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tsagentkit.features.matrix import FeatureMatrix
+from tsagentkit.features.config import FeatureMatrix
 
 
 @pytest.fixture

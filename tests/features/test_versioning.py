@@ -2,7 +2,7 @@
 
 import pytest
 
-from tsagentkit.features.versioning import (
+from tsagentkit.features.config import (
     FeatureConfig,
     compute_feature_hash,
     config_from_dict,

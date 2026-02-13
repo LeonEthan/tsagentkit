@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
 
 import pandas as pd
 
@@ -33,16 +32,6 @@ def parse_quantile_column(col: str) -> float | None:
     if not 0 < value < 1:
         return None
     return value
-
-
-def extract_quantiles(columns: Iterable[str]) -> list[float]:
-    """Extract sorted quantile values from column names."""
-    values = []
-    for col in columns:
-        q = parse_quantile_column(col)
-        if q is not None:
-            values.append(q)
-    return sorted(set(values))
 
 
 def normalize_quantile_columns(

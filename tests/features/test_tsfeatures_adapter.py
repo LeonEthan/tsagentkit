@@ -1,4 +1,4 @@
-"""Tests for tsagentkit.features.tsfeatures_adapter – _resolve_feature_fns, _prefix_if_conflict."""
+"""Tests for tsagentkit.features.tsfeatures – _resolve_feature_fns, _prefix_if_conflict."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from tsagentkit.features.tsfeatures_adapter import (
+from tsagentkit.features.tsfeatures import (
     _prefix_if_conflict,
     _resolve_feature_fns,
 )
@@ -104,6 +104,6 @@ class TestPrefixIfConflict:
 class TestImportGuard:
     def test_tsfeatures_import_function_exists(self) -> None:
         """Verify _import_tsfeatures is importable (not that tsfeatures is installed)."""
-        from tsagentkit.features.tsfeatures_adapter import _import_tsfeatures
+        from tsagentkit.features.tsfeatures import _import_tsfeatures
 
         assert callable(_import_tsfeatures)
