@@ -15,7 +15,7 @@ import pandas as pd
 from tsagentkit.contracts import CVFrame, ESplitRandomForbidden
 from tsagentkit.covariates import AlignedDataset, align_covariates
 from tsagentkit.eval import evaluate_forecasts
-from tsagentkit.utils import drop_future_rows, normalize_quantile_columns
+from tsagentkit.utils import call_with_optional_kwargs, drop_future_rows, normalize_quantile_columns
 
 from .report import (
     BacktestReport,
@@ -180,7 +180,7 @@ def rolling_backtest(
 
             # Fit model (with fallback handled by fit_func)
             try:
-                model = _call_with_optional_kwargs(
+                model = call_with_optional_kwargs(
                     fit_func,
                     train_ds,
                     plan,
@@ -630,21 +630,6 @@ def _build_window_covariates(
         task_spec=task_spec,
         covariates=dataset.covariate_bundle,
     )
-
-
-def _call_with_optional_kwargs(func: Any, *args: Any, **kwargs: Any) -> Any:
-    """Call a function with only supported keyword arguments."""
-    if not kwargs:
-        return func(*args)
-
-    try:
-        import inspect
-
-        params = inspect.signature(func).parameters
-        accepted = {k: v for k, v in kwargs.items() if k in params}
-        return func(*args, **accepted)
-    except Exception:
-        return func(*args, **kwargs)
 
 
 def _compute_segment_metrics(

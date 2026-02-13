@@ -233,7 +233,7 @@ class TestRunForecast:
             return plan, route_decision
 
         monkeypatch.setattr(
-            "tsagentkit.serving.orchestration.make_plan",
+            "tsagentkit.serving.pipeline.make_plan",
             fake_make_plan,
         )
 
@@ -252,6 +252,7 @@ class TestRunForecast:
                             "unique_id": uid,
                             "ds": last_date + h * step,
                             "yhat": 1.0,
+                            "model": artifact.model_name,
                         }
                     )
             return pd.DataFrame(rows)
@@ -287,7 +288,7 @@ class TestRunForecast:
             return plan, route_decision
 
         monkeypatch.setattr(
-            "tsagentkit.serving.orchestration.make_plan",
+            "tsagentkit.serving.pipeline.make_plan",
             fake_make_plan,
         )
 
@@ -306,6 +307,7 @@ class TestRunForecast:
                             "unique_id": uid,
                             "ds": last_date + h * step,
                             "yhat": 1.0,
+                            "model": artifact.model_name,
                         }
                     )
             return pd.DataFrame(rows)

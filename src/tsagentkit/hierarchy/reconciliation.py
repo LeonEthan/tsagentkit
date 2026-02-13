@@ -21,6 +21,25 @@ class ReconciliationMethod(Enum):
     WLS = "wls"
     MIN_TRACE = "min_trace"
 
+    @classmethod
+    def from_string(cls, value: str) -> "ReconciliationMethod":
+        """Parse method from string, defaulting to BOTTOM_UP if invalid.
+
+        Args:
+            value: String representation of the method
+
+        Returns:
+            ReconciliationMethod enum value
+
+        Example:
+            >>> ReconciliationMethod.from_string("bottom_up")
+            <ReconciliationMethod.BOTTOM_UP: 'bottom_up'>
+            >>> ReconciliationMethod.from_string("invalid")
+            <ReconciliationMethod.BOTTOM_UP: 'bottom_up'>
+        """
+        mapping = {m.value: m for m in cls}
+        return mapping.get(value, cls.BOTTOM_UP)
+
 
 def _build_tag_indices(tags: dict[str, np.ndarray], order: list[str]) -> dict[str, np.ndarray]:
     node_to_idx = {node: idx for idx, node in enumerate(order)}
