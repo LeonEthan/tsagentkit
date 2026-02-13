@@ -366,3 +366,39 @@ class TestRunForecast:
 
         assert result.qa_report is not None
         assert any(r.get("repair_type") == "missing_values" for r in result.qa_report.get("repairs", []))
+
+    def test_session_predict_postprocess_characterization(self, sample_spec: TaskSpec) -> None:
+        """Session predict should add model, normalize quantiles, and sort rows."""
+        from tsagentkit.contracts import ModelArtifact
+        from tsagentkit.serving import TSAgentSession
+
+        session = TSAgentSession(mode="quick")
+        artifact = ModelArtifact(model=object(), model_name="Naive")
+
+        def predict_func(dataset, model_artifact, spec):  # noqa: ANN001
+            _ = dataset
+            _ = model_artifact
+            _ = spec
+            return pd.DataFrame(
+                {
+                    "unique_id": ["B", "A", "A"],
+                    "ds": pd.to_datetime(["2024-01-02", "2024-01-02", "2024-01-01"]),
+                    "yhat": [2.0, 3.0, 1.0],
+                    "q10": [2.2, 3.2, None],
+                    "q_0.1": [None, None, 1.2],
+                }
+            )
+
+        forecast = session.predict(
+            artifact=artifact,
+            dataset=object(),
+            task_spec=sample_spec,
+            predict_func=predict_func,
+            plan=None,
+        )
+
+        assert list(forecast["unique_id"]) == ["A", "A", "B"]
+        assert list(forecast["model"]) == ["Naive", "Naive", "Naive"]
+        assert "q0.1" in forecast.columns
+        assert "q10" not in forecast.columns
+        assert "q_0.1" not in forecast.columns

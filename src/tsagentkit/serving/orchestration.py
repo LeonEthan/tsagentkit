@@ -17,14 +17,18 @@ from tsagentkit.contracts import (
     TaskSpec,
 )
 from tsagentkit.covariates import CovariateBundle
+from tsagentkit.router import make_plan  # noqa: F401
 
+from .forecast_postprocess import (
+    add_model_column,
+    maybe_reconcile_forecast,
+    normalize_and_sort_forecast,
+    resolve_model_name,
+)
 from .pipeline import (
     ForecastPipeline,
     MonitoringConfig,
 )
-
-# Re-export make_plan for backward compatibility with tests
-from tsagentkit.router import make_plan
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import DryRunResult, RunArtifact
@@ -120,10 +124,9 @@ class TSAgentSession:
 
         Uses the models.predict with reconciliation if hierarchical.
         """
+        from tsagentkit.contracts import ForecastResult
         from tsagentkit.models import predict as default_predict
         from tsagentkit.utils.compat import call_with_optional_kwargs
-        from tsagentkit.utils import normalize_quantile_columns
-        from tsagentkit.contracts import ForecastResult
 
         effective_predict_func = predict_func or default_predict
         kwargs = {"covariates": covariates} if covariates is not None else {}
@@ -135,28 +138,14 @@ class TSAgentSession:
         if isinstance(forecast, ForecastResult):
             forecast = forecast.df
 
-        # Add model column if missing
-        if "model" not in forecast.columns:
-            model_name = getattr(artifact, "model_name", None)
-            if model_name is None and hasattr(artifact, "metadata"):
-                model_name = artifact.metadata.get("model_name") if artifact.metadata else None
-            forecast = forecast.copy()
-            forecast["model"] = model_name or "model"
-
-        # Apply reconciliation if hierarchical
-        if plan and dataset.is_hierarchical() and dataset.hierarchy:
-            from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
-
-            method = ReconciliationMethod.from_string(reconciliation_method)
-            forecast = reconcile_forecasts(
-                base_forecasts=forecast,
-                structure=dataset.hierarchy,
-                method=method,
-            )
-
-        forecast = normalize_quantile_columns(forecast)
-        if {"unique_id", "ds"}.issubset(forecast.columns):
-            forecast = forecast.sort_values(["unique_id", "ds"]).reset_index(drop=True)
+        forecast = add_model_column(forecast, resolve_model_name(artifact))
+        forecast = maybe_reconcile_forecast(
+            forecast,
+            dataset=dataset,
+            plan=plan,
+            reconciliation_method=reconciliation_method,
+        )
+        forecast = normalize_and_sort_forecast(forecast)
 
         return forecast
 

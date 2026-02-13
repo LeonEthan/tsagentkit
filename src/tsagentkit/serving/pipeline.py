@@ -16,21 +16,14 @@ from tsagentkit.backtest import multi_model_backtest
 from tsagentkit.contracts import (
     AnomalySpec,
     CalibratorSpec,
-    EAnomalyFail,
-    ECalibrationFail,
     ECovariateIncompleteKnown,
     ECovariateLeakage,
     ECovariateStaticInvalid,
-    EFallbackExhausted,
-    EQACriticalIssue,
     ETaskSpecInvalid,
-    ForecastResult,
     PanelContract,
     TaskSpec,
     TSAgentKitError,
     ValidationReport,
-    anomaly_payload_dict,
-    calibration_payload_dict,
     validate_contract,
 )
 from tsagentkit.covariates import AlignedDataset, CovariateBundle, align_covariates
@@ -39,14 +32,28 @@ from tsagentkit.router import make_plan
 from tsagentkit.router.fallback import should_trigger_fallback
 from tsagentkit.series import TSDataset
 from tsagentkit.time import infer_freq
-from tsagentkit.utils import drop_future_rows, normalize_quantile_columns
+from tsagentkit.utils import drop_future_rows
 
-from .packaging import package_run
-from .provenance import create_provenance, log_event
+from .execution import (
+    fit_per_series_models,
+    fit_predict_with_fallback,
+    fit_single_model,
+    predict_per_series_models,
+    predict_single_model,
+)
+from .forecast_postprocess import (
+    add_model_column,
+    maybe_reconcile_forecast,
+    normalize_and_sort_forecast,
+    resolve_model_name,
+)
+from .provenance import log_event
+from .refinement import calibrate_forecast, detect_data_drift, detect_forecast_anomalies
+from .result_assembly import assemble_run_artifact, build_dry_run_result
 
 if TYPE_CHECKING:
     from tsagentkit.contracts import DryRunResult, RunArtifact
-    from tsagentkit.features import FeatureConfig, FeatureMatrix
+    from tsagentkit.features import FeatureConfig
     from tsagentkit.hierarchy import HierarchyStructure
 
 
@@ -459,22 +466,12 @@ class ForecastPipeline:
 
     def _build_dry_run_result(self) -> DryRunResult:
         """Build DryRunResult for dry run mode."""
-        from tsagentkit.contracts.results import DryRunResult
-        from tsagentkit.utils.compat import safe_model_dump
-
-        qa_report = self.state.qa_report
-        return DryRunResult(
-            validation=self.state.validation.to_dict() if self.state.validation else {},
-            qa_report={
-                "issues": list(qa_report.issues) if qa_report else [],
-                "repairs": [safe_model_dump(r, r) for r in qa_report.repairs] if qa_report else [],
-                "leakage_detected": qa_report.leakage_detected if qa_report else False,
-            },
-            plan=safe_model_dump(self.state.plan, {"plan": str(self.state.plan)}),
-            route_decision=safe_model_dump(
-                self.state.route_decision, {"route_decision": str(self.state.route_decision)}
-            ),
-            task_spec_used=safe_model_dump(self.state.task_spec, {}),
+        return build_dry_run_result(
+            validation=self.state.validation,
+            qa_report=self.state.qa_report,
+            plan=self.state.plan,
+            route_decision=self.state.route_decision,
+            task_spec=self.state.task_spec,
         )
 
     def _step_backtest(self) -> None:
@@ -531,9 +528,7 @@ class ForecastPipeline:
 
     def _fit_per_series(self, step_start: float) -> None:
         """Fit separate models for each series."""
-        from tsagentkit.models import fit_per_series
-
-        self.state.model_artifacts = fit_per_series(
+        self.state.model_artifacts = fit_per_series_models(
             dataset=self.state.dataset,
             plan=self.state.plan,
             selection_map=self.state.selection_map,
@@ -553,23 +548,13 @@ class ForecastPipeline:
 
     def _fit_single(self, step_start: float) -> None:
         """Fit single model for all series."""
-        from tsagentkit.models import fit as default_fit
-        from tsagentkit.utils.compat import call_with_optional_kwargs
-
-        fit_func = self.fit_func or default_fit
-        kwargs = {"covariates": self.state.aligned_dataset}
-
-        if fit_func is default_fit:
-            self.state.model_artifact = fit_func(
-                self.state.dataset,
-                self.state.plan,
-                on_fallback=self._on_fallback,
-                **kwargs,
-            )
-        else:
-            self.state.model_artifact = call_with_optional_kwargs(
-                fit_func, self.state.dataset, self.state.plan, **kwargs
-            )
+        self.state.model_artifact = fit_single_model(
+            dataset=self.state.dataset,
+            plan=self.state.plan,
+            fit_func=self.fit_func,
+            on_fallback=self._on_fallback,
+            covariates=self.state.aligned_dataset,
+        )
 
         self._log_event("fit", "success", step_start, artifacts=["model_artifact"])
 
@@ -596,13 +581,11 @@ class ForecastPipeline:
 
     def _predict_per_series(self, step_start: float) -> None:
         """Predict using per-series models."""
-        from tsagentkit.models import predict_per_series
-
-        self.state.forecast_df = predict_per_series(
+        self.state.forecast_df = predict_per_series_models(
             dataset=self.state.dataset,
             artifacts=self.state.model_artifacts,
             selection_map=self.state.selection_map,
-            spec=self.state.task_spec,
+            task_spec=self.state.task_spec,
             predict_func=self.predict_func,
         )
         self.state.forecast_df = self._normalize_forecast(self.state.forecast_df)
@@ -610,22 +593,13 @@ class ForecastPipeline:
 
     def _predict_single(self, step_start: float) -> None:
         """Predict using single model."""
-        from tsagentkit.models import predict as default_predict
-        from tsagentkit.utils.compat import call_with_optional_kwargs
-
-        predict_func = self.predict_func or default_predict
-        kwargs = {"covariates": self.state.aligned_dataset}
-
-        self.state.forecast_df = call_with_optional_kwargs(
-            predict_func,
+        self.state.forecast_df = predict_single_model(
             self.state.dataset,
             self.state.model_artifact,
             self.state.task_spec,
-            **kwargs,
+            self.predict_func,
+            self.state.aligned_dataset,
         )
-
-        if isinstance(self.state.forecast_df, ForecastResult):
-            self.state.forecast_df = self.state.forecast_df.df
 
         self.state.forecast_df = self._add_model_column(self.state.forecast_df)
         self.state.forecast_df = self._apply_reconciliation(self.state.forecast_df)
@@ -654,9 +628,6 @@ class ForecastPipeline:
 
     def _fit_predict_fallback(self, initial_error: Exception, step_start: float) -> None:
         """Fit and predict with fallback to remaining candidates."""
-        from tsagentkit.router.fallback import fit_predict_with_fallback
-
-        candidates = list(getattr(self.state.plan, "candidate_models", []) or [])
         start_after = self.state.model_artifact.model_name if self.state.model_artifact else None
 
         artifact, forecast = fit_predict_with_fallback(
@@ -678,38 +649,21 @@ class ForecastPipeline:
 
     def _add_model_column(self, forecast: pd.DataFrame) -> pd.DataFrame:
         """Add model name column to forecast if missing."""
-        if "model" in forecast.columns:
-            return forecast
-
-        model_name = None
-        if self.state.model_artifact:
-            model_name = getattr(self.state.model_artifact, "model_name", None)
-            if model_name is None and hasattr(self.state.model_artifact, "metadata"):
-                model_name = self.state.model_artifact.metadata.get("model_name")
-
-        forecast = forecast.copy()
-        forecast["model"] = model_name or "model"
-        return forecast
+        model_name = resolve_model_name(self.state.model_artifact)
+        return add_model_column(forecast, model_name)
 
     def _apply_reconciliation(self, forecast: pd.DataFrame) -> pd.DataFrame:
         """Apply hierarchical reconciliation if needed."""
-        if not (self.state.plan and self.state.dataset.is_hierarchical() and self.state.dataset.hierarchy):
-            return forecast
-
-        from tsagentkit.hierarchy import apply_reconciliation_if_needed
-
-        return apply_reconciliation_if_needed(
-            forecast=forecast,
-            hierarchy=self.state.dataset.hierarchy,
-            method=self.reconciliation_method,
+        return maybe_reconcile_forecast(
+            forecast,
+            dataset=self.state.dataset,
+            plan=self.state.plan,
+            reconciliation_method=self.reconciliation_method,
         )
 
     def _normalize_forecast(self, forecast: pd.DataFrame) -> pd.DataFrame:
         """Normalize and sort forecast dataframe."""
-        forecast = normalize_quantile_columns(forecast)
-        if {"unique_id", "ds"}.issubset(forecast.columns):
-            forecast = forecast.sort_values(["unique_id", "ds"]).reset_index(drop=True)
-        return forecast
+        return normalize_and_sort_forecast(forecast)
 
     def _step_calibration(self) -> None:
         """Apply calibration if configured."""
@@ -718,25 +672,11 @@ class ForecastPipeline:
 
         step_start = time.time()
         try:
-            from tsagentkit.calibration import apply_calibrator, fit_calibrator
-
             cv_frame = getattr(self.state.backtest_report, "cv_frame", None)
-            if cv_frame is None:
-                raise ECalibrationFail(
-                    "Calibration requires CV residuals from backtest."
-                )
-
-            if hasattr(cv_frame, "df"):
-                cv_frame = cv_frame.df
-
-            self.state.calibration_artifact = fit_calibrator(
-                cv_frame,
-                method=self.calibrator_spec.method,
-                level=self.calibrator_spec.level,
-                by=self.calibrator_spec.by,
-            )
-            self.state.forecast_df = apply_calibrator(
-                self.state.forecast_df, self.state.calibration_artifact
+            self.state.forecast_df, self.state.calibration_artifact = calibrate_forecast(
+                forecast=self.state.forecast_df,
+                cv_frame=cv_frame,
+                calibrator_spec=self.calibrator_spec,
             )
             self._log_event(
                 "calibration", "success", step_start, artifacts=["calibration_artifact"]
@@ -753,30 +693,18 @@ class ForecastPipeline:
 
         step_start = time.time()
         try:
-            from tsagentkit.anomaly import detect_anomalies
-
-            spec = self.state.task_spec.panel_contract
-            actuals = self.state.data[[spec.unique_id_col, spec.ds_col, spec.y_col]].copy()
-            merged = self.state.forecast_df.merge(
-                actuals,
-                on=[spec.unique_id_col, spec.ds_col],
-                how="left",
+            self.state.anomaly_report = detect_forecast_anomalies(
+                forecast=self.state.forecast_df,
+                historical_data=self.state.data,
+                panel_contract=self.state.task_spec.panel_contract,
+                anomaly_spec=self.anomaly_spec,
+                calibration_artifact=self.state.calibration_artifact,
+                strict=(self.mode == "strict"),
             )
-
-            if merged[spec.y_col].notna().any():
-                self.state.anomaly_report = detect_anomalies(
-                    merged,
-                    method=self.anomaly_spec.method,
-                    level=self.anomaly_spec.level,
-                    score=self.anomaly_spec.score,
-                    calibrator=self.state.calibration_artifact,
-                    strict=(self.mode == "strict"),
-                )
+            if self.state.anomaly_report is not None:
                 self._log_event(
                     "anomaly_detection", "success", step_start, artifacts=["anomaly_report"]
                 )
-            elif self.mode == "strict":
-                raise EAnomalyFail("No actuals available for anomaly detection.")
         except Exception:
             self._log_event("anomaly_detection", "failed", step_start)
             if self.mode == "strict":
@@ -789,15 +717,11 @@ class ForecastPipeline:
 
         step_start = time.time()
         try:
-            from tsagentkit.monitoring import DriftDetector
-
-            detector = DriftDetector(
-                method=self.monitoring_config.drift_method,
-                threshold=self.monitoring_config.drift_threshold,
-            )
-            self.state.drift_report = detector.detect(
+            self.state.drift_report = detect_data_drift(
                 reference_data=self.reference_data,
                 current_data=self.state.data,
+                method=self.monitoring_config.drift_method,
+                threshold=self.monitoring_config.drift_threshold,
             )
             self._log_event(
                 "drift_detection", "success", step_start, artifacts=["drift_report"]
@@ -808,59 +732,30 @@ class ForecastPipeline:
 
     def _step_package(self) -> RunArtifact:
         """Package all results into RunArtifact."""
-        from tsagentkit.utils.compat import safe_model_dump
-
-        # Determine model name(s)
-        if self.state.selection_map is not None and self.state.model_artifacts:
-            model_names = sorted(set(self.state.selection_map.values()))
-            model_name_str = f"per_series({','.join(model_names)})"
-            primary_artifact = next(iter(self.state.model_artifacts.values()))
-        else:
-            model_name_str = self.state.model_artifact.model_name if self.state.model_artifact else "unknown"
-            primary_artifact = self.state.model_artifact
-
-        # Build provenance
-        provenance = create_provenance(
+        return assemble_run_artifact(
             data=self.state.data,
             task_spec=self.state.task_spec,
             plan=self.state.plan,
-            model_config=safe_model_dump(self.state.plan),
+            forecast_df=self.state.forecast_df,
+            validation=self.state.validation,
+            backtest_report=self.state.backtest_report,
+            qa_report=self.state.qa_report,
+            model_artifact=self.state.model_artifact,
+            model_artifacts=self.state.model_artifacts,
+            selection_map=self.state.selection_map,
             qa_repairs=self.state.qa_repairs,
             fallbacks_triggered=self.fallbacks_triggered,
             feature_matrix=self.state.feature_matrix,
             drift_report=self.state.drift_report,
             column_map=self.state.column_map,
-            original_panel_contract=safe_model_dump(self.state.original_panel_contract),
+            original_panel_contract=self.state.original_panel_contract,
             route_decision=self.state.route_decision,
-        )
-
-        # Build forecast result
-        forecast_result = ForecastResult(
-            df=self.state.forecast_df,
-            provenance=provenance,
-            model_name=model_name_str,
-            horizon=self.state.task_spec.horizon,
-        )
-
-        # Package final artifact
-        return package_run(
-            forecast=forecast_result,
-            plan=self.state.plan,
-            task_spec=safe_model_dump(self.state.task_spec),
-            validation_report=self.state.validation.to_dict() if self.state.validation else None,
-            backtest_report=self.state.backtest_report,
-            qa_report=self.state.qa_report,
-            model_artifact=primary_artifact,
-            provenance=provenance,
-            calibration_artifact=calibration_payload_dict(self.state.calibration_artifact),
-            anomaly_report=anomaly_payload_dict(self.state.anomaly_report),
+            calibration_artifact=self.state.calibration_artifact,
+            anomaly_report=self.state.anomaly_report,
             degradation_events=self.degradation_events,
-            metadata={
-                "mode": self.mode,
-                "total_duration_ms": (time.time() - self.start_time) * 1000,
-                "events": self.events,
-                "per_series_selection": self.state.selection_map is not None,
-            },
+            mode=self.mode,
+            total_duration_ms=(time.time() - self.start_time) * 1000,
+            events=self.events,
         )
 
     def _log_event(
@@ -915,10 +810,10 @@ def _run_forecast_impl(
     repair_strategy: dict[str, Any] | None = None,
     hierarchy: HierarchyStructure | None = None,
     feature_config: FeatureConfig | None = None,
-        calibrator_spec: CalibratorSpec | None = None,
-        anomaly_spec: AnomalySpec | None = None,
-        reconciliation_method: str = "bottom_up",
-        dry_run: bool = False,
+    calibrator_spec: CalibratorSpec | None = None,
+    anomaly_spec: AnomalySpec | None = None,
+    reconciliation_method: str = "bottom_up",
+    dry_run: bool = False,
 ) -> RunArtifact | DryRunResult:
     """Execute the complete forecasting pipeline using the refactored Pipeline class.
 
