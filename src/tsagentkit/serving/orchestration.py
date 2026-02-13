@@ -7,7 +7,7 @@ the complete forecasting pipeline.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 
@@ -19,10 +19,10 @@ from tsagentkit.contracts import (
 from tsagentkit.covariates import CovariateBundle
 from tsagentkit.router import make_plan  # noqa: F401
 
+from .execution import FallbackHandler, FitFunc, PredictFunc, fit_single_model, predict_single_model
 from .forecast_postprocess import (
-    add_model_column,
-    maybe_reconcile_forecast,
-    normalize_and_sort_forecast,
+    HierarchicalDataset,
+    postprocess_forecast,
     resolve_model_name,
 )
 from .pipeline import (
@@ -45,8 +45,8 @@ class TSAgentSession:
     """
 
     mode: Literal["quick", "standard", "strict"] = "standard"
-    task_spec_defaults: dict[str, Any] | None = None
-    model_pool: Any | None = None
+    task_spec_defaults: dict[str, object] | None = None
+    model_pool: object | None = None
 
     def run(
         self,
@@ -54,11 +54,11 @@ class TSAgentSession:
         task_spec: TaskSpec,
         covariates: CovariateBundle | None = None,
         mode: Literal["quick", "standard", "strict"] | None = None,
-        fit_func: Any | None = None,
-        predict_func: Any | None = None,
+        fit_func: FitFunc | None = None,
+        predict_func: PredictFunc | None = None,
         monitoring_config: MonitoringConfig | None = None,
         reference_data: pd.DataFrame | None = None,
-        repair_strategy: dict[str, Any] | None = None,
+        repair_strategy: dict[str, object] | None = None,
         hierarchy: HierarchyStructure | None = None,
         feature_config: FeatureConfig | None = None,
         calibrator_spec: CalibratorSpec | None = None,
@@ -90,64 +90,54 @@ class TSAgentSession:
 
     def fit(
         self,
-        dataset: Any,
-        plan: Any,
-        fit_func: Any | None = None,
-        on_fallback: Any | None = None,
-        covariates: Any | None = None,
-    ) -> Any:
+        dataset: object,
+        plan: object,
+        fit_func: FitFunc | None = None,
+        on_fallback: FallbackHandler | None = None,
+        covariates: object | None = None,
+    ) -> object:
         """Fit step entrypoint for session consumers.
 
-        Uses the ForecastPipeline._fit_single method internally.
+        Uses shared serving execution helpers to keep fit behavior consistent
+        with ForecastPipeline.
         """
-        from tsagentkit.models import fit as default_fit
-        from tsagentkit.utils.compat import call_with_optional_kwargs
-
-        effective_fit_func = fit_func or default_fit
-        kwargs = {"covariates": covariates} if covariates is not None else {}
-
-        if effective_fit_func is default_fit:
-            return effective_fit_func(dataset, plan, on_fallback=on_fallback, **kwargs)
-        return call_with_optional_kwargs(effective_fit_func, dataset, plan, **kwargs)
+        return fit_single_model(
+            dataset=dataset,
+            plan=plan,
+            fit_func=fit_func,
+            on_fallback=on_fallback,
+            covariates=covariates,
+        )
 
     def predict(
         self,
-        artifact: Any,
-        dataset: Any,
+        artifact: object,
+        dataset: HierarchicalDataset,
         task_spec: TaskSpec,
-        predict_func: Any | None = None,
-        plan: Any | None = None,
-        covariates: Any | None = None,
+        predict_func: PredictFunc | None = None,
+        plan: object | None = None,
+        covariates: object | None = None,
         reconciliation_method: str = "bottom_up",
     ) -> pd.DataFrame:
         """Predict step entrypoint for session consumers.
 
-        Uses the models.predict with reconciliation if hierarchical.
+        Uses shared serving execution helpers, then applies standard
+        post-processing and reconciliation if hierarchical.
         """
-        from tsagentkit.contracts import ForecastResult
-        from tsagentkit.models import predict as default_predict
-        from tsagentkit.utils.compat import call_with_optional_kwargs
-
-        effective_predict_func = predict_func or default_predict
-        kwargs = {"covariates": covariates} if covariates is not None else {}
-
-        forecast = call_with_optional_kwargs(
-            effective_predict_func, dataset, artifact, task_spec, **kwargs
+        forecast = predict_single_model(
+            dataset=dataset,
+            model_artifact=artifact,
+            task_spec=task_spec,
+            predict_func=predict_func,
+            covariates=covariates,
         )
-
-        if isinstance(forecast, ForecastResult):
-            forecast = forecast.df
-
-        forecast = add_model_column(forecast, resolve_model_name(artifact))
-        forecast = maybe_reconcile_forecast(
+        return postprocess_forecast(
             forecast,
+            model_name=resolve_model_name(artifact),
             dataset=dataset,
             plan=plan,
             reconciliation_method=reconciliation_method,
         )
-        forecast = normalize_and_sort_forecast(forecast)
-
-        return forecast
 
 
 def run_forecast(
@@ -155,11 +145,11 @@ def run_forecast(
     task_spec: TaskSpec,
     covariates: CovariateBundle | None = None,
     mode: Literal["quick", "standard", "strict"] = "standard",
-    fit_func: Any | None = None,
-    predict_func: Any | None = None,
+    fit_func: FitFunc | None = None,
+    predict_func: PredictFunc | None = None,
     monitoring_config: MonitoringConfig | None = None,
     reference_data: pd.DataFrame | None = None,
-    repair_strategy: dict[str, Any] | None = None,
+    repair_strategy: dict[str, object] | None = None,
     hierarchy: HierarchyStructure | None = None,
     feature_config: FeatureConfig | None = None,
     calibrator_spec: CalibratorSpec | None = None,

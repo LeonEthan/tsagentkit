@@ -80,8 +80,8 @@ def fit_per_series(
 
 def _call_fit_with_kwargs(
     func: Callable[..., Any],
-    dataset: "TSDataset",
-    plan: "PlanSpec",
+    dataset: TSDataset,
+    plan: PlanSpec,
     on_fallback: Callable[[str, str, Exception], None] | None = None,
 ) -> Any:
     """Call fit function with optional kwargs, handling signature differences."""
@@ -103,9 +103,9 @@ def _call_fit_with_kwargs(
 
 def _call_predict_with_kwargs(
     func: Callable[..., Any],
-    dataset: "TSDataset",
+    dataset: TSDataset,
     artifact: ModelArtifact,
-    spec: "TaskSpec",
+    spec: TaskSpec,
 ) -> Any:
     """Call predict function with kwargs, handling different signatures."""
     import inspect

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 import pandas as pd
 
@@ -14,18 +14,29 @@ from tsagentkit.contracts import (
     PanelContract,
 )
 
+if TYPE_CHECKING:
+    from tsagentkit.anomaly import AnomalyReport
+    from tsagentkit.calibration import CalibratorArtifact
+    from tsagentkit.monitoring import DriftReport
+
+
+class CVFrameLike(Protocol):
+    """Frame wrapper that exposes CV rows via `.df`."""
+
+    df: pd.DataFrame
+
 
 def calibrate_forecast(
     forecast: pd.DataFrame,
-    cv_frame: Any,
+    cv_frame: pd.DataFrame | CVFrameLike,
     calibrator_spec: CalibratorSpec,
-) -> tuple[pd.DataFrame, Any]:
+) -> tuple[pd.DataFrame, CalibratorArtifact]:
     """Fit and apply a calibration artifact to a forecast frame."""
     if cv_frame is None:
         raise ECalibrationFail("Calibration requires CV residuals from backtest.")
 
     if hasattr(cv_frame, "df"):
-        cv_frame = cv_frame.df
+        cv_frame = cast(CVFrameLike, cv_frame).df
 
     from tsagentkit.calibration import apply_calibrator, fit_calibrator
 
@@ -44,9 +55,9 @@ def detect_forecast_anomalies(
     historical_data: pd.DataFrame,
     panel_contract: PanelContract,
     anomaly_spec: AnomalySpec,
-    calibration_artifact: Any | None = None,
+    calibration_artifact: CalibratorArtifact | None = None,
     strict: bool = False,
-) -> Any | None:
+) -> AnomalyReport | None:
     """Run anomaly detection when joined actuals are available."""
     actuals = historical_data[
         [
@@ -83,7 +94,7 @@ def detect_data_drift(
     current_data: pd.DataFrame,
     method: Literal["psi", "ks"] = "psi",
     threshold: float | None = None,
-) -> Any:
+) -> DriftReport:
     """Detect distribution drift between reference and current data."""
     from tsagentkit.monitoring import DriftDetector
 
@@ -92,4 +103,3 @@ def detect_data_drift(
         reference_data=reference_data,
         current_data=current_data,
     )
-

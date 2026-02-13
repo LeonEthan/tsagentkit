@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -13,7 +12,6 @@ from tsagentkit.time import (
     make_regular_grid,
     normalize_pandas_freq,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

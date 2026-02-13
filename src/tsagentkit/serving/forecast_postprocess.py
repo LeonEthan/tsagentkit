@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Protocol
 
 import pandas as pd
 
 from tsagentkit.utils import normalize_quantile_columns
 
 
-def resolve_model_name(artifact: Any) -> str | None:
+class HierarchicalDataset(Protocol):
+    """Minimal dataset protocol needed for forecast reconciliation."""
+
+    hierarchy: object | None
+
+    def is_hierarchical(self) -> bool: ...
+
+
+def resolve_model_name(artifact: object) -> str | None:
     """Resolve model name from a model artifact-like object."""
     if artifact is None:
         return None
@@ -36,8 +44,8 @@ def add_model_column(
 def maybe_reconcile_forecast(
     forecast: pd.DataFrame,
     *,
-    dataset: Any,
-    plan: Any | None,
+    dataset: HierarchicalDataset,
+    plan: object | None,
     reconciliation_method: str,
 ) -> pd.DataFrame:
     """Apply hierarchical reconciliation when plan and hierarchy are present."""
@@ -62,3 +70,21 @@ def normalize_and_sort_forecast(forecast: pd.DataFrame) -> pd.DataFrame:
         normalized = normalized.sort_values(["unique_id", "ds"]).reset_index(drop=True)
     return normalized
 
+
+def postprocess_forecast(
+    forecast: pd.DataFrame,
+    *,
+    model_name: str | None,
+    dataset: HierarchicalDataset,
+    plan: object | None,
+    reconciliation_method: str,
+) -> pd.DataFrame:
+    """Apply standard single-model forecast post-processing sequence."""
+    enriched = add_model_column(forecast, model_name)
+    reconciled = maybe_reconcile_forecast(
+        enriched,
+        dataset=dataset,
+        plan=plan,
+        reconciliation_method=reconciliation_method,
+    )
+    return normalize_and_sort_forecast(reconciled)

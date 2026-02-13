@@ -5,8 +5,9 @@ Bundles all outputs from a forecasting run into a comprehensive artifact.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from tsagentkit.contracts import (
     RUN_ARTIFACT_SCHEMA_VERSION,
@@ -22,22 +23,44 @@ if TYPE_CHECKING:
     from tsagentkit.qa import QAReport
     from tsagentkit.router import PlanSpec
 
+PayloadDict = dict[str, object]
+
+
+def _coerce_payload_dict(value: object, *, fallback_key: str) -> PayloadDict:
+    """Convert common model-like objects to dictionary payloads."""
+    if isinstance(value, Mapping):
+        return dict(value)
+
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        serialized = to_dict()
+        if isinstance(serialized, Mapping):
+            return dict(serialized)
+
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        serialized = model_dump()
+        if isinstance(serialized, Mapping):
+            return dict(serialized)
+
+    return {fallback_key: str(value)}
+
 
 def package_run(
     forecast: ForecastResult,
-    plan: PlanSpec | dict[str, Any],
-    task_spec: Any | None = None,
-    plan_spec: dict[str, Any] | None = None,
-    validation_report: dict[str, Any] | None = None,
+    plan: PlanSpec | Mapping[str, object],
+    task_spec: object | None = None,
+    plan_spec: Mapping[str, object] | None = None,
+    validation_report: Mapping[str, object] | None = None,
     backtest_report: BacktestReport | None = None,
     qa_report: QAReport | None = None,
     model_artifact: ModelArtifact | None = None,
     provenance: Provenance | None = None,
-    calibration_artifact: Any | None = None,
-    anomaly_report: Any | None = None,
-    metadata: dict[str, Any] | None = None,
+    calibration_artifact: object | None = None,
+    anomaly_report: object | None = None,
+    metadata: Mapping[str, object] | None = None,
     lifecycle_stage: str = "train_serve",
-    degradation_events: list[dict[str, Any]] | None = None,
+    degradation_events: list[PayloadDict] | None = None,
 ) -> RunArtifact:
     """Package all run outputs into a comprehensive artifact.
 
@@ -55,14 +78,8 @@ def package_run(
     Returns:
         RunArtifact containing all run outputs
     """
-    if hasattr(plan, "to_dict"):
-        plan_dict = plan.to_dict()
-    elif hasattr(plan, "model_dump"):
-        plan_dict = plan.model_dump()
-    else:
-        plan_dict = plan
-    if plan_spec is None:
-        plan_spec = plan_dict
+    plan_dict = _coerce_payload_dict(plan, fallback_key="plan")
+    resolved_plan_spec = dict(plan_spec) if plan_spec is not None else dict(plan_dict)
     backtest_dict = backtest_report.to_dict() if backtest_report else None
     qa_dict = qa_report.to_dict() if qa_report and hasattr(qa_report, "to_dict") else None
     calibration_dict = calibration_payload_dict(calibration_artifact)
@@ -76,16 +93,16 @@ def package_run(
         forecast=forecast,
         plan=plan_dict,
         task_spec=task_spec,
-        plan_spec=plan_spec,
-        validation_report=validation_report,
+        plan_spec=resolved_plan_spec,
+        validation_report=dict(validation_report) if validation_report else None,
         backtest_report=backtest_dict,
         qa_report=qa_dict,
         model_artifact=model_artifact,
         provenance=provenance or forecast.provenance,
         calibration_artifact=calibration_dict,
         anomaly_report=anomaly_dict,
-        degradation_events=degradation_events or [],
-        metadata=metadata or {},
+        degradation_events=[dict(event) for event in (degradation_events or [])],
+        metadata=dict(metadata) if metadata else {},
         artifact_type=RUN_ARTIFACT_TYPE,
         artifact_schema_version=RUN_ARTIFACT_SCHEMA_VERSION,
         tsagentkit_version=package_version,

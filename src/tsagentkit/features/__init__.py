@@ -9,8 +9,8 @@ from tsagentkit.features.config import (
     FeatureConfig,
     FeatureMatrix,
     compute_feature_hash,
-    config_to_dict,
     config_from_dict,
+    config_to_dict,
     configs_equal,
 )
 from tsagentkit.features.covariates import CovariateManager, CovariatePolicy

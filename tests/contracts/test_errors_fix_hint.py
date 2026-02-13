@@ -18,7 +18,6 @@ from tsagentkit.contracts.errors import (
     TSAgentKitError,
 )
 
-
 # ---- WS-3.1: fix_hint field + to_agent_dict ---------------------------------
 
 

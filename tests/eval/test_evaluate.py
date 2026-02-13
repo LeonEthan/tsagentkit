@@ -8,7 +8,6 @@ import pytest
 
 from tsagentkit.eval import MetricFrame, ScoreSummary, evaluate_forecasts
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

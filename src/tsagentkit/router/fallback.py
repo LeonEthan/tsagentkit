@@ -6,10 +6,11 @@ Provides automatic model degradation when primary models fail.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 import pandas as pd
 
+from tsagentkit.contracts import TaskSpec
 from tsagentkit.contracts.errors import EFallbackExhausted, TSAgentKitError
 from tsagentkit.contracts.results import ForecastResult
 from tsagentkit.router.plan import PlanSpec, get_candidate_models
@@ -19,6 +20,10 @@ if TYPE_CHECKING:
     from tsagentkit.series import TSDataset
 
 T = TypeVar("T")
+FitPredictArtifact = object
+FitPredictCovariates = object
+FitPredictFunc = Callable[..., pd.DataFrame | ForecastResult]
+FitFunc = Callable[..., FitPredictArtifact]
 
 FALLBACK_TRIGGER_ERROR_CODES = frozenset(
     {
@@ -164,15 +169,15 @@ class FallbackLadder:
 def fit_predict_with_fallback(
     dataset: TSDataset,
     plan: PlanSpec,
-    task_spec: Any,
-    fit_func: Callable[[TSDataset, PlanSpec], Any] | None = None,
-    predict_func: Callable[..., pd.DataFrame] | None = None,
-    covariates: Any | None = None,
+    task_spec: TaskSpec,
+    fit_func: FitFunc | None = None,
+    predict_func: FitPredictFunc | None = None,
+    covariates: FitPredictCovariates | None = None,
     start_after: str | None = None,
     initial_error: Exception | None = None,
     on_fallback: Callable[[str, str, Exception], None] | None = None,
     reconciliation_method: str = "bottom_up",
-) -> tuple[Any, pd.DataFrame]:
+) -> tuple[FitPredictArtifact, pd.DataFrame]:
     """Fit and predict with fallback across remaining candidates.
 
     This function attempts to fit and predict with models from the plan's
@@ -200,7 +205,6 @@ def fit_predict_with_fallback(
     from tsagentkit.models import fit as default_fit
     from tsagentkit.models import predict as default_predict
     from tsagentkit.utils.compat import call_with_optional_kwargs
-    from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
 
     fit_callable = fit_func or default_fit
     predict_callable = predict_func or default_predict

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 
@@ -35,6 +35,8 @@ from tsagentkit.time import infer_freq
 from tsagentkit.utils import drop_future_rows
 
 from .execution import (
+    FitFunc,
+    PredictFunc,
     fit_per_series_models,
     fit_predict_with_fallback,
     fit_single_model,
@@ -42,9 +44,8 @@ from .execution import (
     predict_single_model,
 )
 from .forecast_postprocess import (
-    add_model_column,
-    maybe_reconcile_forecast,
     normalize_and_sort_forecast,
+    postprocess_forecast,
     resolve_model_name,
 )
 from .provenance import log_event
@@ -52,9 +53,13 @@ from .refinement import calibrate_forecast, detect_data_drift, detect_forecast_a
 from .result_assembly import assemble_run_artifact, build_dry_run_result
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import DryRunResult, RunArtifact
-    from tsagentkit.features import FeatureConfig
+    from tsagentkit.anomaly import AnomalyReport
+    from tsagentkit.backtest import MultiModelBacktestReport
+    from tsagentkit.calibration import CalibratorArtifact
+    from tsagentkit.contracts import DryRunResult, PlanSpec, RouteDecision, RunArtifact
+    from tsagentkit.features import FeatureConfig, FeatureMatrix
     from tsagentkit.hierarchy import HierarchyStructure
+    from tsagentkit.monitoring import DriftReport
 
 
 @dataclass
@@ -86,22 +91,22 @@ class PipelineState:
     covariate_error: Exception | None = None
     aligned_dataset: AlignedDataset | None = None
     dataset: TSDataset | None = None
-    feature_matrix: Any = None
-    plan: Any = None
-    route_decision: Any = None
-    backtest_report: Any = None
+    feature_matrix: FeatureMatrix | None = None
+    plan: PlanSpec | None = None
+    route_decision: RouteDecision | None = None
+    backtest_report: MultiModelBacktestReport | None = None
     selection_map: dict[str, str] | None = None
-    model_artifact: Any = None
-    model_artifacts: dict[str, Any] | None = None
+    model_artifact: object | None = None
+    model_artifacts: dict[str, object] | None = None
     forecast_df: pd.DataFrame | None = None
-    calibration_artifact: Any = None
-    anomaly_report: Any = None
-    drift_report: Any = None
+    calibration_artifact: CalibratorArtifact | None = None
+    anomaly_report: AnomalyReport | None = None
+    drift_report: DriftReport | None = None
 
     # Metadata
     column_map: dict[str, str] | None = None
-    original_panel_contract: Any = None
-    qa_repairs: list[dict[str, Any]] = field(default_factory=list)
+    original_panel_contract: PanelContract | None = None
+    qa_repairs: list[dict[str, object]] = field(default_factory=list)
 
 
 class ForecastPipeline:
@@ -122,11 +127,11 @@ class ForecastPipeline:
         task_spec: TaskSpec,
         covariates: CovariateBundle | None = None,
         mode: Literal["quick", "standard", "strict"] = "standard",
-        fit_func: Any | None = None,
-        predict_func: Any | None = None,
+        fit_func: FitFunc | None = None,
+        predict_func: PredictFunc | None = None,
         monitoring_config: MonitoringConfig | None = None,
         reference_data: pd.DataFrame | None = None,
-        repair_strategy: dict[str, Any] | None = None,
+        repair_strategy: dict[str, object] | None = None,
         hierarchy: HierarchyStructure | None = None,
         feature_config: FeatureConfig | None = None,
         calibrator_spec: CalibratorSpec | None = None,
@@ -157,18 +162,14 @@ class ForecastPipeline:
         )
 
         # Event tracking
-        self.events: list[dict[str, Any]] = []
-        self.fallbacks_triggered: list[dict[str, Any]] = []
-        self.degradation_events: list[dict[str, Any]] = []
+        self.events: list[dict[str, object]] = []
+        self.fallbacks_triggered: list[dict[str, object]] = []
+        self.degradation_events: list[dict[str, object]] = []
         self.start_time = time.time()
 
     def run(self) -> RunArtifact | DryRunResult:
         """Execute the complete pipeline."""
-        try:
-            return self._execute_pipeline()
-        except Exception:
-            # Ensure we always return properly, even on failure
-            raise
+        return self._execute_pipeline()
 
     def _execute_pipeline(self) -> RunArtifact | DryRunResult:
         """Internal pipeline execution with all steps."""
@@ -600,10 +601,13 @@ class ForecastPipeline:
             self.predict_func,
             self.state.aligned_dataset,
         )
-
-        self.state.forecast_df = self._add_model_column(self.state.forecast_df)
-        self.state.forecast_df = self._apply_reconciliation(self.state.forecast_df)
-        self.state.forecast_df = self._normalize_forecast(self.state.forecast_df)
+        self.state.forecast_df = postprocess_forecast(
+            self.state.forecast_df,
+            model_name=resolve_model_name(self.state.model_artifact),
+            dataset=self.state.dataset,
+            plan=self.state.plan,
+            reconciliation_method=self.reconciliation_method,
+        )
 
         self._log_event("predict", "success", step_start, artifacts=["forecast"])
 
@@ -646,20 +650,6 @@ class ForecastPipeline:
         self.state.model_artifact = artifact
         self.state.forecast_df = self._normalize_forecast(forecast)
         self._log_event("predict_fallback", "success", step_start, artifacts=["forecast"])
-
-    def _add_model_column(self, forecast: pd.DataFrame) -> pd.DataFrame:
-        """Add model name column to forecast if missing."""
-        model_name = resolve_model_name(self.state.model_artifact)
-        return add_model_column(forecast, model_name)
-
-    def _apply_reconciliation(self, forecast: pd.DataFrame) -> pd.DataFrame:
-        """Apply hierarchical reconciliation if needed."""
-        return maybe_reconcile_forecast(
-            forecast,
-            dataset=self.state.dataset,
-            plan=self.state.plan,
-            reconciliation_method=self.reconciliation_method,
-        )
 
     def _normalize_forecast(self, forecast: pd.DataFrame) -> pd.DataFrame:
         """Normalize and sort forecast dataframe."""
@@ -764,7 +754,7 @@ class ForecastPipeline:
         status: str,
         step_start: float,
         artifacts: list[str] | None = None,
-        context: dict[str, Any] | None = None,
+        context: dict[str, object] | None = None,
         error_code: str | None = None,
     ) -> None:
         """Log a pipeline event."""
@@ -779,7 +769,7 @@ class ForecastPipeline:
         )
         self.events.append(event)
 
-    def _skip_step(self, step_name: str, context: dict[str, Any] | None = None) -> None:
+    def _skip_step(self, step_name: str, context: dict[str, object] | None = None) -> None:
         """Log a skipped step."""
         self.events.append(
             log_event(
@@ -803,11 +793,11 @@ def _run_forecast_impl(
     task_spec: TaskSpec,
     covariates: CovariateBundle | None = None,
     mode: Literal["quick", "standard", "strict"] = "standard",
-    fit_func: Any | None = None,
-    predict_func: Any | None = None,
+    fit_func: FitFunc | None = None,
+    predict_func: PredictFunc | None = None,
     monitoring_config: MonitoringConfig | None = None,
     reference_data: pd.DataFrame | None = None,
-    repair_strategy: dict[str, Any] | None = None,
+    repair_strategy: dict[str, object] | None = None,
     hierarchy: HierarchyStructure | None = None,
     feature_config: FeatureConfig | None = None,
     calibrator_spec: CalibratorSpec | None = None,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from tsagentkit.contracts import ForecastResult
 from tsagentkit.utils.compat import safe_model_dump
@@ -13,16 +13,28 @@ from .provenance import create_provenance
 if TYPE_CHECKING:
     import pandas as pd
 
-    from tsagentkit.contracts import DryRunResult
+    from tsagentkit.anomaly import AnomalyReport
+    from tsagentkit.backtest import MultiModelBacktestReport
+    from tsagentkit.contracts import (
+        DryRunResult,
+        PanelContract,
+        PlanSpec,
+        RouteDecision,
+        RunArtifact,
+        TaskSpec,
+        ValidationReport,
+    )
+    from tsagentkit.features import FeatureMatrix
+    from tsagentkit.monitoring import DriftReport
     from tsagentkit.qa import QAReport
 
 
 def build_dry_run_result(
-    validation: Any,
+    validation: ValidationReport | None,
     qa_report: QAReport | None,
-    plan: Any,
-    route_decision: Any,
-    task_spec: Any,
+    plan: PlanSpec | object,
+    route_decision: RouteDecision | object,
+    task_spec: TaskSpec,
 ) -> DryRunResult:
     """Build DryRunResult payload from pipeline state."""
     from tsagentkit.contracts.results import DryRunResult
@@ -42,9 +54,9 @@ def build_dry_run_result(
 
 def resolve_model_identity(
     selection_map: dict[str, str] | None,
-    model_artifact: Any,
-    model_artifacts: dict[str, Any] | None,
-) -> tuple[str, Any]:
+    model_artifact: object | None,
+    model_artifacts: dict[str, object] | None,
+) -> tuple[str, object | None]:
     """Resolve model name string and primary artifact for final packaging."""
     if selection_map is not None and model_artifacts:
         model_names = sorted(set(selection_map.values()))
@@ -52,36 +64,36 @@ def resolve_model_identity(
         primary_artifact = next(iter(model_artifacts.values()))
         return model_name, primary_artifact
 
-    model_name = model_artifact.model_name if model_artifact else "unknown"
+    model_name = getattr(model_artifact, "model_name", "unknown") if model_artifact else "unknown"
     return model_name, model_artifact
 
 
 def assemble_run_artifact(
     *,
     data: pd.DataFrame,
-    task_spec: Any,
-    plan: Any,
+    task_spec: TaskSpec,
+    plan: PlanSpec | object,
     forecast_df: pd.DataFrame,
-    validation: Any,
-    backtest_report: Any,
+    validation: ValidationReport | None,
+    backtest_report: MultiModelBacktestReport | None,
     qa_report: QAReport | None,
-    model_artifact: Any,
-    model_artifacts: dict[str, Any] | None,
+    model_artifact: object | None,
+    model_artifacts: dict[str, object] | None,
     selection_map: dict[str, str] | None,
-    qa_repairs: list[dict[str, Any]],
-    fallbacks_triggered: list[dict[str, Any]],
-    feature_matrix: Any,
-    drift_report: Any,
+    qa_repairs: list[dict[str, object]],
+    fallbacks_triggered: list[dict[str, object]],
+    feature_matrix: FeatureMatrix | None,
+    drift_report: DriftReport | None,
     column_map: dict[str, str] | None,
-    original_panel_contract: Any,
-    route_decision: Any,
-    calibration_artifact: Any,
-    anomaly_report: Any,
-    degradation_events: list[dict[str, Any]],
+    original_panel_contract: PanelContract | None,
+    route_decision: RouteDecision | None,
+    calibration_artifact: object | None,
+    anomaly_report: AnomalyReport | None,
+    degradation_events: list[dict[str, object]],
     mode: str,
     total_duration_ms: float,
-    events: list[dict[str, Any]],
-) -> Any:
+    events: list[dict[str, object]],
+) -> RunArtifact:
     """Assemble final RunArtifact from pipeline state."""
     model_name, primary_artifact = resolve_model_identity(
         selection_map=selection_map,
@@ -129,4 +141,3 @@ def assemble_run_artifact(
             "per_series_selection": selection_map is not None,
         },
     )
-

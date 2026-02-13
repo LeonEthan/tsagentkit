@@ -5,14 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from tsagentkit.contracts.errors import ECovariateLeakage
-
-if TYPE_CHECKING:
-    pass
 
 
 class CovariatePolicy(Enum):

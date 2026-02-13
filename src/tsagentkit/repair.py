@@ -13,7 +13,7 @@ layer) only — never from models or serving.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TypedDict, cast
 
 import pandas as pd
 
@@ -21,12 +21,18 @@ from tsagentkit.contracts.results import ValidationReport
 from tsagentkit.contracts.task_spec import PanelContract, TaskSpec
 
 
+class RepairAction(TypedDict):
+    action: str
+    description: str
+    details: dict[str, object]
+
+
 def repair(
     df: pd.DataFrame,
     spec: TaskSpec | None = None,
     *,
     panel_contract: PanelContract | None = None,
-) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+) -> tuple[pd.DataFrame, list[RepairAction]]:
     """Validate and apply safe automatic repairs to a DataFrame.
 
     Runs ``validate_contract`` to detect issues, then applies deterministic
@@ -56,15 +62,18 @@ def repair(
     ds_col = contract.ds_col
     y_col = contract.y_col
 
-    actions: list[dict[str, Any]] = []
+    actions: list[RepairAction] = []
     result = df.copy()
 
     # Step 1: Run validation to detect issues
-    report: ValidationReport = validate_contract(  # type: ignore[assignment]
-        result,
-        panel_contract=contract,
-        apply_aggregation=False,
-        return_data=False,
+    report = cast(
+        ValidationReport,
+        validate_contract(
+            result,
+            panel_contract=contract,
+            apply_aggregation=False,
+            return_data=False,
+        ),
     )
 
     error_codes = {e.get("code", "") for e in report.errors}
@@ -107,7 +116,7 @@ def repair(
             {
                 "action": "drop_future_rows",
                 "description": "Dropped rows beyond last observed y per series",
-                "details": drop_info,
+                "details": cast(dict[str, object], drop_info),
             }
         )
 
@@ -144,4 +153,4 @@ def _has_duplicates(df: pd.DataFrame, uid_col: str, ds_col: str) -> bool:
     return df.duplicated(subset=[uid_col, ds_col]).any()
 
 
-__all__ = ["repair"]
+__all__ = ["repair", "RepairAction"]

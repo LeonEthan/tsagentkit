@@ -10,13 +10,10 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Literal, cast
 
 import numpy as np
 import pandas as pd
-
-if TYPE_CHECKING:
-    pass
 
 
 @dataclass(frozen=True)
@@ -312,7 +309,7 @@ def configs_equal(config1: FeatureConfig, config2: FeatureConfig) -> bool:
     return compute_feature_hash(config1) == compute_feature_hash(config2)
 
 
-def config_to_dict(config: FeatureConfig) -> dict[str, Any]:
+def config_to_dict(config: FeatureConfig) -> dict[str, object]:
     """Convert feature config to dictionary for serialization.
 
     Args:
@@ -336,7 +333,7 @@ def config_to_dict(config: FeatureConfig) -> dict[str, Any]:
     }
 
 
-def config_from_dict(data: dict[str, Any]) -> FeatureConfig:
+def config_from_dict(data: dict[str, object]) -> FeatureConfig:
     """Create feature config from dictionary.
 
     Args:
@@ -346,15 +343,18 @@ def config_from_dict(data: dict[str, Any]) -> FeatureConfig:
         FeatureConfig instance
     """
     return FeatureConfig(
-        engine=data.get("engine", "auto"),
-        lags=data.get("lags", []),
-        calendar_features=data.get("calendar_features", []),
-        rolling_windows=data.get("rolling_windows", {}),
-        known_covariates=data.get("known_covariates", []),
-        observed_covariates=data.get("observed_covariates", []),
-        include_intercept=data.get("include_intercept", False),
-        tsfeatures_features=data.get("tsfeatures_features", []),
-        tsfeatures_freq=data.get("tsfeatures_freq"),
-        tsfeatures_dict_freqs=data.get("tsfeatures_dict_freqs", {}),
-        allow_fallback=data.get("allow_fallback", True),
+        engine=cast(
+            Literal["auto", "native", "tsfeatures"],
+            data.get("engine", "auto"),
+        ),
+        lags=cast(list[int], data.get("lags", [])),
+        calendar_features=cast(list[str], data.get("calendar_features", [])),
+        rolling_windows=cast(dict[int, list[str]], data.get("rolling_windows", {})),
+        known_covariates=cast(list[str], data.get("known_covariates", [])),
+        observed_covariates=cast(list[str], data.get("observed_covariates", [])),
+        include_intercept=cast(bool, data.get("include_intercept", False)),
+        tsfeatures_features=cast(list[str], data.get("tsfeatures_features", [])),
+        tsfeatures_freq=cast(int | None, data.get("tsfeatures_freq")),
+        tsfeatures_dict_freqs=cast(dict[str, int], data.get("tsfeatures_dict_freqs", {})),
+        allow_fallback=cast(bool, data.get("allow_fallback", True)),
     )

@@ -6,7 +6,6 @@ import pandas as pd
 
 from tsagentkit.utils.signature import compute_config_signature, compute_data_signature
 
-
 # ---------------------------------------------------------------------------
 # compute_data_signature
 # ---------------------------------------------------------------------------

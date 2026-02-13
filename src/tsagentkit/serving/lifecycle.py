@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -19,7 +19,7 @@ from tsagentkit.contracts import (
 )
 
 
-def _json_default(value: Any) -> Any:
+def _json_default(value: object) -> object:
     if value is pd.NaT:
         return None
     if isinstance(value, pd.Timestamp):
@@ -32,6 +32,11 @@ def _json_default(value: Any) -> Any:
         except Exception:
             pass
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _coerce_payload_dict(artifact: RunArtifact | Mapping[str, object]) -> dict[str, object]:
+    """Normalize serialized payload inputs into plain dictionaries."""
+    return artifact.to_dict() if isinstance(artifact, RunArtifact) else dict(artifact)
 
 
 def save_run_artifact(
@@ -71,14 +76,14 @@ def load_run_artifact(path: str | Path) -> RunArtifact:
 
 
 def validate_run_artifact_for_serving(
-    artifact: RunArtifact | dict[str, Any],
+    artifact: RunArtifact | Mapping[str, object],
     *,
     expected_task_signature: str | None = None,
     expected_plan_signature: str | None = None,
     supported_schema_versions: set[int] | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Validate compatibility and optional signature gates for serving."""
-    payload = artifact.to_dict() if isinstance(artifact, RunArtifact) else dict(artifact)
+    payload = _coerce_payload_dict(artifact)
     normalized = validate_run_artifact_compatibility(
         payload,
         supported_schema_versions=supported_schema_versions,
@@ -127,10 +132,12 @@ def validate_run_artifact_for_serving(
 
 
 def replay_forecast_from_artifact(
-    artifact: RunArtifact | dict[str, Any],
+    artifact: RunArtifact | Mapping[str, object],
 ) -> ForecastResult:
     """Reconstruct a forecast object from a serialized or loaded artifact."""
-    run_artifact = artifact if isinstance(artifact, RunArtifact) else RunArtifact.from_dict(artifact)
+    run_artifact = (
+        artifact if isinstance(artifact, RunArtifact) else RunArtifact.from_dict(dict(artifact))
+    )
     source = run_artifact.provenance or run_artifact.forecast.provenance
 
     replay_metadata = dict(source.metadata)

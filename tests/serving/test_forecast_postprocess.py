@@ -8,6 +8,7 @@ from tsagentkit.serving.forecast_postprocess import (
     add_model_column,
     maybe_reconcile_forecast,
     normalize_and_sort_forecast,
+    postprocess_forecast,
     resolve_model_name,
 )
 
@@ -118,3 +119,46 @@ def test_maybe_reconcile_forecast_applies_only_when_plan_present(monkeypatch) ->
     assert reconciled["reconciled"].tolist() == [True]
     assert calls == ["min_trace"]
 
+
+def test_postprocess_forecast_combines_steps(monkeypatch) -> None:
+    forecast = pd.DataFrame(
+        {
+            "unique_id": ["B", "A"],
+            "ds": pd.to_datetime(["2024-01-02", "2024-01-01"]),
+            "yhat": [2.0, 1.0],
+        }
+    )
+
+    class _HierDataset:
+        hierarchy = object()
+
+        @staticmethod
+        def is_hierarchical() -> bool:
+            return True
+
+    def _fake_apply_reconciliation_if_needed(
+        forecast: pd.DataFrame,
+        hierarchy: object,
+        method: str,
+    ) -> pd.DataFrame:
+        _ = hierarchy
+        _ = method
+        result = forecast.copy()
+        result["yhat"] = result["yhat"] + 1.0
+        return result
+
+    monkeypatch.setattr(
+        "tsagentkit.hierarchy.apply_reconciliation_if_needed",
+        _fake_apply_reconciliation_if_needed,
+    )
+
+    result = postprocess_forecast(
+        forecast,
+        model_name="Naive",
+        dataset=_HierDataset(),
+        plan=object(),
+        reconciliation_method="bottom_up",
+    )
+    assert result["model"].tolist() == ["Naive", "Naive"]
+    assert list(result["unique_id"]) == ["A", "B"]
+    assert result["yhat"].tolist() == [2.0, 3.0]

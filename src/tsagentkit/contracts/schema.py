@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from importlib import import_module
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Literal, overload
 
 if TYPE_CHECKING:
     from tsagentkit.contracts.results import ValidationReport
@@ -20,25 +20,43 @@ def _impl() -> ModuleType:
 
 
 def normalize_panel_columns(
-    df: Any,
+    df: object,
     contract: PanelContract,
-) -> tuple[Any, dict[str, str] | None]:
+) -> tuple[object, dict[str, str] | None]:
     """Normalize panel columns to the canonical contract names."""
-    return _impl().normalize_panel_columns(df, contract)  # type: ignore[no-any-return]
+    return _impl().normalize_panel_columns(df, contract)
+
+
+@overload
+def validate_contract(
+    data: object,
+    panel_contract: PanelContract | None = None,
+    apply_aggregation: bool = False,
+    return_data: Literal[False] = False,
+) -> ValidationReport: ...
+
+
+@overload
+def validate_contract(
+    data: object,
+    panel_contract: PanelContract | None = None,
+    apply_aggregation: bool = False,
+    return_data: Literal[True] = True,
+) -> tuple[ValidationReport, object]: ...
 
 
 def validate_contract(
-    data: Any,
+    data: object,
     panel_contract: PanelContract | None = None,
     apply_aggregation: bool = False,
     return_data: bool = False,
-) -> ValidationReport | tuple[ValidationReport, Any]:
+) -> ValidationReport | tuple[ValidationReport, object]:
     """Validate input data against the required schema."""
-    return _impl().validate_contract(  # type: ignore[no-any-return]
+    return _impl().validate_contract(
         data,
-        panel_contract=panel_contract,
-        apply_aggregation=apply_aggregation,
-        return_data=return_data,
+        panel_contract,
+        apply_aggregation,
+        return_data,
     )
 
 

@@ -6,14 +6,13 @@ Provides utilities for tracking data lineage and reproducibility.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
 import pandas as pd
 
 if TYPE_CHECKING:
-    pass
-
     from tsagentkit.contracts import Provenance, TaskSpec
     from tsagentkit.router import PlanSpec
 
@@ -22,19 +21,59 @@ from datetime import UTC
 
 from tsagentkit.utils import compute_config_signature, compute_data_signature
 
+EventPayload = dict[str, object]
+
+
+class FeatureMatrixLike(Protocol):
+    """Minimal feature matrix shape used for provenance metadata."""
+
+    signature: str
+    config_hash: str
+    feature_cols: Sequence[str]
+
+
+class DriftReportLike(Protocol):
+    """Minimal drift report shape used for provenance metadata."""
+
+    drift_detected: bool
+    overall_drift_score: float
+    threshold_used: float
+
+    def get_drifting_features(self) -> list[str]: ...
+
+
+class RouteDecisionLike(Protocol):
+    """Minimal route decision shape used for provenance metadata."""
+
+    buckets: object
+    reasons: object
+    stats: object
+
+
+def _serialize_repair(repair: object) -> EventPayload:
+    """Normalize repair entries to dictionaries for deterministic payloads."""
+    if isinstance(repair, Mapping):
+        return dict(repair)
+    to_dict = getattr(repair, "to_dict", None)
+    if callable(to_dict):
+        serialized = to_dict()
+        if isinstance(serialized, Mapping):
+            return dict(serialized)
+    return {"value": repair}
+
 
 def create_provenance(
     data: pd.DataFrame,
     task_spec: TaskSpec,
     plan: PlanSpec,
-    model_config: dict[str, Any] | None = None,
-    qa_repairs: list[Any] | None = None,
-    fallbacks_triggered: list[dict[str, Any]] | None = None,
-    feature_matrix: Any | None = None,
-    drift_report: Any | None = None,
+    model_config: Mapping[str, object] | None = None,
+    qa_repairs: list[object] | None = None,
+    fallbacks_triggered: list[EventPayload] | None = None,
+    feature_matrix: FeatureMatrixLike | None = None,
+    drift_report: DriftReportLike | None = None,
     column_map: dict[str, str] | None = None,
-    original_panel_contract: dict[str, Any] | None = None,
-    route_decision: Any | None = None,
+    original_panel_contract: Mapping[str, object] | None = None,
+    route_decision: RouteDecisionLike | None = None,
 ) -> Provenance:
     """Create a provenance record for a forecasting run.
 
@@ -56,7 +95,7 @@ def create_provenance(
 
     from tsagentkit.contracts import Provenance
 
-    metadata: dict[str, Any] = {}
+    metadata: EventPayload = {}
 
     # v0.2: Add feature signature if available
     if feature_matrix is not None:
@@ -75,7 +114,7 @@ def create_provenance(
     if column_map:
         metadata["column_map"] = column_map
     if original_panel_contract:
-        metadata["original_panel_contract"] = original_panel_contract
+        metadata["original_panel_contract"] = dict(original_panel_contract)
 
     # v1.0: Add route decision for audit trail
     if route_decision is not None:
@@ -88,12 +127,9 @@ def create_provenance(
     from tsagentkit.router import compute_plan_signature
 
     # Convert RepairReport objects to dicts for serialization
-    repairs_serialized: list[dict[str, Any]] = []
+    repairs_serialized: list[EventPayload] = []
     for repair in (qa_repairs or []):
-        if hasattr(repair, "to_dict"):
-            repairs_serialized.append(repair.to_dict())
-        else:
-            repairs_serialized.append(repair)
+        repairs_serialized.append(_serialize_repair(repair))
 
     return Provenance(
         run_id=str(uuid4()),
@@ -101,9 +137,9 @@ def create_provenance(
         data_signature=compute_data_signature(data),
         task_signature=task_spec.model_hash(),
         plan_signature=compute_plan_signature(plan),
-        model_signature=compute_config_signature(model_config or {}),
+        model_signature=compute_config_signature(dict(model_config or {})),
         qa_repairs=repairs_serialized,
-        fallbacks_triggered=fallbacks_triggered or [],
+        fallbacks_triggered=[dict(event) for event in (fallbacks_triggered or [])],
         metadata=metadata,
     )
 
@@ -114,8 +150,8 @@ def log_event(
     duration_ms: float,
     error_code: str | None = None,
     artifacts_generated: list[str] | None = None,
-    context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    context: Mapping[str, object] | None = None,
+) -> EventPayload:
     """Log a structured event.
 
     Creates an event dictionary with all required fields per PRD section 6.2:
@@ -140,7 +176,7 @@ def log_event(
     """
     from datetime import datetime
 
-    event = {
+    event: EventPayload = {
         "step_name": step_name,
         "status": status,
         "duration_ms": round(duration_ms, 3),
@@ -150,12 +186,12 @@ def log_event(
     }
 
     if context:
-        event["context"] = context
+        event["context"] = dict(context)
 
     return event
 
 
-def format_event_json(event: dict[str, Any]) -> str:
+def format_event_json(event: Mapping[str, object]) -> str:
     """Format an event as JSON string for structured logging.
 
     Args:
@@ -164,7 +200,7 @@ def format_event_json(event: dict[str, Any]) -> str:
     Returns:
         JSON string representation
     """
-    return json.dumps(event, sort_keys=True, separators=(",", ":"))
+    return json.dumps(dict(event), sort_keys=True, separators=(",", ":"))
 
 
 class StructuredLogger:
@@ -186,8 +222,29 @@ class StructuredLogger:
 
     def __init__(self) -> None:
         """Initialize the structured logger."""
-        self.events: list[dict[str, Any]] = []
+        self.events: list[EventPayload] = []
         self._start_times: dict[str, float] = {}
+
+    def _record_event(
+        self,
+        *,
+        step_name: str,
+        status: str,
+        duration_ms: float,
+        error_code: str | None = None,
+        artifacts_generated: list[str] | None = None,
+        context: Mapping[str, object] | None = None,
+    ) -> EventPayload:
+        event = log_event(
+            step_name=step_name,
+            status=status,
+            duration_ms=duration_ms,
+            error_code=error_code,
+            artifacts_generated=artifacts_generated,
+            context=context,
+        )
+        self.events.append(event)
+        return event
 
     def start_step(self, step_name: str) -> None:
         """Record the start time for a step.
@@ -205,8 +262,8 @@ class StructuredLogger:
         status: str = "success",
         error_code: str | None = None,
         artifacts_generated: list[str] | None = None,
-        context: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        context: Mapping[str, object] | None = None,
+    ) -> EventPayload:
         """End a step and log the event.
 
         Args:
@@ -228,7 +285,7 @@ class StructuredLogger:
         else:
             duration_ms = 0.0
 
-        event = log_event(
+        return self._record_event(
             step_name=step_name,
             status=status,
             duration_ms=duration_ms,
@@ -237,9 +294,6 @@ class StructuredLogger:
             context=context,
         )
 
-        self.events.append(event)
-        return event
-
     def log(
         self,
         step_name: str,
@@ -247,8 +301,8 @@ class StructuredLogger:
         duration_ms: float,
         error_code: str | None = None,
         artifacts_generated: list[str] | None = None,
-        context: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        context: Mapping[str, object] | None = None,
+    ) -> EventPayload:
         """Log an event directly.
 
         Args:
@@ -262,7 +316,7 @@ class StructuredLogger:
         Returns:
             The logged event
         """
-        event = log_event(
+        return self._record_event(
             step_name=step_name,
             status=status,
             duration_ms=duration_ms,
@@ -270,9 +324,6 @@ class StructuredLogger:
             artifacts_generated=artifacts_generated,
             context=context,
         )
-
-        self.events.append(event)
-        return event
 
     def to_json(self) -> str:
         """Export all events as JSON.
@@ -282,7 +333,7 @@ class StructuredLogger:
         """
         return json.dumps(self.events, sort_keys=True, separators=(",", ":"))
 
-    def get_events(self) -> list[dict[str, Any]]:
+    def get_events(self) -> list[EventPayload]:
         """Get all logged events.
 
         Returns:
@@ -290,7 +341,7 @@ class StructuredLogger:
         """
         return self.events.copy()
 
-    def to_dict(self) -> list[dict[str, Any]]:
+    def to_dict(self) -> list[EventPayload]:
         """Export all events as list of dictionaries.
 
         Returns:
@@ -298,7 +349,7 @@ class StructuredLogger:
         """
         return self.events.copy()
 
-    def get_summary(self) -> dict[str, Any]:
+    def get_summary(self) -> EventPayload:
         """Get summary statistics of logged events.
 
         Returns:

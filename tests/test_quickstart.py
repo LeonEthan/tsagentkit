@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -203,5 +205,5 @@ class TestDryRunResult:
             plan={},
             route_decision={},
         )
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             dr.validation = {"valid": False}  # type: ignore[misc]

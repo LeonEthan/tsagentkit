@@ -7,9 +7,9 @@ from .quantiles import (
     quantile_col_name,
 )
 from .signature import (
-    compute_signature,
     compute_config_signature,
     compute_data_signature,
+    compute_signature,
 )
 from .temporal import drop_future_rows
 

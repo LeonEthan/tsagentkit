@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 
 from tsagentkit.monitoring.report import DriftReport, FeatureDriftResult
-
-if TYPE_CHECKING:
-    pass
 
 
 class DriftDetector:

@@ -8,7 +8,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC
-from typing import Any
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class _CoverageCheckLike(Protocol):
+    expected_coverage: float
+    actual_coverage: float
+
+    def is_acceptable(self) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -57,7 +65,7 @@ class AlertCondition:
             return value >= self.threshold
         return False
 
-    def format_message(self, value: float, context: dict[str, Any] | None = None) -> str:
+    def format_message(self, value: float, context: dict[str, object] | None = None) -> str:
         """Format alert message with current value.
 
         Args:
@@ -105,9 +113,9 @@ class Alert:
     condition: AlertCondition
     value: float
     timestamp: str
-    context: dict[str, Any] = field(default_factory=dict)
+    context: dict[str, object] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Convert to dictionary for serialization."""
         return {
             "name": self.condition.name,
@@ -173,7 +181,7 @@ check them against current metrics.
     def check_metrics(
         self,
         metrics: dict[str, float],
-        context: dict[str, Any] | None = None,
+        context: dict[str, object] | None = None,
     ) -> list[Alert]:
         """Check all conditions against current metrics.
 
@@ -207,8 +215,8 @@ check them against current metrics.
 
     def check_coverage(
         self,
-        coverage_checks: list[Any],
-        context: dict[str, Any] | None = None,
+        coverage_checks: list[object],
+        context: dict[str, object] | None = None,
     ) -> list[Alert]:
         """Check coverage results against conditions.
 
@@ -221,9 +229,9 @@ check them against current metrics.
         """
         metrics: dict[str, float] = {}
         for check in coverage_checks:
-            if hasattr(check, "is_acceptable") and hasattr(check, "actual_coverage"):
+            if isinstance(check, _CoverageCheckLike):
                 metric_name = f"coverage_{check.expected_coverage:.0%}"
-                metrics[metric_name] = check.actual_coverage
+                metrics[metric_name] = float(check.actual_coverage)
 
         return self.check_metrics(metrics, context)
 

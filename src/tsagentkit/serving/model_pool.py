@@ -11,17 +11,19 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from tsagentkit.contracts import EAdapterNotAvailable, EModelNotLoaded
 from tsagentkit.models.adapters import AdapterConfig, AdapterRegistry
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from tsagentkit.models.adapters import TSFMAdapter
+
+AdapterKwargs = Mapping[str, object]
+AdapterPoolStats = dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -30,7 +32,7 @@ class ModelPoolConfig:
 
     adapters: tuple[str, ...] = ("chronos", "moirai", "timesfm")
     model_size_by_adapter: Mapping[str, str] = field(default_factory=dict)
-    adapter_kwargs_by_adapter: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    adapter_kwargs_by_adapter: Mapping[str, AdapterKwargs] = field(default_factory=dict)
     device: str | None = None
     preload: bool = False
     max_preload_adapters: int = 3
@@ -50,7 +52,7 @@ class ModelPoolConfig:
             "model_size_by_adapter",
             MappingProxyType(dict(self.model_size_by_adapter)),
         )
-        normalized_kwargs: dict[str, Mapping[str, Any]] = {}
+        normalized_kwargs: dict[str, AdapterKwargs] = {}
         for name, kwargs in self.adapter_kwargs_by_adapter.items():
             normalized_kwargs[name] = MappingProxyType(dict(kwargs))
         object.__setattr__(
@@ -67,7 +69,7 @@ class ModelPool:
         self.config = config or ModelPoolConfig()
         self._lock = threading.RLock()
         self._adapters: dict[str, TSFMAdapter] = {}
-        self._stats: dict[str, dict[str, Any]] = {}
+        self._stats: dict[str, AdapterPoolStats] = {}
 
         if self.config.preload:
             self.preload_all()
@@ -132,7 +134,7 @@ class ModelPool:
             self._adapters.clear()
             self._stats.clear()
 
-    def stats(self) -> dict[str, Any]:
+    def stats(self) -> dict[str, object]:
         """Return pool statistics snapshot."""
         with self._lock:
             return {

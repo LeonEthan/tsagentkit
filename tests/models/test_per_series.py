@@ -13,7 +13,7 @@ class _DatasetStub:
     def __init__(self, series_ids: list[str]) -> None:
         self.series_ids = list(series_ids)
 
-    def filter_series(self, series_ids: list[str]) -> "_DatasetStub":
+    def filter_series(self, series_ids: list[str]) -> _DatasetStub:
         return _DatasetStub(series_ids)
 
 

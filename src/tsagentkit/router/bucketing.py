@@ -6,9 +6,10 @@ series-specific model selection.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Protocol
 
 import pandas as pd
 
@@ -29,6 +30,13 @@ class SeriesBucket(Enum):
     TAIL = "tail"
     SHORT_HISTORY = "short_history"
     LONG_HISTORY = "long_history"
+
+
+class TSFMPolicyLike(Protocol):
+    """Minimal TSFM policy shape used by bucketing recommendations."""
+
+    mode: str
+    adapters: Sequence[str]
 
 
 @dataclass(frozen=True)
@@ -429,7 +437,7 @@ class DataBucketer:
         self,
         bucket: SeriesBucket,
         sparsity_class: str | None = None,
-        tsfm_policy: Any | None = None,
+        tsfm_policy: TSFMPolicyLike | None = None,
     ) -> str:
         """Get recommended model for a given bucket.
 

@@ -11,10 +11,11 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Literal, cast
 
 import pandas as pd
 
+from tsagentkit.contracts import DryRunResult, RunArtifact, TaskSpec
 from tsagentkit.contracts.task_spec import COLUMN_ALIASES
 
 
@@ -23,8 +24,8 @@ def forecast(
     horizon: int,
     freq: str | None = None,
     *,
-    mode: str = "standard",
-) -> Any:
+    mode: Literal["quick", "standard", "strict"] = "standard",
+) -> RunArtifact:
     """Zero-config forecasting: validate, plan, fit, predict in one call.
 
     Automatically renames columns to canonical names if common aliases
@@ -47,7 +48,7 @@ def forecast(
     result = _prepare(df)
     spec = _build_task_spec(horizon, freq)
 
-    return run_forecast(result, spec, mode=mode)  # type: ignore[arg-type]
+    return cast(RunArtifact, run_forecast(result, spec, mode=mode))
 
 
 def diagnose(
@@ -55,7 +56,7 @@ def diagnose(
     *,
     freq: str | None = None,
     horizon: int = 1,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Run validation and QA on a DataFrame and return a structured report.
 
     This does **not** fit any models — it only checks data quality and
@@ -76,10 +77,12 @@ def diagnose(
     spec = _build_task_spec(horizon, freq)
 
     dry_result = run_forecast(result, spec, dry_run=True)
-    return dry_result.to_dict()  # type: ignore[union-attr]
+    if not isinstance(dry_result, DryRunResult):
+        raise TypeError("Expected DryRunResult when run_forecast is called with dry_run=True.")
+    return dry_result.to_dict()
 
 
-def _build_task_spec(horizon: int, freq: str | None = None) -> Any:
+def _build_task_spec(horizon: int, freq: str | None = None) -> TaskSpec:
     """Build TaskSpec with appropriate frequency settings.
 
     Args:
@@ -89,9 +92,7 @@ def _build_task_spec(horizon: int, freq: str | None = None) -> Any:
     Returns:
         TaskSpec instance configured for the task
     """
-    from tsagentkit.contracts.task_spec import TaskSpec
-
-    spec_kwargs: dict[str, Any] = {"h": horizon}
+    spec_kwargs: dict[str, object] = {"h": horizon}
     if freq is not None:
         spec_kwargs["freq"] = freq
     else:

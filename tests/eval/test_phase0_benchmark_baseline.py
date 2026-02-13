@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from tsagentkit import TaskSpec
-from tsagentkit.contracts import ForecastResult, ModelArtifact
+from tsagentkit.contracts import ForecastResult
 from tsagentkit.models.adapters import AdapterRegistry
 from tsagentkit.models.adapters.base import TSFMAdapter, _timed_model_load
 from tsagentkit.models.telemetry import (

@@ -12,7 +12,6 @@ from tsagentkit.monitoring.alerts import (
     create_default_drift_alerts,
 )
 
-
 # ---------------------------------------------------------------------------
 # AlertCondition.evaluate
 # ---------------------------------------------------------------------------

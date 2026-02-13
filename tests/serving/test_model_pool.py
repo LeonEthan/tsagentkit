@@ -8,7 +8,6 @@ from tsagentkit.contracts import (
     EAdapterNotAvailable,
     EModelNotLoaded,
     ForecastResult,
-    ModelArtifact,
 )
 from tsagentkit.models.adapters import AdapterRegistry
 from tsagentkit.models.adapters.base import TSFMAdapter

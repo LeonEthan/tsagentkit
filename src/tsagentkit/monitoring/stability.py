@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 
 from tsagentkit.monitoring.report import CalibrationReport, StabilityReport
 from tsagentkit.utils import normalize_quantile_columns, quantile_col_name
-
-if TYPE_CHECKING:
-    pass
 
 
 class StabilityMonitor:

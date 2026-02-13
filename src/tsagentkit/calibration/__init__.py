@@ -10,9 +10,7 @@ import numpy as np
 import pandas as pd
 
 from tsagentkit.contracts import ECalibrationFail
-from tsagentkit.utils import quantile_col_name, parse_quantile_column
-
-CalibrationMethod = Literal["none", "conformal"]
+from tsagentkit.utils import parse_quantile_column, quantile_col_name
 
 CalibrationMethod = Literal["none", "conformal"]
 

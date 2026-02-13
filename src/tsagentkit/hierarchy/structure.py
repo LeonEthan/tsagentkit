@@ -7,13 +7,9 @@ and provides utilities for validation and navigation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
-
-if TYPE_CHECKING:
-    pass
 
 
 @dataclass(frozen=True)
@@ -259,7 +255,7 @@ class HierarchyStructure:
         node_to_bottoms: dict[str, set[int]] = {}
         for i, node in enumerate(node_names):
             # Get indices of bottom nodes that contribute to this node
-            contributing = set(j for j in range(len(bottom_node_names)) if s_matrix[i, j] == 1)
+            contributing = {j for j in range(len(bottom_node_names)) if s_matrix[i, j] == 1}
             node_to_bottoms[node] = contributing
 
         bottom_set = set(bottom_node_names)

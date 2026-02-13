@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
+from typing import Any
 from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
-
-if TYPE_CHECKING:
-    pass
 
 
 @pytest.fixture(autouse=True)

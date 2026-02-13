@@ -13,8 +13,8 @@ from tsagentkit import (
     build_dataset,
     make_plan,
     package_run,
-    run_qa,
     run_forecast,
+    run_qa,
     validate_contract,
 )
 from tsagentkit.contracts import ForecastResult, ModelArtifact, Provenance

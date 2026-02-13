@@ -13,7 +13,6 @@ from tsagentkit.calibration import (
 )
 from tsagentkit.contracts import ECalibrationFail
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

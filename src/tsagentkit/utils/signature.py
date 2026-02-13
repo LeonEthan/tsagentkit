@@ -34,10 +34,7 @@ def compute_signature(
         16
     """
     if data_type == "auto":
-        if isinstance(obj, pd.DataFrame):
-            data_type = "data"
-        else:
-            data_type = "config"
+        data_type = "data" if isinstance(obj, pd.DataFrame) else "config"
 
     if data_type == "data":
         df = obj if isinstance(obj, pd.DataFrame) else pd.DataFrame(obj)

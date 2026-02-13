@@ -22,7 +22,7 @@ class ReconciliationMethod(Enum):
     MIN_TRACE = "min_trace"
 
     @classmethod
-    def from_string(cls, value: str) -> "ReconciliationMethod":
+    def from_string(cls, value: str) -> ReconciliationMethod:
         """Parse method from string, defaulting to BOTTOM_UP if invalid.
 
         Args:
@@ -132,7 +132,7 @@ def _apply_reconciler(
         if "mean" in result:
             return np.asarray(result["mean"])
         # Fallback to first array-like entry
-        for key, value in result.items():
+        for _key, value in result.items():
             if isinstance(value, (np.ndarray, list)):
                 return np.asarray(value)
         # No array-like values found

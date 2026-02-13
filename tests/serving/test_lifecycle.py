@@ -7,8 +7,12 @@ import json
 import pandas as pd
 import pytest
 
-from tsagentkit.contracts import EArtifactLoadFailed, EArtifactSchemaIncompatible
-from tsagentkit.contracts import ForecastResult, Provenance
+from tsagentkit.contracts import (
+    EArtifactLoadFailed,
+    EArtifactSchemaIncompatible,
+    ForecastResult,
+    Provenance,
+)
 from tsagentkit.router import PlanSpec, compute_plan_signature
 from tsagentkit.serving import (
     load_run_artifact,

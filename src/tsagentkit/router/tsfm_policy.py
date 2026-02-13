@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict, cast
 
 from tsagentkit.contracts import ETSFMRequiredUnavailable, RouterThresholds, TaskSpec
 
 if TYPE_CHECKING:
     from tsagentkit.series import TSDataset
+
+
+class AdapterAvailabilityEntry(TypedDict):
+    available: bool
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -24,11 +29,11 @@ class TSFMAvailabilityReport:
 
 def inspect_tsfm_adapters(
     preferred: list[str] | None = None,
-) -> dict[str, dict[str, str | bool]]:
+) -> dict[str, AdapterAvailabilityEntry]:
     """Inspect TSFM adapter availability for explicit policy decisions."""
     from tsagentkit.models.adapters import AdapterRegistry
 
-    report: dict[str, dict[str, str | bool]] = {}
+    report: dict[str, AdapterAvailabilityEntry] = {}
     for name in preferred or ["chronos", "moirai", "timesfm"]:
         is_available, reason = AdapterRegistry.check_availability(name)
         report[name] = {
@@ -148,16 +153,16 @@ def resolve_tsfm_availability(
             allowed_by_guardrail=False,
             preferred=preferred,
             available=[],
-            unavailable=dict.fromkeys(preferred, "routing_guardrail_blocked"),
+            unavailable=cast(dict[str, str], dict.fromkeys(preferred, "routing_guardrail_blocked")),
             allow_non_tsfm_fallback=allow_non_tsfm_fallback,
         )
 
     report = inspect_tsfm_adapters(preferred)
-    available = [name for name, details in report.items() if details.get("available")]
+    available = [name for name, details in report.items() if details["available"]]
     unavailable = {
-        name: str(details.get("reason") or "")
+        name: details["reason"]
         for name, details in report.items()
-        if not details.get("available")
+        if not details["available"]
     }
     return TSFMAvailabilityReport(
         mode=mode,
@@ -184,4 +189,3 @@ __all__ = [
     "resolve_tsfm_availability",
     "resolve_tsfm_policy",
 ]
-

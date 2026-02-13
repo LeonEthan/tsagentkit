@@ -7,7 +7,6 @@ are well-calibrated over time.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import pandas as pd
 
@@ -42,7 +41,7 @@ class CoverageCheck:
         """
         return self.actual_coverage >= (self.expected_coverage - self.tolerance)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Convert to dictionary for serialization."""
         return {
             "quantile": self.quantile,
