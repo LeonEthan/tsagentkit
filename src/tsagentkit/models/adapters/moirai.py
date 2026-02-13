@@ -19,7 +19,7 @@ from tsagentkit.utils import quantile_col_name
 from .base import TSFMAdapter, _timed_model_load
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult
+    from tsagentkit.contracts import ForecastResult
     from tsagentkit.series import TSDataset
 
 
@@ -211,7 +211,7 @@ class MoiraiAdapter(TSFMAdapter):
         return f"moirai-2.0-{self._device}"
 
     @classmethod
-    def _check_dependencies(cls) -> None:
+    def _check_dependencies_impl(cls) -> None:
         """Check if Moirai dependencies are installed."""
         try:
             from uni2ts.model.moirai2 import Moirai2Module  # noqa: F401
@@ -222,21 +222,17 @@ class MoiraiAdapter(TSFMAdapter):
             ) from e
 
     @classmethod
-    def capability(cls, adapter_name: str) -> AdapterCapabilitySpec:
-        from tsagentkit.contracts import AdapterCapabilitySpec
-
-        return AdapterCapabilitySpec(
-            adapter_name=adapter_name,
-            provider="salesforce",
-            available=None,
-            availability_reason=None,
-            is_zero_shot=True,
-            supports_quantiles=True,
-            supports_past_covariates=False,
-            supports_future_covariates=False,
-            supports_static_covariates=False,
-            max_context_length=cls.DEFAULT_CONTEXT_LENGTH,
-            max_horizon=None,
-            dependencies=["torch", "uni2ts>=2.0.0", "gluonts"],
-            notes="Moirai 2.0 adapter currently consumes target-only panel context.",
-        )
+    def _get_capability_spec(cls, adapter_name: str) -> dict[str, Any]:
+        return {
+            "adapter_name": adapter_name,
+            "provider": "salesforce",
+            "is_zero_shot": True,
+            "supports_quantiles": True,
+            "supports_past_covariates": False,
+            "supports_future_covariates": False,
+            "supports_static_covariates": False,
+            "max_context_length": cls.DEFAULT_CONTEXT_LENGTH,
+            "max_horizon": None,
+            "dependencies": ["torch", "uni2ts>=2.0.0", "gluonts"],
+            "notes": "Moirai 2.0 adapter currently consumes target-only panel context.",
+        }

@@ -433,23 +433,64 @@ class TSFMAdapter(ABC):
                 "PyTorch is required for TSFM adapters. "
                 "Install with: pip install torch"
             ) from e
+        # Call adapter-specific dependency check
+        cls._check_dependencies_impl()
+
+    @classmethod
+    @abstractmethod
+    def _check_dependencies_impl(cls) -> None:
+        """Check adapter-specific dependencies.
+
+        Subclasses override this to check for their specific dependencies.
+
+        Raises:
+            ImportError: If adapter-specific dependencies are missing
+        """
+        pass
 
     @classmethod
     def capability(cls, adapter_name: str) -> AdapterCapabilitySpec:
-        """Return static capability metadata for this adapter class."""
+        """Return static capability metadata for this adapter class.
+
+        Args:
+            adapter_name: Name of the adapter
+
+        Returns:
+            AdapterCapabilitySpec with adapter metadata
+        """
         from tsagentkit.contracts import AdapterCapabilitySpec
 
+        # Get adapter-specific capability details via template method
+        caps = cls._get_capability_spec(adapter_name)
+
+        # Merge with base defaults
         return AdapterCapabilitySpec(
-            adapter_name=adapter_name,
-            provider=None,
+            adapter_name=caps.get("adapter_name", adapter_name),
+            provider=caps.get("provider"),
             available=None,
             availability_reason=None,
-            is_zero_shot=True,
-            supports_quantiles=True,
-            supports_past_covariates=False,
-            supports_future_covariates=False,
-            supports_static_covariates=False,
-            max_context_length=None,
-            max_horizon=None,
-            dependencies=["torch"],
+            is_zero_shot=caps.get("is_zero_shot", True),
+            supports_quantiles=caps.get("supports_quantiles", True),
+            supports_past_covariates=caps.get("supports_past_covariates", False),
+            supports_future_covariates=caps.get("supports_future_covariates", False),
+            supports_static_covariates=caps.get("supports_static_covariates", False),
+            max_context_length=caps.get("max_context_length"),
+            max_horizon=caps.get("max_horizon"),
+            dependencies=caps.get("dependencies", ["torch"]),
+            notes=caps.get("notes"),
         )
+
+    @classmethod
+    @abstractmethod
+    def _get_capability_spec(cls, adapter_name: str) -> dict[str, Any]:
+        """Return adapter-specific capability details.
+
+        Subclasses override this to provide their specific capability metadata.
+
+        Args:
+            adapter_name: Name of the adapter
+
+        Returns:
+            Dictionary with capability fields
+        """
+        pass

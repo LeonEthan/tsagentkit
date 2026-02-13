@@ -18,7 +18,7 @@ from tsagentkit.utils import quantile_col_name
 from .base import TSFMAdapter, _timed_model_load
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult
+    from tsagentkit.contracts import ForecastResult
     from tsagentkit.series import TSDataset
 
 
@@ -333,7 +333,7 @@ class ChronosAdapter(TSFMAdapter):
         return f"chronos-{self.config.model_size}-{self._device}"
 
     @classmethod
-    def _check_dependencies(cls) -> None:
+    def _check_dependencies_impl(cls) -> None:
         """Check if Chronos dependencies are installed."""
         try:
             import chronos  # noqa: F401
@@ -344,21 +344,17 @@ class ChronosAdapter(TSFMAdapter):
             ) from e
 
     @classmethod
-    def capability(cls, adapter_name: str) -> AdapterCapabilitySpec:
-        from tsagentkit.contracts import AdapterCapabilitySpec
-
-        return AdapterCapabilitySpec(
-            adapter_name=adapter_name,
-            provider="amazon",
-            available=None,
-            availability_reason=None,
-            is_zero_shot=True,
-            supports_quantiles=True,
-            supports_past_covariates=True,
-            supports_future_covariates=True,
-            supports_static_covariates=False,
-            max_context_length=None,
-            max_horizon=None,
-            dependencies=["torch", "chronos-forecasting>=2.0.0"],
-            notes="Chronos 2 pipeline supports context + future covariates via predict_df.",
-        )
+    def _get_capability_spec(cls, adapter_name: str) -> dict[str, Any]:
+        return {
+            "adapter_name": adapter_name,
+            "provider": "amazon",
+            "is_zero_shot": True,
+            "supports_quantiles": True,
+            "supports_past_covariates": True,
+            "supports_future_covariates": True,
+            "supports_static_covariates": False,
+            "max_context_length": None,
+            "max_horizon": None,
+            "dependencies": ["torch", "chronos-forecasting>=2.0.0"],
+            "notes": "Chronos 2 pipeline supports context + future covariates via predict_df.",
+        }

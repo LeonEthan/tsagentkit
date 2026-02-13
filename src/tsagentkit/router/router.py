@@ -265,8 +265,7 @@ def _compute_router_stats(
         buckets.append("trend")
 
     # High frequency detection
-    if task_spec.freq and task_spec.freq.upper() in ("H", "BH", "T", "MIN", "S"):
-        buckets.append("high_frequency")
+    _add_high_frequency_bucket(task_spec, buckets)
 
     return stats, buckets
 
@@ -276,15 +275,43 @@ def _compute_series_stats(
     task_spec: TaskSpec,
     thresholds: RouterThresholds,
 ) -> tuple[dict[str, float], list[str]]:
+    return _compute_series_stats_internal(series_df, task_spec, thresholds, is_single_series=True)
+
+
+def _compute_series_stats_internal(
+    df: pd.DataFrame,
+    task_spec: TaskSpec,
+    thresholds: RouterThresholds,
+    is_single_series: bool = False,
+) -> tuple[dict[str, float], list[str]]:
+    """Shared internal function for computing series statistics.
+
+    Args:
+        df: DataFrame to analyze (can be single or multiple series)
+        task_spec: Task specification
+        thresholds: Router thresholds
+        is_single_series: If True, treat df as a single series (no groupby)
+
+    Returns:
+        Tuple of (stats dict, buckets list)
+    """
     stats: dict[str, float] = {}
     buckets: list[str] = []
 
-    length = len(series_df)
-    stats["series_length"] = float(length)
+    # Length check
+    if is_single_series:
+        length = len(df)
+        stats["series_length"] = float(length)
+    else:
+        lengths = df.groupby("unique_id").size()
+        length = int(lengths.min()) if not lengths.empty else 0
+        stats["min_series_length"] = float(length)
+
     if length < thresholds.min_train_size:
         buckets.append("short_history")
 
-    missing_ratio = _compute_missing_ratio(series_df, task_spec)
+    # Missing ratio
+    missing_ratio = _compute_missing_ratio(df, task_spec)
     stats["missing_ratio"] = float(missing_ratio)
     if missing_ratio > thresholds.max_missing_ratio:
         buckets.append("sparse")
@@ -293,27 +320,47 @@ def _compute_series_stats(
     ds_col = task_spec.panel_contract.ds_col
     y_col = task_spec.panel_contract.y_col
 
-    intermittency = _compute_intermittency(series_df, thresholds, uid_col, ds_col, y_col)
+    # Intermittency
+    intermittency = _compute_intermittency(df, thresholds, uid_col, ds_col, y_col)
     stats.update(intermittency)
     if intermittency.get("intermittent_series_ratio", 0.0) > 0:
         buckets.append("intermittent")
 
-    season_conf = _seasonality_confidence(series_df, task_spec, uid_col, y_col)
+    # Seasonality
+    season_conf = _seasonality_confidence(df, task_spec, uid_col, y_col)
     stats["seasonality_confidence"] = float(season_conf)
     if season_conf >= thresholds.min_seasonality_conf:
         buckets.append("seasonal_candidate")
 
     # Trend detection
-    trend_strength = _compute_trend_strength(series_df, y_col)
-    stats["trend_strength"] = float(trend_strength)
-    if trend_strength >= thresholds.min_trend_strength:
-        buckets.append("trend")
+    if is_single_series:
+        trend_strength = _compute_trend_strength(df, y_col)
+        stats["trend_strength"] = float(trend_strength)
+        if trend_strength >= thresholds.min_trend_strength:
+            buckets.append("trend")
+    else:
+        # Sample a few series for efficiency (panel data)
+        trend_ratios = []
+        sample_uids = list(df[uid_col].unique())[:10]
+        for uid in sample_uids:
+            series = df[df[uid_col] == uid].sort_values(ds_col)
+            trend_strength = _compute_trend_strength(series, y_col)
+            trend_ratios.append(trend_strength)
+        avg_trend = float(np.mean(trend_ratios)) if trend_ratios else 0.0
+        stats["trend_strength"] = avg_trend
+        if avg_trend >= thresholds.min_trend_strength:
+            buckets.append("trend")
 
-    # High frequency detection (H, min, S frequencies)
-    if task_spec.freq and task_spec.freq.upper() in ("H", "BH", "T", "MIN", "S"):
-        buckets.append("high_frequency")
+    # High frequency detection
+    _add_high_frequency_bucket(task_spec, buckets)
 
     return stats, buckets
+
+
+def _add_high_frequency_bucket(task_spec: TaskSpec, buckets: list[str]) -> None:
+    """Add high frequency bucket if applicable."""
+    if task_spec.freq and task_spec.freq.upper() in ("H", "BH", "T", "MIN", "S"):
+        buckets.append("high_frequency")
 
 
 def _compute_trend_strength(df: pd.DataFrame, y_col: str) -> float:

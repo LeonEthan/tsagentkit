@@ -19,7 +19,7 @@ from tsagentkit.utils import quantile_col_name
 from .base import TSFMAdapter, _timed_model_load
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult
+    from tsagentkit.contracts import ForecastResult
     from tsagentkit.series import TSDataset
 
 
@@ -382,7 +382,7 @@ class TimesFMAdapter(TSFMAdapter):
         return f"timesfm-2.5-{self._device}"
 
     @classmethod
-    def _check_dependencies(cls) -> None:
+    def _check_dependencies_impl(cls) -> None:
         """Check if TimesFM dependencies are installed.
 
         Raises:
@@ -397,21 +397,17 @@ class TimesFMAdapter(TSFMAdapter):
             ) from e
 
     @classmethod
-    def capability(cls, adapter_name: str) -> AdapterCapabilitySpec:
-        from tsagentkit.contracts import AdapterCapabilitySpec
-
-        return AdapterCapabilitySpec(
-            adapter_name=adapter_name,
-            provider="google",
-            available=None,
-            availability_reason=None,
-            is_zero_shot=True,
-            supports_quantiles=True,
-            supports_past_covariates=False,
-            supports_future_covariates=False,
-            supports_static_covariates=False,
-            max_context_length=cls.MAX_CONTEXT,
-            max_horizon=cls.MAX_HORIZON,
-            dependencies=["torch", "timesfm"],
-            notes="TimesFM 2.5 adapter currently uses target-only context arrays.",
-        )
+    def _get_capability_spec(cls, adapter_name: str) -> dict[str, Any]:
+        return {
+            "adapter_name": adapter_name,
+            "provider": "google",
+            "is_zero_shot": True,
+            "supports_quantiles": True,
+            "supports_past_covariates": False,
+            "supports_future_covariates": False,
+            "supports_static_covariates": False,
+            "max_context_length": cls.MAX_CONTEXT,
+            "max_horizon": cls.MAX_HORIZON,
+            "dependencies": ["torch", "timesfm"],
+            "notes": "TimesFM 2.5 adapter currently uses target-only context arrays.",
+        }

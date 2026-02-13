@@ -44,8 +44,24 @@ class _PoolFakeAdapter(TSFMAdapter):
         return f"{self.config.model_name}-{self._device}"
 
     @classmethod
-    def _check_dependencies(cls) -> None:
-        return None
+    def _check_dependencies_impl(cls) -> None:
+        pass
+
+    @classmethod
+    def _get_capability_spec(cls, adapter_name: str) -> dict[str, object]:
+        return {
+            "adapter_name": adapter_name,
+            "provider": "test",
+            "is_zero_shot": True,
+            "supports_quantiles": True,
+            "supports_past_covariates": False,
+            "supports_future_covariates": False,
+            "supports_static_covariates": False,
+            "max_context_length": None,
+            "max_horizon": None,
+            "dependencies": [],
+            "notes": "Fake adapter for testing.",
+        }
 
 
 def _register_fake_adapters(names: list[str]) -> None:

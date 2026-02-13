@@ -47,6 +47,15 @@ PlanNodeKind = Literal[
 # ---------------------------
 
 
+# Column alias mappings for common alternative names
+# Used throughout the codebase for auto-renaming user data
+COLUMN_ALIASES: dict[str, list[str]] = {
+    "unique_id": ["id", "series_id", "item_id", "uid"],
+    "ds": ["date", "timestamp", "time", "datetime", "period"],
+    "y": ["value", "target", "sales", "demand", "count"],
+}
+
+
 class PanelContract(BaseSpec):
     unique_id_col: str = "unique_id"
     ds_col: str = "ds"
@@ -487,6 +496,7 @@ __all__ = [
     "BacktestSpec",
     "BaseSpec",
     "CalibratorSpec",
+    "COLUMN_ALIASES",
     "PlanNodeKind",
     "PlanNodeSpec",
     "PlanGraphSpec",

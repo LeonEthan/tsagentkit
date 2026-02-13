@@ -15,6 +15,8 @@ from typing import Any
 
 import pandas as pd
 
+from tsagentkit.contracts.task_spec import COLUMN_ALIASES
+
 
 def forecast(
     df: pd.DataFrame,
@@ -40,22 +42,10 @@ def forecast(
     Returns:
         A ``RunArtifact`` containing forecast results, provenance, etc.
     """
-    from tsagentkit.contracts.task_spec import TaskSpec
     from tsagentkit.serving.orchestration import run_forecast
 
     result = _prepare(df)
-
-    spec_kwargs: dict[str, Any] = {"h": horizon}
-    if freq is not None:
-        spec_kwargs["freq"] = freq
-    else:
-        spec_kwargs["freq"] = "D"  # starter default
-
-    spec = TaskSpec.starter(**spec_kwargs)
-
-    # If freq was not provided, allow inference
-    if freq is None:
-        spec = spec.model_copy(update={"freq": None, "infer_freq": True})
+    spec = _build_task_spec(horizon, freq)
 
     return run_forecast(result, spec, mode=mode)  # type: ignore[arg-type]
 
@@ -80,35 +70,45 @@ def diagnose(
         A dictionary with keys ``validation``, ``qa_report``, ``plan``,
         ``route_decision``, and ``task_spec_used``.
     """
-    from tsagentkit.contracts.task_spec import TaskSpec
     from tsagentkit.serving.orchestration import run_forecast
 
     result = _prepare(df)
-
-    spec_kwargs: dict[str, Any] = {"h": horizon}
-    if freq is not None:
-        spec_kwargs["freq"] = freq
-    else:
-        spec_kwargs["freq"] = "D"
-
-    spec = TaskSpec.starter(**spec_kwargs)
-
-    if freq is None:
-        spec = spec.model_copy(update={"freq": None, "infer_freq": True})
+    spec = _build_task_spec(horizon, freq)
 
     dry_result = run_forecast(result, spec, dry_run=True)
     return dry_result.to_dict()  # type: ignore[union-attr]
 
 
+def _build_task_spec(horizon: int, freq: str | None = None) -> Any:
+    """Build TaskSpec with appropriate frequency settings.
+
+    Args:
+        horizon: Forecast horizon
+        freq: Pandas frequency alias, or None for inference
+
+    Returns:
+        TaskSpec instance configured for the task
+    """
+    from tsagentkit.contracts.task_spec import TaskSpec
+
+    spec_kwargs: dict[str, Any] = {"h": horizon}
+    if freq is not None:
+        spec_kwargs["freq"] = freq
+    else:
+        spec_kwargs["freq"] = "D"  # starter default
+
+    spec = TaskSpec.starter(**spec_kwargs)
+
+    # If freq was not provided, allow inference
+    if freq is None:
+        spec = spec.model_copy(update={"freq": None, "infer_freq": True})
+
+    return spec
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-_COLUMN_ALIASES: dict[str, list[str]] = {
-    "unique_id": ["id", "series_id", "item_id", "uid"],
-    "ds": ["date", "timestamp", "time", "datetime", "period"],
-    "y": ["value", "target", "sales", "demand", "count"],
-}
 
 
 def _prepare(df: pd.DataFrame) -> pd.DataFrame:
@@ -118,7 +118,7 @@ def _prepare(df: pd.DataFrame) -> pd.DataFrame:
     # Auto-rename common aliases
     rename_map: dict[str, str] = {}
     existing = set(result.columns)
-    for canonical, aliases in _COLUMN_ALIASES.items():
+    for canonical, aliases in COLUMN_ALIASES.items():
         if canonical in existing:
             continue
         for alias in aliases:
