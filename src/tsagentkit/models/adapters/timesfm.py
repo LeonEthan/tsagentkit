@@ -349,21 +349,6 @@ class TimesFMAdapter(TSFMAdapter):
             horizon=horizon,
         )
 
-    def _handle_missing_values(self, values: np.ndarray) -> np.ndarray:
-        """Handle missing values in series.
-
-        Args:
-            values: Array that may contain NaNs
-
-        Returns:
-            Array with NaNs filled
-        """
-        import pandas as pd
-
-        s = pd.Series(values)
-        s = s.interpolate(method="linear", limit_direction="both")
-        return s.fillna(s.mean()).values.astype(np.float32)
-
     def _get_compilation_targets(
         self,
         dataset: TSDataset,

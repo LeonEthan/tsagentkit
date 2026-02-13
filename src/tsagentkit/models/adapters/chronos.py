@@ -290,25 +290,6 @@ class ChronosAdapter(TSFMAdapter):
 
         return future_df
 
-    def _handle_missing_values(
-        self, values: pd.Series | np.ndarray
-    ) -> pd.Series | np.ndarray:
-        """Fill missing values using linear interpolation.
-
-        Args:
-            values: Series or array that may contain NaNs
-
-        Returns:
-            Values with NaNs filled
-        """
-        is_array = isinstance(values, np.ndarray)
-        s = pd.Series(values).astype(float)
-        s = s.interpolate(method="linear", limit_direction="both")
-        if s.isna().any():
-            fill_val = 0.0 if pd.isna(s.mean()) else s.mean()
-            s = s.fillna(fill_val)
-        return s.values if is_array else s
-
     def _to_forecast_result(
         self,
         pred_df: pd.DataFrame,

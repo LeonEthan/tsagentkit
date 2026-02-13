@@ -232,19 +232,6 @@ class MoiraiAdapter(TSFMAdapter):
         context_length = min(context_length, self.DEFAULT_CONTEXT_LENGTH)
         return max(1, int(context_length))
 
-    def _handle_missing_values(self, values: np.ndarray) -> np.ndarray:
-        """Handle missing values in series.
-
-        Args:
-            values: Array that may contain NaNs
-
-        Returns:
-            Array with NaNs filled
-        """
-        s = pd.Series(values)
-        s = s.interpolate(method="linear", limit_direction="both")
-        return s.fillna(s.mean()).values.astype(np.float32)
-
     def get_model_signature(self) -> str:
         """Return model signature for provenance."""
         return f"moirai-2.0-{self._device}"
