@@ -24,6 +24,7 @@ from __future__ import annotations
 from .evaluator import CoherenceViolation, HierarchyEvaluationReport, HierarchyEvaluator
 from .reconciliation import Reconciler, ReconciliationMethod, reconcile_forecasts
 from .structure import HierarchyStructure
+from .utils import apply_reconciliation_if_needed
 
 __all__ = [
     # Structure
@@ -32,6 +33,8 @@ __all__ = [
     "Reconciler",
     "ReconciliationMethod",
     "reconcile_forecasts",
+    # Utilities
+    "apply_reconciliation_if_needed",
     # Evaluation
     "HierarchyEvaluator",
     "HierarchyEvaluationReport",

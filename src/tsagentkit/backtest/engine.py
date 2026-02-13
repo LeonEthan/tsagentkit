@@ -160,7 +160,7 @@ def rolling_backtest(
                     cutoff_date=pd.Timestamp(cutoff_date),
                     panel_for_index=train_df,
                 )
-            except Exception as e:
+            except (ValueError, TypeError, KeyError) as e:
                 errors.append(
                     {
                         "window": window_idx,
@@ -186,7 +186,7 @@ def rolling_backtest(
                     plan,
                     covariates=window_covariates,
                 )
-            except Exception as e:
+            except (RuntimeError, ValueError, MemoryError) as e:
                 errors.append(
                     {
                         "window": window_idx,
@@ -213,7 +213,7 @@ def rolling_backtest(
                     spec,
                     covariates=window_covariates,
                 )
-            except Exception as e:
+            except (RuntimeError, ValueError, MemoryError) as e:
                 errors.append(
                     {
                         "window": window_idx,
@@ -579,29 +579,12 @@ def _reconcile_forecast(
 
     Returns:
         Reconciled forecast DataFrame
+
+    Deprecated: Use apply_reconciliation_if_needed from tsagentkit.hierarchy.utils instead.
     """
-    from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
+    from tsagentkit.hierarchy.utils import apply_reconciliation_if_needed
 
-    # Convert method string to enum if needed
-    if isinstance(method, str):
-        method_map = {
-            "bottom_up": ReconciliationMethod.BOTTOM_UP,
-            "top_down": ReconciliationMethod.TOP_DOWN,
-            "middle_out": ReconciliationMethod.MIDDLE_OUT,
-            "ols": ReconciliationMethod.OLS,
-            "wls": ReconciliationMethod.WLS,
-            "min_trace": ReconciliationMethod.MIN_TRACE,
-        }
-        method = method_map.get(method, ReconciliationMethod.BOTTOM_UP)
-
-    # Apply reconciliation
-    reconciled = reconcile_forecasts(
-        base_forecasts=forecast_df,
-        structure=hierarchy,
-        method=method,
-    )
-
-    return reconciled
+    return apply_reconciliation_if_needed(forecast_df, hierarchy, method)
 
 
 def _build_window_covariates(

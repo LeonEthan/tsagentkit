@@ -250,11 +250,12 @@ def fit_predict_with_fallback(
 
             # Apply reconciliation if hierarchical
             if dataset.is_hierarchical() and dataset.hierarchy:
-                method = ReconciliationMethod.from_string(reconciliation_method)
-                forecast = reconcile_forecasts(
-                    base_forecasts=forecast,
-                    structure=dataset.hierarchy,
-                    method=method,
+                from tsagentkit.hierarchy import apply_reconciliation_if_needed
+
+                forecast = apply_reconciliation_if_needed(
+                    forecast=forecast,
+                    hierarchy=dataset.hierarchy,
+                    method=reconciliation_method,
                 )
 
             forecast = normalize_quantile_columns(forecast)

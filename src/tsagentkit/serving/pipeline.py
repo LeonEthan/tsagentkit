@@ -696,13 +696,12 @@ class ForecastPipeline:
         if not (self.state.plan and self.state.dataset.is_hierarchical() and self.state.dataset.hierarchy):
             return forecast
 
-        from tsagentkit.hierarchy import ReconciliationMethod, reconcile_forecasts
+        from tsagentkit.hierarchy import apply_reconciliation_if_needed
 
-        method = ReconciliationMethod.from_string(self.reconciliation_method)
-        return reconcile_forecasts(
-            base_forecasts=forecast,
-            structure=self.state.dataset.hierarchy,
-            method=method,
+        return apply_reconciliation_if_needed(
+            forecast=forecast,
+            hierarchy=self.state.dataset.hierarchy,
+            method=self.reconciliation_method,
         )
 
     def _normalize_forecast(self, forecast: pd.DataFrame) -> pd.DataFrame:
