@@ -153,17 +153,6 @@ def make_plan(
             )
         allow_baseline = availability.allow_non_tsfm_fallback
 
-    # Ensure all candidates are included for evaluation
-    # Remove duplicates while preserving order
-    seen: set[str] = set()
-    unique_candidates: list[str] = []
-    for c in candidates:
-        if c not in seen:
-            seen.add(c)
-            unique_candidates.append(c)
-    candidates = unique_candidates
-    allow_baseline = True  # Always allow baselines for competitive selection
-
     plan = PlanSpec(
         plan_name="default",
         candidate_models=candidates,

@@ -8,20 +8,18 @@ Reference: https://github.com/google-research/timesfm
 
 from __future__ import annotations
 
-import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
-from tsagentkit.models.telemetry import record_tsfm_model_load
 from tsagentkit.time import normalize_pandas_freq
 from tsagentkit.utils import quantile_col_name
 
-from .base import TSFMAdapter
+from .base import TSFMAdapter, _timed_model_load
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult, ModelArtifact
+    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult
     from tsagentkit.series import TSDataset
 
 
@@ -51,6 +49,7 @@ class TimesFMAdapter(TSFMAdapter):
     # Supported quantiles from the model
     SUPPORTED_QUANTILES = [round(q / 10, 1) for q in range(1, 10)]
 
+    @_timed_model_load
     def load_model(self) -> None:
         """Load TimesFM model from checkpoint.
 
@@ -72,60 +71,30 @@ class TimesFMAdapter(TSFMAdapter):
         self._compiled_max_horizon = 0
 
         # Load TimesFM 2.5 model using the new API
-        start = time.perf_counter()
         self._model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
             self.MODEL_ID,
             cache_dir=self.config.cache_dir,
         )
-        duration_ms = (time.perf_counter() - start) * 1000.0
-        record_tsfm_model_load(self.config.model_name, duration_ms)
 
         # Compile with default config
         self._ensure_compiled(self.MAX_CONTEXT, self.MAX_HORIZON)
 
-    def fit(
+    def _prepare_model(
         self,
         dataset: TSDataset,
         prediction_length: int,
         quantiles: list[float] | None = None,
-    ) -> ModelArtifact:
-        """Prepare TimesFM for prediction.
-
-        TimesFM is a zero-shot model and doesn't require training.
-        This method validates compatibility and returns a ModelArtifact.
-
-        Args:
-            dataset: Dataset to validate
-            prediction_length: Forecast horizon
-            quantiles: Optional quantile levels
-
-        Returns:
-            ModelArtifact with model reference
-
-        Raises:
-            ValueError: If prediction_length exceeds model horizon
-        """
-        from tsagentkit.contracts import ModelArtifact
-
-        self._require_loaded("fit")
-
-        # Validate dataset
-        self._validate_dataset(dataset)
-
+    ) -> dict[str, Any]:
+        """Compile TimesFM with appropriate context/horizon settings."""
         max_context, max_horizon = self._get_compilation_targets(
             dataset, prediction_length
         )
         self._ensure_compiled(max_context, max_horizon)
+        return {}
 
-        return ModelArtifact(
-            model=self._model,
-            model_name="timesfm-2.5",
-            config={
-                "device": self._device,
-                "prediction_length": prediction_length,
-                "quantiles": quantiles,
-            },
-        )
+    def _get_model_name(self) -> str:
+        """Return model name for TimesFM."""
+        return "timesfm-2.5"
 
     def predict(
         self,

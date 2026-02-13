@@ -9,19 +9,16 @@ Reference: https://github.com/amazon-science/chronos-forecasting
 
 from __future__ import annotations
 
-import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import pandas as pd
 
-from tsagentkit.models.telemetry import record_tsfm_model_load
 from tsagentkit.utils import quantile_col_name
 
-from .base import TSFMAdapter
+from .base import TSFMAdapter, _timed_model_load
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult, ModelArtifact
+    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult
     from tsagentkit.series import TSDataset
 
 
@@ -52,6 +49,7 @@ class ChronosAdapter(TSFMAdapter):
         "base": "amazon/chronos-2",
     }
 
+    @_timed_model_load
     def load_model(self) -> None:
         """Load Chronos model from HuggingFace.
 
@@ -75,50 +73,25 @@ class ChronosAdapter(TSFMAdapter):
         )
 
         try:
-            start = time.perf_counter()
             self._model = Chronos2Pipeline.from_pretrained(
                 model_id,
                 device_map=self._device,
             )
-            duration_ms = (time.perf_counter() - start) * 1000.0
-            record_tsfm_model_load(self.config.model_name, duration_ms)
         except Exception as e:
             raise RuntimeError(f"Failed to load Chronos model: {e}") from e
 
-    def fit(
+    def _prepare_model(
         self,
         dataset: TSDataset,
         prediction_length: int,
         quantiles: list[float] | None = None,
-    ) -> ModelArtifact:
-        """Prepare Chronos for prediction.
+    ) -> dict[str, Any]:
+        """Chronos requires no additional preparation (zero-shot)."""
+        return {}
 
-        Chronos is a zero-shot model and doesn't require training.
-
-        Args:
-            dataset: Dataset to validate
-            prediction_length: Forecast horizon
-            quantiles: Optional quantile levels
-
-        Returns:
-            ModelArtifact with model reference
-        """
-        from tsagentkit.contracts import ModelArtifact
-
-        self._require_loaded("fit")
-
-        self._validate_dataset(dataset)
-
-        return ModelArtifact(
-            model=self._model,
-            model_name=f"chronos-{self.config.model_size}",
-            config={
-                "model_size": self.config.model_size,
-                "device": self._device,
-                "prediction_length": prediction_length,
-                "quantiles": quantiles,
-            },
-        )
+    def _get_model_name(self) -> str:
+        """Return model name for Chronos."""
+        return f"chronos-{self.config.model_size}"
 
     def predict(
         self,

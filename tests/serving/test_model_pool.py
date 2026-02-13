@@ -29,12 +29,13 @@ class _PoolFakeAdapter(TSFMAdapter):
         self.__class__.unload_counts[name] = self.__class__.unload_counts.get(name, 0) + 1
         super().unload_model()
 
-    def fit(self, dataset, prediction_length: int, quantiles=None) -> ModelArtifact:
-        return ModelArtifact(
-            model=self,
-            model_name=self.config.model_name,
-            config={"prediction_length": prediction_length, "quantiles": quantiles},
-        )
+    def _prepare_model(
+        self, dataset, prediction_length: int, quantiles=None
+    ) -> dict[str, object]:
+        return {"prediction_length": prediction_length, "quantiles": quantiles}
+
+    def _get_model_name(self) -> str:
+        return self.config.model_name
 
     def predict(self, dataset, horizon: int, quantiles=None) -> ForecastResult:
         raise NotImplementedError

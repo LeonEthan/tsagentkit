@@ -174,6 +174,43 @@ def _has_future_values(
     return merged[col].notna().any()
 
 
+def _merge_and_validate_coverage(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    merge_cols: list[str],
+    covariate_cols: list[str],
+    on_missing: type[Exception],
+    error_msg_template: str,
+    error_context_key: str,
+) -> pd.DataFrame:
+    """Merge two DataFrames and validate that covariate columns have no missing values.
+
+    Args:
+        left: Left DataFrame (typically future_index)
+        right: Right DataFrame with covariate columns
+        merge_cols: Columns to merge on
+        covariate_cols: Covariate columns to validate for missing values
+        on_missing: Exception class to raise if missing values found
+        error_msg_template: Template string for error message (must have {col} placeholder)
+        error_context_key: Key name for the context dictionary (e.g., "missing" or "future_values_count")
+
+    Returns:
+        Merged DataFrame
+
+    Raises:
+        Exception: Instance of `on_missing` if any covariate has missing values
+    """
+    merged = left.merge(right, on=merge_cols, how="left")
+    for col in covariate_cols:
+        if merged[col].isna().any():
+            count = int(merged[col].isna().sum())
+            raise on_missing(
+                error_msg_template.format(col=col, count=count),
+                context={"covariate": col, error_context_key: count},
+            )
+    return merged
+
+
 def _enforce_future_coverage(
     panel: pd.DataFrame,
     future_index: pd.DataFrame,
@@ -181,17 +218,16 @@ def _enforce_future_coverage(
     uid_col: str,
     ds_col: str,
 ) -> None:
-    merged = future_index.merge(
-        panel[[uid_col, ds_col, col]],
-        on=[uid_col, ds_col],
-        how="left",
+    """Enforce that future-known covariate has full coverage in horizon."""
+    _merge_and_validate_coverage(
+        left=future_index,
+        right=panel[[uid_col, ds_col, col]],
+        merge_cols=[uid_col, ds_col],
+        covariate_cols=[col],
+        on_missing=ECovariateIncompleteKnown,
+        error_msg_template="Future-known covariate '{col}' missing {count} values in horizon.",
+        error_context_key="missing",
     )
-    if merged[col].isna().any():
-        missing = int(merged[col].isna().sum())
-        raise ECovariateIncompleteKnown(
-            f"Future-known covariate '{col}' missing {missing} values in horizon.",
-            context={"covariate": col, "missing": missing},
-        )
 
 
 def _enforce_past_leakage(
@@ -254,19 +290,15 @@ def _extract_future_covariates(
 ) -> pd.DataFrame | None:
     if not cols:
         return None
-    merged = future_index.merge(
-        panel[[uid_col, ds_col] + cols],
-        on=[uid_col, ds_col],
-        how="left",
+    return _merge_and_validate_coverage(
+        left=future_index,
+        right=panel[[uid_col, ds_col] + cols],
+        merge_cols=[uid_col, ds_col],
+        covariate_cols=cols,
+        on_missing=ECovariateIncompleteKnown,
+        error_msg_template="Future-known covariate '{col}' missing {count} values in horizon.",
+        error_context_key="missing",
     )
-    for col in cols:
-        if merged[col].isna().any():
-            missing = int(merged[col].isna().sum())
-            raise ECovariateIncompleteKnown(
-                f"Future-known covariate '{col}' missing {missing} values in horizon.",
-                context={"covariate": col, "missing": missing},
-            )
-    return merged
 
 
 def _validate_static_covariates(
@@ -317,19 +349,16 @@ def _validate_future_covariates(
 ) -> pd.DataFrame | None:
     if future_x is None or future_x.empty:
         return None
-    merged = future_index.merge(
-        future_x,
-        on=[uid_col, ds_col],
-        how="left",
-    )
     covariate_cols = [c for c in future_x.columns if c not in {uid_col, ds_col}]
-    for col in covariate_cols:
-        if merged[col].isna().any():
-            missing = int(merged[col].isna().sum())
-            raise ECovariateIncompleteKnown(
-                f"Future-known covariate '{col}' missing {missing} values in horizon.",
-                context={"covariate": col, "missing": missing},
-            )
+    _merge_and_validate_coverage(
+        left=future_index,
+        right=future_x,
+        merge_cols=[uid_col, ds_col],
+        covariate_cols=covariate_cols,
+        on_missing=ECovariateIncompleteKnown,
+        error_msg_template="Future-known covariate '{col}' missing {count} values in horizon.",
+        error_context_key="missing",
+    )
     return future_x.copy()
 
 

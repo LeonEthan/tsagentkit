@@ -7,10 +7,9 @@ import pandas as pd
 from tsagentkit import TaskSpec
 from tsagentkit.contracts import ForecastResult, ModelArtifact
 from tsagentkit.models.adapters import AdapterRegistry
-from tsagentkit.models.adapters.base import TSFMAdapter
+from tsagentkit.models.adapters.base import TSFMAdapter, _timed_model_load
 from tsagentkit.models.telemetry import (
     get_tsfm_runtime_stats,
-    record_tsfm_model_load,
     reset_tsfm_runtime_stats,
 )
 from tsagentkit.serving import run_forecast
@@ -19,27 +18,21 @@ from tsagentkit.serving import run_forecast
 class _Phase0FakeAdapter(TSFMAdapter):
     load_calls = 0
 
+    @_timed_model_load
     def load_model(self) -> None:
         self._model = {"loaded": True}
         _Phase0FakeAdapter.load_calls += 1
-        record_tsfm_model_load(self.config.model_name, duration_ms=1.0)
 
-    def fit(
+    def _prepare_model(
         self,
         dataset,
         prediction_length: int,
         quantiles: list[float] | None = None,
-    ) -> ModelArtifact:
-        if not self.is_loaded:
-            self.load_model()
-        return ModelArtifact(
-            model=self,
-            model_name=f"{self.config.model_name}-model",
-            config={
-                "prediction_length": prediction_length,
-                "quantiles": quantiles,
-            },
-        )
+    ) -> dict[str, object]:
+        return {}
+
+    def _get_model_name(self) -> str:
+        return f"{self.config.model_name}-model"
 
     def predict(
         self,
@@ -129,7 +122,8 @@ def test_repeated_run_forecast_triggers_repeated_tsfm_loads(
         assert _Phase0FakeAdapter.load_calls == 2
         assert stats["load_count"] == 2
         assert stats["per_adapter"][adapter_name]["load_count"] == 2
-        assert stats["per_adapter"][adapter_name]["load_time_ms_total"] == 2.0
+        # Timing is measured by decorator, just verify it's positive
+        assert stats["per_adapter"][adapter_name]["load_time_ms_total"] > 0
     finally:
         AdapterRegistry.unregister(adapter_name)
 

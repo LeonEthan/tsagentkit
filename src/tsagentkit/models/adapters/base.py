@@ -6,10 +6,13 @@ Moirai, and TimesFM with the tsagentkit pipeline.
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC
-from typing import TYPE_CHECKING, Any, Literal
+from functools import wraps
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -23,6 +26,27 @@ if TYPE_CHECKING:
         Provenance,
     )
     from tsagentkit.series import TSDataset
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def _timed_model_load(load_fn: F) -> F:
+    """Decorator to time model loading and record telemetry.
+
+    Wraps load_model() implementations to automatically track load time
+    and report to the telemetry system.
+    """
+    @wraps(load_fn)
+    def wrapper(self: TSFMAdapter, *args: Any, **kwargs: Any) -> Any:
+        from tsagentkit.models.telemetry import record_tsfm_model_load
+
+        start = time.perf_counter()
+        try:
+            return load_fn(self, *args, **kwargs)
+        finally:
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            record_tsfm_model_load(self.config.model_name, duration_ms)
+    return wrapper  # type: ignore[return-value]
 
 
 @dataclass(frozen=True)
@@ -136,6 +160,27 @@ class TSFMAdapter(ABC):
         pass
 
     @abstractmethod
+    def _prepare_model(
+        self,
+        dataset: TSDataset,
+        prediction_length: int,
+        quantiles: list[float] | None = None,
+    ) -> dict[str, Any]:
+        """Prepare model-specific configuration for prediction.
+
+        Subclasses implement this to perform any model-specific preparation
+        (e.g., compiling the model, setting up contexts).
+
+        Args:
+            dataset: Training dataset
+            prediction_length: Forecast horizon
+            quantiles: Optional quantile levels
+
+        Returns:
+            Dictionary with model-specific configuration to include in ModelArtifact
+        """
+        pass
+
     def fit(
         self,
         dataset: TSDataset,
@@ -158,6 +203,32 @@ class TSFMAdapter(ABC):
         Raises:
             ValueError: If dataset is incompatible with model
             RuntimeError: If preparation fails
+        """
+        from tsagentkit.contracts import ModelArtifact
+
+        self._require_loaded("fit")
+        self._validate_dataset(dataset)
+
+        extra_config = self._prepare_model(dataset, prediction_length, quantiles)
+
+        return ModelArtifact(
+            model=self._model,
+            model_name=self._get_model_name(),
+            config={
+                "model_size": self.config.model_size,
+                "device": self._device,
+                "prediction_length": prediction_length,
+                "quantiles": quantiles,
+                **extra_config,
+            },
+        )
+
+    @abstractmethod
+    def _get_model_name(self) -> str:
+        """Return the model name for ModelArtifact and provenance.
+
+        Returns:
+            Model name string (e.g., "chronos-base", "moirai-2.0")
         """
         pass
 

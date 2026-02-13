@@ -8,20 +8,18 @@ Reference: https://github.com/SalesforceAIResearch/uni2ts
 
 from __future__ import annotations
 
-import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
-from tsagentkit.models.telemetry import record_tsfm_model_load
 from tsagentkit.time import normalize_pandas_freq
 from tsagentkit.utils import quantile_col_name
 
-from .base import TSFMAdapter
+from .base import TSFMAdapter, _timed_model_load
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult, ModelArtifact
+    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult
     from tsagentkit.series import TSDataset
 
 
@@ -50,6 +48,7 @@ class MoiraiAdapter(TSFMAdapter):
     # Default context length for Moirai 2.0
     DEFAULT_CONTEXT_LENGTH = 512
 
+    @_timed_model_load
     def load_model(self) -> None:
         """Load Moirai 2.0 model from HuggingFace.
 
@@ -67,46 +66,21 @@ class MoiraiAdapter(TSFMAdapter):
                 "Install with: pip install 'uni2ts @ git+https://github.com/SalesforceAIResearch/uni2ts.git'"
             ) from e
 
-        start = time.perf_counter()
         self._module = Moirai2Module.from_pretrained(self.MODEL_ID)
         self._model = self._module
-        duration_ms = (time.perf_counter() - start) * 1000.0
-        record_tsfm_model_load(self.config.model_name, duration_ms)
 
-    def fit(
+    def _prepare_model(
         self,
         dataset: TSDataset,
         prediction_length: int,
         quantiles: list[float] | None = None,
-    ) -> ModelArtifact:
-        """Prepare Moirai for prediction.
+    ) -> dict[str, Any]:
+        """Moirai requires no additional preparation (zero-shot)."""
+        return {}
 
-        Moirai is a zero-shot model and doesn't require training.
-
-        Args:
-            dataset: Dataset to validate
-            prediction_length: Forecast horizon
-            quantiles: Optional quantile levels
-
-        Returns:
-            ModelArtifact with model reference
-        """
-        from tsagentkit.contracts import ModelArtifact
-
-        self._require_loaded("fit")
-
-        self._validate_dataset(dataset)
-
-        return ModelArtifact(
-            model=self._module,
-            model_name="moirai-2.0",
-            config={
-                "model_size": "small",
-                "device": self._device,
-                "prediction_length": prediction_length,
-                "quantiles": quantiles,
-            },
-        )
+    def _get_model_name(self) -> str:
+        """Return model name for Moirai."""
+        return "moirai-2.0"
 
     def predict(
         self,

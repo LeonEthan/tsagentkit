@@ -39,19 +39,16 @@ class MockAdapter(TSFMAdapter):
     def load_model(self) -> None:
         self._model = MagicMock()
 
-    def fit(
+    def _prepare_model(
         self,
         dataset,
         prediction_length: int,
         quantiles: list[float] | None = None,
-    ):
-        from tsagentkit.contracts import ModelArtifact
+    ) -> dict[str, object]:
+        return {}
 
-        return ModelArtifact(
-            model=self._model,
-            model_name="mock",
-            config=self.config.__dict__,
-        )
+    def _get_model_name(self) -> str:
+        return "mock"
 
     def predict(
         self,
