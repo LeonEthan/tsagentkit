@@ -165,7 +165,7 @@ class AdapterRegistry:
         return available
 
     @classmethod
-    def get_capability(cls, name: str):
+    def get_capability(cls, name: str) -> AdapterCapabilitySpec:
         """Return adapter capability schema with runtime availability."""
         from tsagentkit.contracts import AdapterCapabilitySpec
 

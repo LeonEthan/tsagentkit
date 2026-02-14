@@ -125,11 +125,11 @@ def _extract_point_column(forecast_df: pd.DataFrame) -> str:
     if not point_cols:
         raise ValueError("No point forecast column found in statsforecast output.")
     if len(point_cols) == 1:
-        return point_cols[0]
+        return str(point_cols[0])
     # Prefer plain yhat if present
     if "yhat" in point_cols:
         return "yhat"
-    return point_cols[0]
+    return str(point_cols[0])
 
 
 def _level_for_quantile(q: float) -> int:
@@ -144,7 +144,7 @@ def _find_interval_column(
     suffix = f"{kind}-{level}"
     matches = [c for c in forecast_df.columns if c.endswith(suffix)]
     if matches:
-        return matches[0]
+        return str(matches[0])
     return None
 
 

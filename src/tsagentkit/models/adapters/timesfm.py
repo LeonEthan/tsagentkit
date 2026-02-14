@@ -8,7 +8,7 @@ Reference: https://github.com/google-research/timesfm
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
@@ -113,6 +113,7 @@ class TimesFMAdapter(TSFMAdapter):
             ForecastResult with predictions and provenance
         """
         self._require_loaded("predict")
+        assert self._model is not None  # type narrowing after _require_loaded
 
         max_context, max_horizon = self._get_compilation_targets(dataset, horizon)
         self._ensure_compiled(max_context, max_horizon)
@@ -242,9 +243,10 @@ class TimesFMAdapter(TSFMAdapter):
 
         # Generate padded values following the trend
         n_pad = min_length - len(values)
-        padded = np.arange(1, n_pad + 1) * trend + last_value
+        padded: np.ndarray = np.arange(1, n_pad + 1) * trend + last_value
 
-        return np.concatenate([values, padded]).astype(np.float32)
+        result: np.ndarray = np.concatenate([values, padded]).astype(np.float32)
+        return cast(np.ndarray, result)
 
     def _to_forecast_result(
         self,
@@ -356,6 +358,9 @@ class TimesFMAdapter(TSFMAdapter):
             and self._model is not None
         ):
             return
+
+        if self._model is None:
+            raise RuntimeError("Model must be loaded before compiling")
 
         import timesfm
 

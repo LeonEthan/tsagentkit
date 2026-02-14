@@ -113,6 +113,7 @@ class ChronosAdapter(TSFMAdapter):
             ForecastResult with predictions and provenance
         """
         self._require_loaded("predict")
+        assert self._model is not None  # type narrowing after _require_loaded
 
         context_df, future_df = self._to_chronos_df(dataset, horizon)
 

@@ -106,12 +106,15 @@ module = "tsagentkit.utils.*"
 disallow_untyped_defs = true
 check_untyped_defs = true
 
+[[tool.mypy.overrides]]
+module = "tsagentkit.models.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
+
 # Modules not yet type-cleaned - ignore errors for now
 [[tool.mypy.overrides]]
 module = [
     "tsagentkit.repair",
-    "tsagentkit.models.baselines",
-    "tsagentkit.models.*",
     "tsagentkit.covariates.*",
     "tsagentkit.backtest.*",
     "tsagentkit.series.*",

@@ -21,6 +21,8 @@ Example:
 
 from __future__ import annotations
 
+from typing import TypeVar
+
 # Base classes
 from .base import AdapterConfig, TSFMAdapter
 from .registry import AdapterRegistry
@@ -32,11 +34,14 @@ __all__ = [
     "AdapterRegistry",
 ]
 
+# Type variable for adapter classes
+T = TypeVar("T", bound=type[TSFMAdapter])
+
 # Lazily import specific adapters as they become available
 # This prevents import errors when dependencies are not installed
 
 
-def _try_import_chronos():
+def _try_import_chronos() -> type[TSFMAdapter] | None:
     """Try to import ChronosAdapter if dependencies are available."""
     try:
         from .chronos import ChronosAdapter
@@ -46,7 +51,7 @@ def _try_import_chronos():
         return None
 
 
-def _try_import_moirai():
+def _try_import_moirai() -> type[TSFMAdapter] | None:
     """Try to import MoiraiAdapter if dependencies are available."""
     try:
         from .moirai import MoiraiAdapter
@@ -56,7 +61,7 @@ def _try_import_moirai():
         return None
 
 
-def _try_import_timesfm():
+def _try_import_timesfm() -> type[TSFMAdapter] | None:
     """Try to import TimesFMAdapter if dependencies are available."""
     try:
         from .timesfm import TimesFMAdapter

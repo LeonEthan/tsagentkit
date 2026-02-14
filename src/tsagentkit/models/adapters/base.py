@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC
 from functools import wraps
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from tsagentkit.series import TSDataset
 
 F = TypeVar("F", bound=Callable[..., Any])
+T = TypeVar("T")
 
 
 def _timed_model_load(load_fn: F) -> F:
@@ -363,9 +364,9 @@ class TSFMAdapter(ABC):
 
     def _batch_iterator(
         self,
-        data: list[Any],
+        data: list[T],
         batch_size: int,
-    ):
+    ) -> Iterator[list[T]]:
         """Iterate over data in batches.
 
         Args:
