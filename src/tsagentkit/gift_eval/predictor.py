@@ -20,6 +20,7 @@ from tsagentkit.contracts import (
     EOOM,
     EModelFitFailed,
     EModelNotLoaded,
+    ForecastContract,
     ModelArtifact,
     TSAgentKitError,
 )
@@ -203,7 +204,7 @@ class TSAgentKitPredictor(RepresentablePredictor):
             h=h,
             freq=freq,
             tsfm_policy={"mode": "preferred", "adapters": list(self.preload_adapters)},
-            quantiles=self.quantiles,
+            forecast_contract=ForecastContract(quantiles=self.quantiles),
         )
         run_kwargs: dict[str, Any] = {
             "data": panel_df,
