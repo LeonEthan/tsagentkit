@@ -382,6 +382,10 @@ class RouteDecision(BaseSpec):
     # Human-readable deterministic reasons (safe for logs)
     reasons: list[str] = Field(default_factory=list)
 
+    # Feature-driven candidate pool assembly metadata (PRD FR-13a)
+    # Contains: tsfm_candidates, statistical_candidates, feature_analysis_summary
+    candidate_pool_assembly: dict[str, Any] = Field(default_factory=dict)
+
 
 class RouterConfig(BaseSpec):
     thresholds: RouterThresholds = Field(default_factory=lambda: RouterThresholds())

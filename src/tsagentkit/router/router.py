@@ -32,6 +32,8 @@ def _build_route_decision(
     buckets: list[str],
     plan: PlanSpec,
     availability: TSFMAvailabilityReport,
+    tsfm_candidates: list[str] | None = None,
+    statistical_candidates: list[str] | None = None,
 ) -> RouteDecision:
     reasons = [
         f"selected_models: {plan.candidate_models}",
@@ -47,11 +49,25 @@ def _build_route_decision(
     if availability.unavailable:
         reasons.append(f"tsfm_unavailable: {availability.unavailable}")
 
+    # Build candidate pool assembly metadata (PRD FR-13a)
+    candidate_pool_assembly: dict[str, Any] = {
+        "tsfm_candidates": tsfm_candidates or [],
+        "statistical_candidates": statistical_candidates or [],
+        "feature_analysis_summary": {
+            "buckets_triggered": buckets,
+            "tsfm_mode": availability.mode,
+            "tsfm_available": bool(availability.available),
+            "tsfm_allowed_by_guardrail": availability.allowed_by_guardrail,
+            "allow_non_tsfm_fallback": availability.allow_non_tsfm_fallback,
+        },
+    }
+
     return RouteDecision(
         stats=stats,
         buckets=buckets,
         selected_plan=plan,
         reasons=reasons,
+        candidate_pool_assembly=candidate_pool_assembly,
     )
 
 
@@ -111,7 +127,14 @@ def make_plan(
         allow_baseline=allow_baseline,
     )
 
-    route_decision = _build_route_decision(stats, buckets, plan, availability)
+    route_decision = _build_route_decision(
+        stats=stats,
+        buckets=buckets,
+        plan=plan,
+        availability=availability,
+        tsfm_candidates=tsfm_models,
+        statistical_candidates=candidates,
+    )
     return plan, route_decision
 
 
