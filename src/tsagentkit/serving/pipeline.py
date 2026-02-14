@@ -531,7 +531,12 @@ class ForecastPipeline:
             self._fit_single(step_start)
 
     def _fit_per_series(self, step_start: float) -> None:
-        """Fit separate models for each series."""
+        """Fit models grouped by winning model selection.
+
+        Groups bottom-level series by their selected winning model from backtest,
+        then fits each model once on its assigned series subset. This ensures
+        efficient training while respecting per-series model selection results.
+        """
         self.state.model_artifacts = fit_per_series_models(
             dataset=self.state.dataset,
             plan=self.state.plan,
@@ -584,13 +589,21 @@ class ForecastPipeline:
             self._handle_predict_error(e, step_start)
 
     def _predict_per_series(self, step_start: float) -> None:
-        """Predict using per-series models."""
+        """Predict using per-series models with hierarchical reconciliation."""
         self.state.forecast_df = predict_per_series_models(
             dataset=self.state.dataset,
             artifacts=self.state.model_artifacts,
             selection_map=self.state.selection_map,
             task_spec=self.state.task_spec,
             predict_func=self.predict_func,
+        )
+        # Apply hierarchical reconciliation if needed
+        self.state.forecast_df = postprocess_forecast(
+            self.state.forecast_df,
+            model_name="per_series",
+            dataset=self.state.dataset,
+            plan=self.state.plan,
+            reconciliation_method=self.reconciliation_method,
         )
         self.state.forecast_df = self._normalize_forecast(self.state.forecast_df)
         self._log_event("predict_per_series", "success", step_start, artifacts=["forecast"])
