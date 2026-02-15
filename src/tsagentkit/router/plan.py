@@ -6,7 +6,7 @@ Replaces PlanSpec, PlanGraphSpec, and PlanNodeSpec with a single Plan dataclass.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from tsagentkit.core.data import TSDataset
@@ -24,40 +24,55 @@ class ModelCandidate:
 
 @dataclass(frozen=True)
 class Plan:
-    """Simplified execution plan.
+    """Ensemble execution plan.
 
-    Replaces the complex PlanSpec/PlanGraphSpec/PlanNodeSpec hierarchy
-    with a single flat structure: primary + fallbacks.
+    Replaces the fallback chain with an ensemble approach where ALL models
+    participate in the final forecast via median/mean aggregation.
     """
 
-    primary: ModelCandidate
-    fallbacks: list[ModelCandidate] = field(default_factory=list)
+    # TSFM models (always included if available)
+    tsfm_models: list[ModelCandidate] = field(default_factory=list)
+    # Statistical models (included based on plan configuration)
+    statistical_models: list[ModelCandidate] = field(default_factory=list)
+    # Ensemble configuration
+    ensemble_method: Literal["median", "mean"] = "median"
+    require_all_tsfm: bool = False
+    min_models_for_ensemble: int = 1
     backtest_enabled: bool = True
 
-    def all_candidates(self) -> list[ModelCandidate]:
-        """Return all candidates in order of preference."""
-        return [self.primary] + self.fallbacks
+    def all_models(self) -> list[ModelCandidate]:
+        """Return all models in the ensemble."""
+        return self.tsfm_models + self.statistical_models
 
     def execute(self, dataset: TSDataset) -> Any:
-        """Execute plan with automatic fallback.
+        """Execute ensemble plan - fit all models and aggregate predictions.
 
-        Tries each candidate in order until one succeeds.
+        Returns dict with fitted artifacts for all successful models.
         """
         from tsagentkit.core.errors import EModelFailed
 
+        artifacts = []
         errors = []
 
-        for candidate in self.all_candidates():
+        for candidate in self.all_models():
             try:
-                return self._fit_candidate(candidate, dataset)
+                artifact = self._fit_candidate(candidate, dataset)
+                artifacts.append({"candidate": candidate, "artifact": artifact})
             except Exception as e:
+                if candidate.is_tsfm and self.require_all_tsfm:
+                    raise EModelFailed(
+                        f"Required TSFM model '{candidate.name}' failed",
+                        context={"error": str(e)},
+                    )
                 errors.append((candidate.name, str(e)))
-                continue
 
-        raise EModelFailed(
-            f"All candidates failed: {errors}",
-            context={"attempted": [c.name for c in self.all_candidates()], "errors": errors},
-        )
+        if len(artifacts) < self.min_models_for_ensemble:
+            raise EModelFailed(
+                f"Insufficient models succeeded: {len(artifacts)} < {self.min_models_for_ensemble}",
+                context={"errors": errors, "succeeded": len(artifacts)},
+            )
+
+        return {"artifacts": artifacts, "errors": errors}
 
     def _fit_candidate(self, candidate: ModelCandidate, dataset: TSDataset) -> Any:
         """Fit a single candidate model."""
@@ -96,50 +111,50 @@ def build_plan(
     dataset: TSDataset,
     tsfm_mode: str = "required",
     allow_fallback: bool = True,
+    ensemble_method: str = "median",
+    require_all_tsfm: bool = False,
 ) -> Plan:
-    """Build simplified execution plan.
+    """Build ensemble execution plan.
 
     Args:
         dataset: Time-series dataset
         tsfm_mode: 'required', 'preferred', or 'disabled'
-        allow_fallback: Whether to include fallback candidates
+        allow_fallback: Whether to include statistical models
+        ensemble_method: 'median' or 'mean' aggregation
+        require_all_tsfm: If True, fail if any TSFM model fails
 
     Returns:
-        Plan with primary and fallback candidates
+        Plan with all TSFM and statistical models for ensemble
     """
     available_tsfm = inspect_tsfm_adapters()
-    candidates = []
 
     # Build TSFM candidates
+    tsfm_candidates = []
     if tsfm_mode != "disabled":
         for name in available_tsfm:
-            candidates.append(ModelCandidate(name=f"tsfm-{name}", is_tsfm=True, adapter_name=name))
+            tsfm_candidates.append(ModelCandidate(name=f"tsfm-{name}", is_tsfm=True, adapter_name=name))
 
-    # Build fallback candidates (statistical baselines)
-    fallback_candidates = []
+    # Build statistical candidates
+    statistical_candidates = []
     if allow_fallback:
-        fallback_candidates = [
+        statistical_candidates = [
             ModelCandidate(name="SeasonalNaive"),
             ModelCandidate(name="HistoricAverage"),
             ModelCandidate(name="Naive"),
         ]
 
-    # Determine primary
-    if candidates:
-        primary = candidates[0]
-        # Add remaining TSFM as fallbacks before statistical
-        fallbacks = candidates[1:] + fallback_candidates
-    else:
-        if tsfm_mode == "required":
-            from tsagentkit.core.errors import ETSFMRequired
+    # Validate TSFM availability
+    if tsfm_mode == "required" and not tsfm_candidates:
+        from tsagentkit.core.errors import ETSFMRequired
 
-            raise ETSFMRequired("TSFM required but no adapters available")
-        primary = fallback_candidates[0] if fallback_candidates else ModelCandidate(name="Naive")
-        fallbacks = fallback_candidates[1:] if len(fallback_candidates) > 1 else []
+        raise ETSFMRequired("TSFM required but no adapters available")
 
     return Plan(
-        primary=primary,
-        fallbacks=fallbacks,
+        tsfm_models=tsfm_candidates,
+        statistical_models=statistical_candidates,
+        ensemble_method=ensemble_method,  # type: ignore[arg-type]
+        require_all_tsfm=require_all_tsfm,
+        min_models_for_ensemble=1,
         backtest_enabled=tsfm_mode != "quick",
     )
 

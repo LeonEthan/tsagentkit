@@ -29,6 +29,9 @@ class ForecastConfig:
         n_backtest_windows: Number of rolling windows for backtest (0 to skip)
         min_train_size: Minimum observations required per series
         allow_fallback: Whether to allow fallback to simpler models on failure
+        ensemble_method: How to aggregate ensemble forecasts ('median' or 'mean')
+        require_all_tsfm: If True, fail if any TSFM model fails
+        min_models_for_ensemble: Minimum successful models required
     """
 
     # Core forecasting parameters
@@ -56,12 +59,19 @@ class ForecastConfig:
     # Fallback behavior
     allow_fallback: bool = True
 
+    # Ensemble configuration
+    ensemble_method: Literal["median", "mean"] = "median"
+    require_all_tsfm: bool = False
+    min_models_for_ensemble: int = 1
+
     def __post_init__(self) -> None:
         # Validation
         if self.h <= 0:
             raise ValueError(f"h must be positive, got {self.h}")
         if self.n_backtest_windows < 0:
             raise ValueError(f"n_backtest_windows must be non-negative")
+        if self.min_models_for_ensemble < 1:
+            raise ValueError(f"min_models_for_ensemble must be at least 1")
 
     @classmethod
     def quick(cls, h: int, freq: str = "D") -> ForecastConfig:

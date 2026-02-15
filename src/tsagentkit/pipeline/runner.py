@@ -42,7 +42,7 @@ def run_pipeline(
         STAGES,
         backtest_stage,
         build_dataset_stage,
-        fit_predict_stage,
+        ensemble_stage,
         package_stage,
         plan_stage,
         qa_stage,
@@ -60,17 +60,17 @@ def run_pipeline(
     dataset = build_dataset_stage(df, config, covariates)
 
     # Phase 2: Planning
-    dataset, candidates = plan_stage(dataset, config)
+    dataset, plan = plan_stage(dataset, config)
 
     # Phase 3: Optional backtest
-    dataset, candidates, _ = backtest_stage(dataset, candidates, config)
+    dataset, plan, _ = backtest_stage(dataset, plan, config)
 
-    # Phase 4: Fit and predict with fallback
-    forecast_result, fallbacks = fit_predict_stage(dataset, candidates, config)
+    # Phase 4: Ensemble - fit all models and aggregate
+    forecast_result, model_errors = ensemble_stage(dataset, plan, config)
 
     # Phase 5: Package
     duration_ms = (time.time() - start_time) * 1000
-    result = package_stage(forecast_result, fallbacks, config, duration_ms)
+    result = package_stage(forecast_result, model_errors, config, duration_ms)
 
     return result
 

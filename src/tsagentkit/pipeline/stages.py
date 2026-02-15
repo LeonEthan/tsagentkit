@@ -121,107 +121,166 @@ def build_dataset_stage(
     return TSDataset.from_dataframe(df, config, covariates)
 
 
-def plan_stage(dataset: TSDataset, config: ForecastConfig) -> tuple[TSDataset, list[str]]:
-    """Create execution plan (simplified model selection).
+def plan_stage(dataset: TSDataset, config: ForecastConfig) -> tuple[TSDataset, Any]:
+    """Create ensemble execution plan.
 
-    Returns list of candidate models in priority order.
+    Returns Plan with all TSFM and statistical models for ensemble.
     """
-    from tsagentkit.router import inspect_tsfm_adapters
+    from tsagentkit.router import build_plan
 
-    candidates = []
+    plan = build_plan(
+        dataset=dataset,
+        tsfm_mode=config.tsfm_mode,
+        allow_fallback=config.allow_fallback,
+        ensemble_method=config.ensemble_method,
+        require_all_tsfm=config.require_all_tsfm,
+    )
 
-    # Check TSFM availability
-    available_tsfm = inspect_tsfm_adapters()
-    tsfm_available = bool(available_tsfm)
-
-    if tsfm_available and config.tsfm_mode != "disabled":
-        # Add TSFM models first
-        for name in available_tsfm:
-            candidates.append(f"tsfm-{name}")
-
-    if not tsfm_available and config.tsfm_mode == "required":
-        raise EModelFailed(
-            "TSFM required but no adapters available",
-            fix_hint="Install TSFM adapters or set tsfm_mode='preferred'",
-        )
-
-    # Add statistical baselines as fallbacks
-    if config.tsfm_mode != "required" or not tsfm_available:
-        # Determine appropriate baselines from data characteristics
-        candidates.extend(["SeasonalNaive", "HistoricAverage", "Naive"])
-
-    return dataset, candidates
+    return dataset, plan
 
 
 def backtest_stage(
-    dataset: TSDataset, candidates: list[str], config: ForecastConfig
-) -> tuple[TSDataset, list[str], dict[str, float] | None]:
+    dataset: TSDataset, plan: Any, config: ForecastConfig
+) -> tuple[TSDataset, Any, dict[str, float] | None]:
     """Run backtest for model selection (optional).
 
     Skipped if n_backtest_windows is 0 or mode is 'quick'.
     """
     if config.n_backtest_windows == 0 or config.mode == "quick":
-        return dataset, candidates, None
+        return dataset, plan, None
 
-    # Simplified backtest - just return candidates without selection
+    # Simplified backtest - just return plan without selection
     # Full backtest logic would be imported from backtest module
-    return dataset, candidates, None
+    return dataset, plan, None
 
 
-def fit_predict_stage(
-    dataset: TSDataset, candidates: list[str], config: ForecastConfig
-) -> tuple[ForecastResult, list[dict[str, str]]]:
-    """Fit models and generate forecasts with fallback.
+def _fit_and_predict_single(
+    dataset: TSDataset,
+    candidate: Any,
+    h: int,
+) -> pd.DataFrame | None:
+    """Fit and predict for a single model candidate.
 
-    Simplified from the complex fit/predict/fallback chain.
+    Returns None if the model fails.
     """
     from tsagentkit.models import fit, predict, fit_tsfm, predict_tsfm
 
-    fallbacks = []
-    last_error = None
+    try:
+        if candidate.is_tsfm:
+            adapter_name = candidate.adapter_name or candidate.name.replace("tsfm-", "")
+            artifact = fit_tsfm(dataset, adapter_name)
+            forecast_df = predict_tsfm(dataset, artifact, h)
+        else:
+            artifact = fit(dataset, candidate.name)
+            forecast_df = predict(dataset, artifact, h)
 
-    for i, model_name in enumerate(candidates):
-        try:
-            # Check if TSFM adapter
-            if model_name.startswith("tsfm-"):
-                adapter_name = model_name.replace("tsfm-", "")
-                artifact = fit_tsfm(dataset, adapter_name)
-                forecast_df = predict_tsfm(dataset, artifact, config.h)
-            else:
-                # Use standard models module
-                artifact = fit(dataset, model_name)
-                forecast_df = predict(dataset, artifact, config.h)
+        return forecast_df
+    except Exception:
+        return None
 
-            result = ForecastResult(
-                df=forecast_df,
-                model_name=model_name,
-                config=config,
-            )
-            return result, fallbacks
 
-        except Exception as e:
-            last_error = e
-            if not config.allow_fallback:
-                raise
+def _compute_ensemble(
+    predictions: list[pd.DataFrame],
+    method: str,
+) -> pd.DataFrame:
+    """Compute ensemble forecast from multiple model predictions.
 
-            if i < len(candidates) - 1:
-                fallbacks.append({
-                    "from": model_name,
-                    "to": candidates[i + 1],
-                    "error": str(e)[:100],
-                })
-            continue
+    Args:
+        predictions: List of forecast DataFrames
+        method: 'median' or 'mean'
 
-    # All candidates failed
-    raise EModelFailed(
-        f"All models failed. Last error: {last_error}",
-        context={"models_attempted": candidates},
+    Returns:
+        Ensemble forecast DataFrame
+    """
+    import numpy as np
+
+    if not predictions:
+        raise EModelFailed("No predictions to ensemble")
+
+    if len(predictions) == 1:
+        return predictions[0]
+
+    # Use first prediction as base for structure
+    base = predictions[0].copy()
+
+    # Stack yhat values from all predictions
+    yhat_stack = np.stack([p["yhat"].values for p in predictions])
+
+    # Compute ensemble
+    if method == "median":
+        base["yhat"] = np.median(yhat_stack, axis=0)
+    elif method == "mean":
+        base["yhat"] = np.mean(yhat_stack, axis=0)
+    else:
+        raise ValueError(f"Unknown ensemble method: {method}")
+
+    # Add metadata about contributing models
+    base["_ensemble_count"] = len(predictions)
+
+    return base
+
+
+def ensemble_stage(
+    dataset: TSDataset, plan: Any, config: ForecastConfig
+) -> tuple[ForecastResult, list[dict[str, str]]]:
+    """Fit all models in ensemble and return aggregated forecast.
+
+    Args:
+        dataset: Time-series dataset
+        plan: Ensemble Plan with all models
+        config: Forecast configuration
+
+    Returns:
+        ForecastResult with ensemble forecast, plus list of model errors
+    """
+    from tsagentkit.router import Plan
+
+    if not isinstance(plan, Plan):
+        raise ValueError(f"Expected Plan, got {type(plan)}")
+
+    predictions: list[pd.DataFrame] = []
+    model_errors: list[dict[str, str]] = []
+
+    # Fit and predict all models
+    for candidate in plan.all_models():
+        forecast_df = _fit_and_predict_single(dataset, candidate, config.h)
+
+        if forecast_df is not None:
+            predictions.append(forecast_df)
+        else:
+            model_errors.append({
+                "model": candidate.name,
+                "error": "Failed to fit or predict",
+            })
+            # If required TSFM failed, check if we should abort
+            if candidate.is_tsfm and plan.require_all_tsfm:
+                raise EModelFailed(
+                    f"Required TSFM model '{candidate.name}' failed",
+                    context={"errors": model_errors},
+                )
+
+    # Check minimum models requirement
+    if len(predictions) < plan.min_models_for_ensemble:
+        raise EModelFailed(
+            f"Insufficient models succeeded: {len(predictions)} < {plan.min_models_for_ensemble}",
+            context={"errors": model_errors},
+        )
+
+    # Compute ensemble
+    ensemble_df = _compute_ensemble(predictions, plan.ensemble_method)
+
+    result = ForecastResult(
+        df=ensemble_df,
+        model_name=f"ensemble_{plan.ensemble_method}",
+        config=config,
     )
+
+    return result, model_errors
 
 
 def package_stage(
     forecast: ForecastResult,
-    fallbacks: list[dict[str, str]],
+    model_errors: list[dict[str, str]],
     config: ForecastConfig,
     duration_ms: float,
 ) -> RunResult:
@@ -230,7 +289,7 @@ def package_stage(
         forecast=forecast,
         duration_ms=duration_ms,
         model_used=forecast.model_name,
-        fallbacks=fallbacks,
+        model_errors=model_errors,
     )
 
 
@@ -244,6 +303,6 @@ STAGES = [
     PipelineStage("build", build_dataset_stage),
     PipelineStage("plan", plan_stage),
     PipelineStage("backtest", backtest_stage),
-    PipelineStage("fit_predict", fit_predict_stage),
+    PipelineStage("ensemble", ensemble_stage),
     PipelineStage("package", package_stage),
 ]

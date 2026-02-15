@@ -49,7 +49,7 @@ class RunResult:
 
     # Optional components (None if not computed)
     backtest_metrics: dict[str, float] | None = None
-    fallbacks: list[dict[str, str]] = field(default_factory=list)
+    model_errors: list[dict[str, str]] = field(default_factory=list)
 
     def to_dataframe(self) -> pd.DataFrame:
         """Return forecast as DataFrame (convenience method)."""
@@ -60,6 +60,6 @@ class RunResult:
         return {
             "model": self.model_used,
             "duration_ms": round(self.duration_ms, 2),
-            "fallbacks": len(self.fallbacks),
+            "model_errors": len(self.model_errors),
             "forecast_shape": self.forecast.df.shape,
         }

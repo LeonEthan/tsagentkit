@@ -102,10 +102,23 @@ def fit_tsfm(dataset: TSDataset, adapter_name: str) -> Any:
     Returns:
         Fitted model artifact
     """
-    raise NotImplementedError(
-        f"TSFM adapter '{adapter_name}' not available. "
-        "Install the appropriate package (chronos, moirai, timesfm)."
-    )
+    adapter_map = {
+        "chronos": "tsagentkit.models.adapters.chronos",
+        "timesfm": "tsagentkit.models.adapters.timesfm",
+        "moirai": "tsagentkit.models.adapters.moirai",
+    }
+
+    if adapter_name not in adapter_map:
+        raise ValueError(f"Unknown TSFM adapter: {adapter_name}. Available: {list(adapter_map.keys())}")
+
+    try:
+        module = __import__(adapter_map[adapter_name], fromlist=["fit"])
+        return module.fit(dataset)
+    except ImportError as e:
+        raise ImportError(
+            f"TSFM adapter '{adapter_name}' not available. "
+            f"Install the appropriate package: {e}"
+        )
 
 
 def predict_tsfm(
@@ -123,7 +136,11 @@ def predict_tsfm(
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
     """
-    raise NotImplementedError("TSFM prediction not available without adapters.")
+    # The artifact contains the adapter reference
+    if "adapter" in artifact:
+        return artifact["adapter"].predict(dataset, artifact, h)
+
+    raise ValueError("Invalid TSFM artifact - missing adapter reference")
 
 
 __all__ = ["fit", "predict", "fit_tsfm", "predict_tsfm"]
