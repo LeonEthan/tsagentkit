@@ -158,6 +158,7 @@ def _fit_and_predict_single(
     dataset: TSDataset,
     candidate: Any,
     h: int,
+    quantiles: list[float] | None = None,
 ) -> pd.DataFrame | None:
     """Fit and predict for a single model candidate.
 
@@ -169,10 +170,10 @@ def _fit_and_predict_single(
         if candidate.is_tsfm:
             adapter_name = candidate.adapter_name or candidate.name.replace("tsfm-", "")
             artifact = fit_tsfm(dataset, adapter_name)
-            forecast_df = predict_tsfm(dataset, artifact, h)
+            forecast_df = predict_tsfm(dataset, artifact, h, quantiles=quantiles)
         else:
             artifact = fit(dataset, candidate.name)
-            forecast_df = predict(dataset, artifact, h)
+            forecast_df = predict(dataset, artifact, h, quantiles=quantiles)
 
         return forecast_df
     except Exception:
@@ -182,12 +183,14 @@ def _fit_and_predict_single(
 def _compute_ensemble(
     predictions: list[pd.DataFrame],
     method: str,
+    quantiles: list[float] | None = None,
 ) -> pd.DataFrame:
     """Compute ensemble forecast from multiple model predictions.
 
     Args:
         predictions: List of forecast DataFrames
         method: 'median' or 'mean'
+        quantiles: List of quantile levels to ensemble
 
     Returns:
         Ensemble forecast DataFrame
@@ -213,6 +216,22 @@ def _compute_ensemble(
         base["yhat"] = np.mean(yhat_stack, axis=0)
     else:
         raise ValueError(f"Unknown ensemble method: {method}")
+
+    # Ensemble quantile columns if present
+    if quantiles:
+        for q in quantiles:
+            q_col = f"q{q}"
+            # Check if quantile column exists in at least one prediction
+            if any(q_col in p.columns for p in predictions):
+                # Stack available quantile values, using yhat as fallback
+                q_stack = np.stack([
+                    p[q_col].values if q_col in p.columns else p["yhat"].values
+                    for p in predictions
+                ])
+                if method == "median":
+                    base[q_col] = np.median(q_stack, axis=0)
+                else:
+                    base[q_col] = np.mean(q_stack, axis=0)
 
     # Add metadata about contributing models
     base["_ensemble_count"] = len(predictions)
@@ -243,7 +262,7 @@ def ensemble_stage(
 
     # Fit and predict all models
     for candidate in plan.all_models():
-        forecast_df = _fit_and_predict_single(dataset, candidate, config.h)
+        forecast_df = _fit_and_predict_single(dataset, candidate, config.h, quantiles=config.quantiles)
 
         if forecast_df is not None:
             predictions.append(forecast_df)
@@ -267,7 +286,7 @@ def ensemble_stage(
         )
 
     # Compute ensemble
-    ensemble_df = _compute_ensemble(predictions, plan.ensemble_method)
+    ensemble_df = _compute_ensemble(predictions, plan.ensemble_method, quantiles=config.quantiles)
 
     result = ForecastResult(
         df=ensemble_df,
