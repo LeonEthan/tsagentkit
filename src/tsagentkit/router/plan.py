@@ -1,91 +1,152 @@
-"""PlanSpec helpers for routing and provenance."""
+"""Simplified plan representation.
+
+Replaces PlanSpec, PlanGraphSpec, and PlanNodeSpec with a single Plan dataclass.
+"""
 
 from __future__ import annotations
 
-import hashlib
-import json
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
-from tsagentkit.contracts import PlanGraphSpec, PlanNodeSpec, PlanSpec
-
-
-def compute_plan_signature(plan: PlanSpec) -> str:
-    """Compute deterministic signature for a PlanSpec."""
-    data = plan.model_dump()
-    json_str = json.dumps(data, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(json_str.encode()).hexdigest()[:16]
+if TYPE_CHECKING:
+    from tsagentkit.core.data import TSDataset
 
 
-def get_candidate_models(plan: PlanSpec) -> list[str]:
-    """Return ordered candidate models for a plan."""
-    return list(plan.candidate_models)
+@dataclass(frozen=True)
+class ModelCandidate:
+    """Single model candidate for forecasting."""
+
+    name: str
+    is_tsfm: bool = False
+    adapter_name: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
 
 
-def build_plan_graph(
-    plan: PlanSpec,
-    include_backtest: bool = False,
-) -> PlanGraphSpec:
-    """Build a deterministic execution graph from a PlanSpec.
+@dataclass(frozen=True)
+class Plan:
+    """Simplified execution plan.
 
-    The graph is assembly-oriented: it exposes reusable execution nodes and the
-    ordered candidate-model attempt chain used for fallback.
+    Replaces the complex PlanSpec/PlanGraphSpec/PlanNodeSpec hierarchy
+    with a single flat structure: primary + fallbacks.
     """
-    nodes: list[PlanNodeSpec] = []
-    nodes.append(PlanNodeSpec(node_id="validate", kind="validate"))
-    nodes.append(PlanNodeSpec(node_id="qa", kind="qa", depends_on=["validate"]))
-    nodes.append(PlanNodeSpec(node_id="align_covariates", kind="align_covariates", depends_on=["qa"]))
-    nodes.append(PlanNodeSpec(node_id="build_dataset", kind="build_dataset", depends_on=["align_covariates"]))
-    nodes.append(PlanNodeSpec(node_id="make_plan", kind="make_plan", depends_on=["build_dataset"]))
 
-    previous = "make_plan"
-    if include_backtest:
-        nodes.append(PlanNodeSpec(node_id="backtest", kind="backtest", depends_on=[previous]))
-        previous = "backtest"
+    primary: ModelCandidate
+    fallbacks: list[ModelCandidate] = field(default_factory=list)
+    backtest_enabled: bool = True
 
-    for idx, model_name in enumerate(get_candidate_models(plan)):
-        fit_id = f"fit_{idx}"
-        predict_id = f"predict_{idx}"
-        nodes.append(
-            PlanNodeSpec(
-                node_id=fit_id,
-                kind="fit",
-                depends_on=[previous],
-                model_name=model_name,
-                group="model_attempts",
-                metadata={"attempt_index": idx},
-            )
+    def all_candidates(self) -> list[ModelCandidate]:
+        """Return all candidates in order of preference."""
+        return [self.primary] + self.fallbacks
+
+    def execute(self, dataset: TSDataset) -> Any:
+        """Execute plan with automatic fallback.
+
+        Tries each candidate in order until one succeeds.
+        """
+        from tsagentkit.core.errors import EModelFailed
+
+        errors = []
+
+        for candidate in self.all_candidates():
+            try:
+                return self._fit_candidate(candidate, dataset)
+            except Exception as e:
+                errors.append((candidate.name, str(e)))
+                continue
+
+        raise EModelFailed(
+            f"All candidates failed: {errors}",
+            context={"attempted": [c.name for c in self.all_candidates()], "errors": errors},
         )
-        nodes.append(
-            PlanNodeSpec(
-                node_id=predict_id,
-                kind="predict",
-                depends_on=[fit_id],
-                model_name=model_name,
-                group="model_attempts",
-                metadata={"attempt_index": idx},
-            )
-        )
-        previous = predict_id
 
-    nodes.append(PlanNodeSpec(node_id="package", kind="package", depends_on=[previous]))
+    def _fit_candidate(self, candidate: ModelCandidate, dataset: TSDataset) -> Any:
+        """Fit a single candidate model."""
+        if candidate.is_tsfm:
+            from tsagentkit.models import fit_tsfm
 
-    return PlanGraphSpec(
-        plan_name=plan.plan_name,
-        nodes=nodes,
-        entrypoints=["validate"],
-        terminal_nodes=["package"],
+            return fit_tsfm(dataset, candidate.adapter_name or candidate.name.replace("tsfm-", ""))
+        else:
+            from tsagentkit.models import fit
+
+            return fit(dataset, candidate.name)
+
+
+def inspect_tsfm_adapters() -> list[str]:
+    """Check which TSFM adapters are available.
+
+    Returns list of available adapter names (e.g., ['chronos', 'moirai', 'timesfm'])
+    """
+    adapters = []
+    try:
+        import importlib
+
+        for name in ["chronos", "moirai", "timesfm"]:
+            try:
+                module = importlib.import_module(f"tsagentkit.models.adapters.{name}")
+                if hasattr(module, f"{name.capitalize()}Adapter"):
+                    adapters.append(name)
+            except ImportError:
+                pass
+    except Exception:
+        pass
+    return adapters
+
+
+def build_plan(
+    dataset: TSDataset,
+    tsfm_mode: str = "required",
+    allow_fallback: bool = True,
+) -> Plan:
+    """Build simplified execution plan.
+
+    Args:
+        dataset: Time-series dataset
+        tsfm_mode: 'required', 'preferred', or 'disabled'
+        allow_fallback: Whether to include fallback candidates
+
+    Returns:
+        Plan with primary and fallback candidates
+    """
+    available_tsfm = inspect_tsfm_adapters()
+    candidates = []
+
+    # Build TSFM candidates
+    if tsfm_mode != "disabled":
+        for name in available_tsfm:
+            candidates.append(ModelCandidate(name=f"tsfm-{name}", is_tsfm=True, adapter_name=name))
+
+    # Build fallback candidates (statistical baselines)
+    fallback_candidates = []
+    if allow_fallback:
+        fallback_candidates = [
+            ModelCandidate(name="SeasonalNaive"),
+            ModelCandidate(name="HistoricAverage"),
+            ModelCandidate(name="Naive"),
+        ]
+
+    # Determine primary
+    if candidates:
+        primary = candidates[0]
+        # Add remaining TSFM as fallbacks before statistical
+        fallbacks = candidates[1:] + fallback_candidates
+    else:
+        if tsfm_mode == "required":
+            from tsagentkit.core.errors import ETSFMRequired
+
+            raise ETSFMRequired("TSFM required but no adapters available")
+        primary = fallback_candidates[0] if fallback_candidates else ModelCandidate(name="Naive")
+        fallbacks = fallback_candidates[1:] if len(fallback_candidates) > 1 else []
+
+    return Plan(
+        primary=primary,
+        fallbacks=fallbacks,
+        backtest_enabled=tsfm_mode != "quick",
     )
 
 
-def attach_plan_graph(plan: PlanSpec, include_backtest: bool = False) -> PlanSpec:
-    """Return a new plan with graph metadata attached."""
-    graph = build_plan_graph(plan, include_backtest=include_backtest)
-    return plan.model_copy(update={"graph": graph})
-
-
 __all__ = [
-    "PlanSpec",
-    "compute_plan_signature",
-    "get_candidate_models",
-    "build_plan_graph",
-    "attach_plan_graph",
+    "Plan",
+    "ModelCandidate",
+    "build_plan",
+    "inspect_tsfm_adapters",
 ]

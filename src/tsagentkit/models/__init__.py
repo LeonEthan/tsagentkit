@@ -1,270 +1,129 @@
 """Models module for tsagentkit.
 
-Provides model fitting, prediction, and TSFM (Time-Series Foundation Model)
-adapters for various forecasting backends.
+Minimal model fitting and prediction using statsforecast baselines.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
-from tsagentkit.contracts import (
-    EOOM,
-    EModelFitFailed,
-    EModelPredictFailed,
-    ForecastResult,
-    ModelArtifact,
-    Provenance,
-    TSAgentKitError,
-)
-
-# Import adapters submodules
-from tsagentkit.models import adapters
-from tsagentkit.models.baselines import fit_baseline, is_baseline_model, predict_baseline
-from tsagentkit.models.ensemble import (
-    compute_median_ensemble,
-    fit_all_tsfm_models,
-    predict_ensemble_median,
-)
-from tsagentkit.models.per_series import (
-    fit_per_series,
-    fit_predict_per_series,
-    predict_per_series,
-)
-from tsagentkit.models.sktime import SktimeModelBundle, fit_sktime, predict_sktime
-from tsagentkit.utils import normalize_quantile_columns
+import pandas as pd
 
 if TYPE_CHECKING:
-    from tsagentkit.contracts import AdapterCapabilitySpec, TaskSpec
-    from tsagentkit.router import PlanSpec
-    from tsagentkit.series import TSDataset
+    from tsagentkit.core.data import TSDataset
 
 
-def _is_tsfm_model(model_name: str) -> bool:
-    return model_name.lower().startswith("tsfm-")
+def fit(dataset: TSDataset, model_name: str) -> Any:
+    """Fit a statistical baseline model.
 
+    Args:
+        dataset: Time-series dataset
+        model_name: Model name (e.g., 'SeasonalNaive', 'HistoricAverage', 'Naive')
 
-def _is_sktime_model(model_name: str) -> bool:
-    return model_name.lower().startswith("sktime-")
-
-
-def _build_adapter_config(model_name: str, config: dict[str, Any]) -> adapters.AdapterConfig:
-    adapter_name = model_name.split("tsfm-", 1)[-1]
-    return adapters.AdapterConfig(
-        model_name=adapter_name,
-        model_size=config.get("model_size", "base"),
-        device=config.get("device"),
-        cache_dir=config.get("cache_dir"),
-        batch_size=config.get("batch_size", 32),
-        prediction_batch_size=config.get("prediction_batch_size", 100),
-        quantile_method=config.get("quantile_method", "sample"),
-        num_samples=config.get("num_samples", 100),
-        max_context_length=config.get("max_context_length"),
-    )
-
-
-def _is_oom_error(error: Exception) -> bool:
-    if isinstance(error, MemoryError):
-        return True
-    message = str(error).lower()
-    return "out of memory" in message or "cuda oom" in message or "cuda out of memory" in message
-
-
-def _fit_model_name(
-    model_name: str,
-    dataset: TSDataset,
-    plan: PlanSpec,
-    covariates: Any | None = None,
-) -> ModelArtifact:
-    """Fit a model by name with baseline or TSFM dispatch."""
+    Returns:
+        Fitted model artifact
+    """
     try:
-        config: dict[str, Any] = {
-            "horizon": dataset.task_spec.horizon,
-            "season_length": dataset.task_spec.season_length or 1,
-            "quantiles": plan.quantiles,
-        }
-
-        if _is_tsfm_model(model_name):
-            adapter_name = model_name.split("tsfm-", 1)[-1]
-            adapter_config = _build_adapter_config(model_name, {})
-            adapter = adapters.AdapterRegistry.create(adapter_name, adapter_config)
-            adapter.load_model()
-            adapter.fit(
-                dataset=dataset,
-                prediction_length=dataset.task_spec.horizon,
-                quantiles=plan.quantiles,
-            )
-            return ModelArtifact(
-                model=adapter,
-                model_name=model_name,
-                config=config,
-                metadata={"adapter": adapter_name},
-            )
-
-        if is_baseline_model(model_name):
-            return fit_baseline(model_name, dataset, config)
-
-        if _is_sktime_model(model_name):
-            return fit_sktime(model_name, dataset, plan, covariates=covariates)
-
-        raise EModelFitFailed(
-            f"Unknown model name: {model_name}",
-            context={"model_name": model_name},
+        from statsforecast import StatsForecast
+        from statsforecast.models import (
+            HistoricAverage,
+            Naive,
+            SeasonalNaive,
         )
-    except TSAgentKitError:
-        raise
-    except Exception as exc:
-        if _is_oom_error(exc):
-            raise EOOM(
-                f"Out-of-memory during fit for model '{model_name}'.",
-                context={"model_name": model_name, "error": str(exc)},
-            ) from exc
-        raise EModelFitFailed(
-            f"Model '{model_name}' fit failed: {exc}",
-            context={
-                "model_name": model_name,
-                "error_type": type(exc).__name__,
-            },
-        ) from exc
+    except ImportError:
+        raise ImportError("statsforecast is required. Install with: pip install statsforecast")
 
+    model_map = {
+        "SeasonalNaive": SeasonalNaive,
+        "HistoricAverage": HistoricAverage,
+        "Naive": Naive,
+    }
 
-def fit(
-    dataset: TSDataset,
-    plan: PlanSpec,
-    on_fallback: Callable[[str, str, Exception], None] | None = None,
-    covariates: Any | None = None,
-) -> ModelArtifact:
-    """Fit a model using the plan's fallback ladder."""
-    from tsagentkit.router import execute_with_fallback
+    if model_name not in model_map:
+        raise ValueError(f"Unknown model: {model_name}. Available: {list(model_map.keys())}")
 
-    def _fit(model_name: str, ds: TSDataset) -> ModelArtifact:
-        return _fit_model_name(model_name, ds, plan, covariates=covariates)
+    season_length = dataset.config.season_length or 1
+    if model_name == "SeasonalNaive":
+        model = model_map[model_name](season_length=season_length)
+    else:
+        model = model_map[model_name]()
 
-    artifact, _ = execute_with_fallback(
-        fit_func=_fit,
-        dataset=dataset,
-        plan=plan,
-        on_fallback=on_fallback,
-    )
-    return artifact
+    # Prepare data for statsforecast
+    df = dataset.df.copy()
+    df = df.rename(columns={
+        dataset.config.id_col: "unique_id",
+        dataset.config.time_col: "ds",
+        dataset.config.target_col: "y",
+    })
 
+    # Fit model
+    sf = StatsForecast(models=[model], freq=dataset.config.freq, n_jobs=1)
+    sf.fit(df)
 
-def _basic_provenance(
-    dataset: TSDataset,
-    spec: TaskSpec,
-    artifact: ModelArtifact,
-) -> Provenance:
-    from datetime import datetime
-
-    from tsagentkit.utils import compute_data_signature
-
-    return Provenance(
-        run_id=f"model_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
-        timestamp=datetime.now(UTC).isoformat(),
-        data_signature=compute_data_signature(dataset.df),
-        task_signature=spec.model_hash(),
-        plan_signature=artifact.signature,
-        model_signature=artifact.signature,
-        metadata={"provenance_incomplete": True},
-    )
+    return {"sf": sf, "model_name": model_name}
 
 
 def predict(
     dataset: TSDataset,
-    artifact: ModelArtifact,
-    spec: TaskSpec,
-    covariates: Any | None = None,
-) -> ForecastResult:
-    """Generate predictions for baseline or TSFM models."""
-    try:
-        if isinstance(artifact.model, adapters.TSFMAdapter):
-            result = artifact.model.predict(
-                dataset=dataset,
-                horizon=spec.horizon,
-                quantiles=artifact.config.get("quantiles"),
-            )
-            df = normalize_quantile_columns(result.df)
-            if "model" not in df.columns:
-                df = df.copy()
-                df["model"] = artifact.model_name
-            return ForecastResult(
-                df=df,
-                provenance=result.provenance,
-                model_name=artifact.model_name,
-                horizon=spec.horizon,
-            )
+    artifact: Any,
+    h: int | None = None,
+) -> pd.DataFrame:
+    """Generate forecasts from fitted model.
 
-        if is_baseline_model(artifact.model_name):
-            forecast_df = predict_baseline(
-                model_artifact=artifact,
-                dataset=dataset,
-                horizon=spec.horizon,
-                quantiles=artifact.config.get("quantiles"),
-            )
-            if "model" not in forecast_df.columns:
-                forecast_df = forecast_df.copy()
-                forecast_df["model"] = artifact.model_name
-            provenance = _basic_provenance(dataset, spec, artifact)
-            return ForecastResult(
-                df=normalize_quantile_columns(forecast_df),
-                provenance=provenance,
-                model_name=artifact.model_name,
-                horizon=spec.horizon,
-            )
+    Args:
+        dataset: Time-series dataset
+        artifact: Model artifact from fit()
+        h: Forecast horizon (defaults to config.h)
 
-        if isinstance(artifact.model, SktimeModelBundle):
-            return predict_sktime(
-                dataset=dataset,
-                artifact=artifact,
-                spec=spec,
-                covariates=covariates,
-            )
+    Returns:
+        Forecast DataFrame with columns [unique_id, ds, yhat]
+    """
+    sf = artifact["sf"]
+    horizon = h or dataset.config.h
 
-        raise EModelPredictFailed(
-            f"Unknown model type for prediction: {artifact.model_name}",
-            context={"model_name": artifact.model_name},
-        )
-    except TSAgentKitError:
-        raise
-    except Exception as exc:
-        if _is_oom_error(exc):
-            raise EOOM(
-                f"Out-of-memory during predict for model '{artifact.model_name}'.",
-                context={"model_name": artifact.model_name, "error": str(exc)},
-            ) from exc
-        raise EModelPredictFailed(
-            f"Model '{artifact.model_name}' predict failed: {exc}",
-            context={
-                "model_name": artifact.model_name,
-                "error_type": type(exc).__name__,
-            },
-        ) from exc
+    # Generate forecast
+    forecast = sf.predict(h=horizon)
+
+    # Rename columns back
+    forecast = forecast.rename(columns={
+        artifact["model_name"]: "yhat",
+    })
+
+    return forecast.reset_index()
 
 
-def get_adapter_capability(name: str) -> AdapterCapabilitySpec:
-    """Return capability metadata for a registered TSFM adapter."""
-    return adapters.AdapterRegistry.get_capability(name)
+def fit_tsfm(dataset: TSDataset, adapter_name: str) -> Any:
+    """Fit a TSFM model via adapter.
+
+    Args:
+        dataset: Time-series dataset
+        adapter_name: Adapter name (e.g., 'chronos', 'moirai', 'timesfm')
+
+    Returns:
+        Fitted model artifact
+    """
+    raise NotImplementedError(
+        f"TSFM adapter '{adapter_name}' not available. "
+        "Install the appropriate package (chronos, moirai, timesfm)."
+    )
 
 
-def list_adapter_capabilities(
-    names: list[str] | None = None,
-) -> dict[str, AdapterCapabilitySpec]:
-    """Return capability metadata for selected registered TSFM adapters."""
-    return adapters.AdapterRegistry.list_capabilities(names=names)
+def predict_tsfm(
+    dataset: TSDataset,
+    artifact: Any,
+    h: int | None = None,
+) -> pd.DataFrame:
+    """Generate forecasts from TSFM model.
+
+    Args:
+        dataset: Time-series dataset
+        artifact: Model artifact from fit_tsfm()
+        h: Forecast horizon (defaults to config.h)
+
+    Returns:
+        Forecast DataFrame with columns [unique_id, ds, yhat]
+    """
+    raise NotImplementedError("TSFM prediction not available without adapters.")
 
 
-__all__ = [
-    "fit",
-    "predict",
-    "fit_per_series",
-    "predict_per_series",
-    "fit_predict_per_series",
-    "adapters",
-    "get_adapter_capability",
-    "list_adapter_capabilities",
-    "fit_all_tsfm_models",
-    "predict_ensemble_median",
-    "compute_median_ensemble",
-]
+__all__ = ["fit", "predict", "fit_tsfm", "predict_tsfm"]
