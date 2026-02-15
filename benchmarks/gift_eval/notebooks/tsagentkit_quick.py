@@ -41,7 +41,143 @@ from gluonts.ev.metrics import (
 from gluonts.time_feature import get_seasonality
 
 from tsagentkit import forecast, ForecastConfig
-from tsagentkit.gift_eval import Dataset, Term, download_data, normalize_freq
+
+# %% GIFT-Eval compatibility classes (moved from tsagentkit.gift_eval)
+from enum import Enum
+from functools import cached_property
+from collections.abc import Iterable, Iterator
+import datasets
+from gluonts.dataset import DataEntry
+from gluonts.dataset.common import ProcessDataEntry
+from gluonts.dataset.split import split
+from gluonts.itertools import Map
+from gluonts.time_feature import norm_freq_str
+from gluonts.transform import Transformation
+from pandas.tseries.frequencies import to_offset
+from toolz import compose
+
+
+class Term(Enum):
+    """Evaluation term multiplier."""
+
+    SHORT = "short"
+    MEDIUM = "medium"
+    LONG = "long"
+
+    @property
+    def multiplier(self) -> int:
+        return {Term.SHORT: 1, Term.MEDIUM: 10, Term.LONG: 15}[self]
+
+
+class MultivariateToUnivariate(Transformation):
+    """Convert a multivariate dataset into one univariate entry per dimension."""
+
+    def __init__(self, field: str):
+        self.field = field
+
+    def __call__(self, data_it: Iterable[DataEntry], is_train: bool = False) -> Iterator[DataEntry]:
+        _ = is_train
+        for entry in data_it:
+            item_id = entry["item_id"]
+            for idx, val in enumerate(entry[self.field]):
+                new_entry = entry.copy()
+                new_entry[self.field] = val
+                new_entry["item_id"] = f"{item_id}_dim{idx}"
+                yield new_entry
+
+
+def normalize_freq(freq: str) -> str:
+    """Normalize pandas frequency aliases to GluonTS/GIFT-Eval conventions."""
+    mapping = {"Y": "A", "YE": "A", "QE": "Q", "ME": "M", "h": "H", "min": "T", "s": "S"}
+    return mapping.get(freq, freq)
+
+
+def itemize_start(data_entry: DataEntry) -> DataEntry:
+    """Convert numpy scalar timestamp start into a Python scalar."""
+    data_entry["start"] = data_entry["start"].item()
+    return data_entry
+
+
+class Dataset:
+    """GIFT-Eval dataset wrapper with GluonTS splits."""
+
+    def __init__(
+        self,
+        name: str,
+        term: Term | str = Term.SHORT,
+        to_univariate: bool = False,
+        storage_path: Path | str | None = None,
+    ):
+        if storage_path is None:
+            storage_path = Path("./data/gift-eval")
+        storage_root = Path(storage_path)
+
+        self.hf_dataset = datasets.load_from_disk(str(storage_root / name)).with_format("numpy")
+        self.term = Term(term) if isinstance(term, str) else term
+        self.name = name
+
+        process = ProcessDataEntry(self.freq, one_dim_target=self.target_dim == 1)
+        gluonts_dataset = Map(compose(process, itemize_start), self.hf_dataset)
+        if to_univariate:
+            gluonts_dataset = MultivariateToUnivariate("target").apply(gluonts_dataset)
+        self.gluonts_dataset = gluonts_dataset
+
+    @cached_property
+    def prediction_length(self) -> int:
+        """Prediction length derived from dataset family and term multiplier."""
+        freq = normalize_freq(norm_freq_str(to_offset(self.freq).name))
+        base_length = self._base_prediction_length(freq)
+        return base_length * self.term.multiplier
+
+    def _base_prediction_length(self, freq: str) -> int:
+        """Get base prediction length for frequency."""
+        m4_lengths = {"A": 6, "Q": 8, "M": 18, "W": 13, "D": 14, "H": 48}
+        default_lengths = {"M": 12, "W": 8, "D": 30, "H": 48, "T": 48, "S": 60}
+        return m4_lengths.get(freq, default_lengths.get(freq, 12))
+
+    @cached_property
+    def freq(self) -> str:
+        return self.hf_dataset.info.features["freq"].names[0]
+
+    @cached_property
+    def target_dim(self) -> int:
+        return self.hf_dataset.info.features["target"].shape[0] or 1
+
+    @property
+    def train_data(self):
+        return self._split()[0]
+
+    @property
+    def test_data(self):
+        return self._split()[1]
+
+    def _split(self):
+        return split(
+            self.gluonts_dataset,
+            offset=-self.prediction_length,
+            max_history=5000,
+        )
+
+
+def download_data(storage_path: Path | str = "./data/gift-eval"):
+    """Download GIFT-Eval datasets from HuggingFace."""
+    from datasets import load_dataset
+
+    storage_root = Path(storage_path)
+    storage_root.mkdir(parents=True, exist_ok=True)
+
+    # Download main datasets
+    datasets_to_download = [
+        "m4_yearly", "m4_quarterly", "m4_monthly", "m4_weekly", "m4_daily", "m4_hourly",
+    ]
+
+    for ds_name in datasets_to_download:
+        try:
+            ds = load_dataset("Salesforce/GIFT-Eval", ds_name, split="train")
+            ds.save_to_disk(storage_root / ds_name)
+            print(f"Downloaded {ds_name}")
+        except Exception as e:
+            print(f"Failed to download {ds_name}: {e}")
 
 if TYPE_CHECKING:
     from gluonts.dataset import DataEntry
