@@ -104,7 +104,7 @@ class ForecastConfig:
     def strict(cls, h: int, freq: str = "D") -> ForecastConfig:
         """Strict preset - fails fast on any issues.
 
-        No auto-repair, no fallback, requires TSFM.
+        No auto-repair, no fallback, requires TSFM, all TSFM must succeed.
         """
         return cls(
             h=h,
@@ -113,6 +113,7 @@ class ForecastConfig:
             tsfm_mode="required",
             n_backtest_windows=5,
             allow_fallback=False,
+            require_all_tsfm=True,
         )
 
     def with_covariates(
