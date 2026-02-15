@@ -1,1 +1,0 @@
-../../../skill/README.md

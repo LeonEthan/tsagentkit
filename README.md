@@ -257,7 +257,6 @@ TSFM_RUN_REAL=1 uv run python -m pytest -m tsfm
 - `skill/tool_map.md`: task-to-API lookup
 - `skill/TROUBLESHOOTING.md`: error codes and fixes
 - `docs/ARCHITECTURE.md`: technical architecture
-- `docs/API_STABILITY.md`: compatibility guarantees
 - `docs/PRD.md`: full product requirements
 
 ## License

@@ -1,410 +1,122 @@
-"""Amazon Chronos2 TSFM adapter.
+"""Chronos2 TSFM adapter for tsagentkit.
 
-Adapter for Amazon's Chronos2 time series forecasting models.
-Chronos2 is a family of pretrained models based on T5 architecture
-that supports zero-shot forecasting.
-
-Reference: https://github.com/amazon-science/chronos-forecasting
+Wraps Amazon's Chronos model for zero-shot time series forecasting.
 """
 
 from __future__ import annotations
 
-import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import pandas as pd
 
-from tsagentkit.models.telemetry import record_tsfm_model_load
-from tsagentkit.utils import quantile_col_name
-
-from .base import TSFMAdapter
-
 if TYPE_CHECKING:
-    from tsagentkit.contracts import AdapterCapabilitySpec, ForecastResult, ModelArtifact
-    from tsagentkit.series import TSDataset
+    from tsagentkit.core.data import TSDataset
 
 
-class ChronosAdapter(TSFMAdapter):
-    """Adapter for Amazon Chronos2 time series models.
+class ChronosAdapter:
+    """Chronos2 adapter for zero-shot forecasting."""
 
-    Chronos2 is a family of pretrained time series forecasting models
-    based on T5 architecture. It supports zero-shot forecasting on
-    unseen time series data.
-
-    Available model sizes:
-        - small: AutoGluon Chronos-2-Small (fast, lightweight)
-        - base: Amazon Chronos-2 (best accuracy)
-
-    Example:
-        >>> config = AdapterConfig(model_name="chronos", model_size="small")
-        >>> adapter = ChronosAdapter(config)
-        >>> adapter.load_model()
-        >>> result = adapter.predict(dataset, horizon=30)
-
-    Reference:
-        https://github.com/amazon-science/chronos-forecasting
-    """
-
-    # HuggingFace model IDs for Chronos2
-    MODEL_SIZES = {
-        "small": "autogluon/chronos-2-small",
-        "base": "amazon/chronos-2",
-    }
-
-    def load_model(self) -> None:
-        """Load Chronos model from HuggingFace.
-
-        Downloads and caches the model if not already present.
-
-        Raises:
-            ImportError: If chronos-forecasting is not installed
-            RuntimeError: If model loading fails
-        """
-        try:
-            from chronos import Chronos2Pipeline
-        except ImportError as e:
-            raise ImportError(
-                "chronos-forecasting>=2.0.0 is required for ChronosAdapter. "
-                "Install with: pip install 'chronos-forecasting>=2.0.0'"
-            ) from e
-
-        model_id = self.MODEL_SIZES.get(
-            self.config.model_size,
-            self.MODEL_SIZES["small"]
-        )
-
-        try:
-            start = time.perf_counter()
-            self._model = Chronos2Pipeline.from_pretrained(
-                model_id,
-                device_map=self._device,
-            )
-            duration_ms = (time.perf_counter() - start) * 1000.0
-            record_tsfm_model_load(self.config.model_name, duration_ms)
-        except Exception as e:
-            raise RuntimeError(f"Failed to load Chronos model: {e}") from e
-
-    def fit(
-        self,
-        dataset: TSDataset,
-        prediction_length: int,
-        quantiles: list[float] | None = None,
-    ) -> ModelArtifact:
-        """Prepare Chronos for prediction.
-
-        Chronos is a zero-shot model and doesn't require training.
+    def __init__(self, model_name: str = "chronos-t5-small"):
+        """Initialize adapter with model specification.
 
         Args:
-            dataset: Dataset to validate
-            prediction_length: Forecast horizon
-            quantiles: Optional quantile levels
+            model_name: Chronos model size (chronos-t5-tiny/small/base/large)
+        """
+        self.model_name = model_name
+        self._model = None
+        self._pipeline = None
+
+    def fit(self, dataset: TSDataset) -> dict[str, Any]:
+        """Load pretrained Chronos model.
+
+        Chronos is a zero-shot model, so fit() just loads the model.
+
+        Args:
+            dataset: Time-series dataset (used for validation only)
 
         Returns:
-            ModelArtifact with model reference
+            Model artifact containing loaded model
         """
-        from tsagentkit.contracts import ModelArtifact
+        try:
+            from chronos import ChronosPipeline
+        except ImportError:
+            raise ImportError(
+                "chronos is required. Install with: pip install chronos-forecasting"
+            )
 
-        self._require_loaded("fit")
-
-        self._validate_dataset(dataset)
-
-        return ModelArtifact(
-            model=self._model,
-            model_name=f"chronos-{self.config.model_size}",
-            config={
-                "model_size": self.config.model_size,
-                "device": self._device,
-                "prediction_length": prediction_length,
-                "quantiles": quantiles,
-            },
+        # Load pretrained model
+        self._pipeline = ChronosPipeline.from_pretrained(
+            f"amazon/{self.model_name}",
+            device_map="auto",
         )
+
+        return {
+            "pipeline": self._pipeline,
+            "model_name": self.model_name,
+            "adapter": self,
+        }
 
     def predict(
         self,
         dataset: TSDataset,
-        horizon: int,
-        quantiles: list[float] | None = None,
-    ) -> ForecastResult:
+        artifact: dict[str, Any],
+        h: int | None = None,
+    ) -> pd.DataFrame:
         """Generate forecasts using Chronos.
 
-        Supports covariate-informed forecasting when dataset contains
-        past_covariates (past_x) and/or future_covariates (future_x).
-
         Args:
-            dataset: Historical data for context, optionally with covariates
-            horizon: Number of steps to forecast
-            quantiles: Quantile levels for probabilistic forecasts
+            dataset: Time-series dataset
+            artifact: Model artifact from fit()
+            h: Forecast horizon
 
         Returns:
-            ForecastResult with predictions and provenance
+            Forecast DataFrame with columns [unique_id, ds, yhat]
         """
-        self._require_loaded("predict")
+        import torch
 
-        context_df, future_df = self._to_chronos_df(dataset, horizon)
+        pipeline = artifact["pipeline"]
+        horizon = h or dataset.config.h
 
-        # Use predict_df for pandas-friendly API
-        # quantile_levels must not be None for Chronos 2.0
-        quantile_levels = quantiles if quantiles is not None else [0.1, 0.5, 0.9]
-        pred_df = self._model.predict_df(
-            context_df,
-            future_df=future_df if future_df is not None else None,
-            id_column="item_id",
-            timestamp_column="timestamp",
-            target="target",
-            prediction_length=horizon,
-            quantile_levels=quantile_levels,
-        )
+        forecasts = []
 
-        return self._to_forecast_result(pred_df, dataset, horizon, quantiles)
+        # Process each series
+        for unique_id in dataset.df["unique_id"].unique():
+            series_df = dataset.df[dataset.df["unique_id"] == unique_id].sort_values("ds")
+            context = series_df["y"].values
 
-    def _to_chronos_df(
-        self, dataset: TSDataset, horizon: int
-    ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
-        """Convert TSDataset to Chronos DataFrame format with covariates.
+            # Convert to tensor
+            context_tensor = torch.tensor(context, dtype=torch.float32)
 
-        Args:
-            dataset: Input dataset with optional covariates
-            horizon: Forecast horizon for generating future timestamps
+            # Generate forecast
+            with torch.no_grad():
+                prediction = pipeline.predict(context_tensor, horizon)
 
-        Returns:
-            Tuple of (context_df, future_df):
-            - context_df: Historical data with target and covariates
-            - future_df: Future covariates only (no target), or None if no future covariates
-        """
-        # Start with base columns
-        df = dataset.df[["unique_id", "ds", "y"]].copy()
-        df = df.sort_values(["unique_id", "ds"]).reset_index(drop=True)
+            # Extract median forecast
+            forecast_values = prediction.median(axis=1).values.numpy()
 
-        # Handle missing values in target
-        if df["y"].isna().any():
-            df["y"] = df.groupby("unique_id")["y"].transform(
-                self._handle_missing_values
-            )
+            # Generate future timestamps
+            last_date = series_df["ds"].iloc[-1]
+            freq = dataset.config.freq
+            future_dates = pd.date_range(start=last_date, periods=horizon + 1, freq=freq)[1:]
 
-        # Merge past covariates if available
-        if dataset.past_x is not None:
-            df = self._merge_covariates(df, dataset.past_x, "past")
+            # Create forecast DataFrame
+            forecast_df = pd.DataFrame({
+                "unique_id": unique_id,
+                "ds": future_dates,
+                "yhat": forecast_values,
+            })
+            forecasts.append(forecast_df)
 
-        # Limit context length if specified
-        if self.config.max_context_length:
-            df = df.groupby("unique_id", as_index=False).tail(
-                self.config.max_context_length
-            )
+        return pd.concat(forecasts, ignore_index=True)
 
-        # Rename columns for Chronos format
-        context_df = df.rename(
-            columns={"unique_id": "item_id", "ds": "timestamp", "y": "target"}
-        )
 
-        # Prepare future_df if future covariates are available
-        future_df = None
-        if dataset.future_x is not None:
-            future_df = self._prepare_future_df(dataset, horizon)
+def fit(dataset: TSDataset, model_name: str = "chronos-t5-small") -> dict[str, Any]:
+    """Fit Chronos model (loads pretrained)."""
+    adapter = ChronosAdapter(model_name)
+    return adapter.fit(dataset)
 
-        return context_df, future_df
 
-    def _merge_covariates(
-        self, df: pd.DataFrame, covariates: pd.DataFrame, cov_type: str
-    ) -> pd.DataFrame:
-        """Merge covariates into main DataFrame.
-
-        Args:
-            df: Main DataFrame with unique_id, ds, y
-            covariates: Covariate DataFrame
-            cov_type: Type of covariate ("past" or "future")
-
-        Returns:
-            Merged DataFrame
-        """
-        # Ensure covariates have proper index columns
-        cov_df = covariates.copy()
-
-        # Reset index if needed to get unique_id and ds as columns
-        if isinstance(cov_df.index, pd.MultiIndex):
-            cov_df = cov_df.reset_index()
-
-        # Ensure required columns exist
-        if "unique_id" not in cov_df.columns and "id" in cov_df.columns:
-            cov_df = cov_df.rename(columns={"id": "unique_id"})
-        if "ds" not in cov_df.columns and "timestamp" in cov_df.columns:
-            cov_df = cov_df.rename(columns={"timestamp": "ds"})
-
-        # Merge on unique_id and ds
-        merge_cols = ["unique_id", "ds"]
-        available_cols = [c for c in merge_cols if c in cov_df.columns]
-
-        if len(available_cols) == 2:
-            # Handle missing values in covariates before merging
-            cov_cols = [c for c in cov_df.columns if c not in merge_cols]
-            for col in cov_cols:
-                if cov_df[col].isna().any():
-                    cov_df[col] = self._handle_missing_values(cov_df[col])
-
-            df = df.merge(cov_df, on=merge_cols, how="left")
-
-        return df
-
-    def _prepare_future_df(
-        self, dataset: TSDataset, horizon: int
-    ) -> pd.DataFrame | None:
-        """Prepare future covariates DataFrame for Chronos.
-
-        Args:
-            dataset: Input dataset with future covariates
-            horizon: Forecast horizon
-
-        Returns:
-            Future covariates DataFrame without target column
-        """
-        if dataset.future_x is None:
-            return None
-
-        future_df = dataset.future_x.copy()
-
-        # Reset index if needed
-        if isinstance(future_df.index, pd.MultiIndex):
-            future_df = future_df.reset_index()
-
-        # Rename columns to Chronos format
-        if "unique_id" not in future_df.columns and "id" in future_df.columns:
-            future_df = future_df.rename(columns={"id": "unique_id"})
-        if "ds" not in future_df.columns and "timestamp" in future_df.columns:
-            future_df = future_df.rename(columns={"timestamp": "ds"})
-
-        # Rename to Chronos expected column names
-        future_df = future_df.rename(
-            columns={"unique_id": "item_id", "ds": "timestamp"}
-        )
-
-        # Ensure timestamp column exists - generate if needed
-        if "timestamp" not in future_df.columns and dataset.future_index is not None:
-            future_df = future_df.reset_index()
-            if "ds" in future_df.columns:
-                future_df = future_df.rename(columns={"ds": "timestamp"})
-
-        # Handle missing values in future covariates
-        for col in future_df.columns:
-            if col not in ["item_id", "timestamp"] and future_df[col].isna().any():
-                future_df[col] = self._handle_missing_values(future_df[col])
-
-        return future_df
-
-    def _handle_missing_values(
-        self, values: pd.Series | np.ndarray
-    ) -> pd.Series | np.ndarray:
-        """Fill missing values using linear interpolation.
-
-        Args:
-            values: Series or array that may contain NaNs
-
-        Returns:
-            Values with NaNs filled
-        """
-        is_array = isinstance(values, np.ndarray)
-        s = pd.Series(values).astype(float)
-        s = s.interpolate(method="linear", limit_direction="both")
-        if s.isna().any():
-            fill_val = 0.0 if pd.isna(s.mean()) else s.mean()
-            s = s.fillna(fill_val)
-        return s.values if is_array else s
-
-    def _to_forecast_result(
-        self,
-        pred_df: pd.DataFrame,
-        dataset: TSDataset,
-        horizon: int,
-        quantiles: list[float] | None,
-    ) -> ForecastResult:
-        """Convert Chronos predictions to ForecastResult.
-
-        Args:
-            pred_df: DataFrame from Chronos predict_df
-            dataset: Original dataset
-            horizon: Forecast horizon
-            quantiles: Quantile levels
-
-        Returns:
-            ForecastResult with predictions
-        """
-        from tsagentkit.contracts import ForecastResult
-
-        # Map column names
-        result_df = pred_df.rename(
-            columns={
-                "item_id": "unique_id",
-                "timestamp": "ds",
-                "predictions": "yhat",
-            }
-        )
-
-        # Handle quantile columns (Chronos returns them as strings like "0.1", "0.5")
-        if quantiles:
-            quantile_cols = {}
-            for col in result_df.columns:
-                if col not in ["unique_id", "ds", "yhat"]:
-                    try:
-                        q_val = float(col)
-                        if 0 < q_val < 1:
-                            quantile_cols[q_val] = col
-                    except (TypeError, ValueError):
-                        continue
-
-            for q in quantiles:
-                if quantile_cols:
-                    nearest = min(quantile_cols, key=lambda v: abs(v - q))
-                    result_df[quantile_col_name(q)] = result_df[quantile_cols[nearest]]
-
-        # Select and order columns
-        keep_cols = ["unique_id", "ds", "yhat"]
-        for q in quantiles or []:
-            col = quantile_col_name(q)
-            if col in result_df.columns:
-                keep_cols.append(col)
-
-        result_df = result_df[keep_cols].copy()
-        result_df["model"] = f"chronos-{self.config.model_size}"
-
-        provenance = self._create_provenance(dataset, horizon, quantiles)
-
-        return ForecastResult(
-            df=result_df,
-            provenance=provenance,
-            model_name=f"chronos-{self.config.model_size}",
-            horizon=horizon,
-        )
-
-    def get_model_signature(self) -> str:
-        """Return model signature for provenance."""
-        return f"chronos-{self.config.model_size}-{self._device}"
-
-    @classmethod
-    def _check_dependencies(cls) -> None:
-        """Check if Chronos dependencies are installed."""
-        try:
-            import chronos  # noqa: F401
-        except ImportError as e:
-            raise ImportError(
-                "chronos-forecasting is required. "
-                "Install with: pip install chronos-forecasting"
-            ) from e
-
-    @classmethod
-    def capability(cls, adapter_name: str) -> AdapterCapabilitySpec:
-        from tsagentkit.contracts import AdapterCapabilitySpec
-
-        return AdapterCapabilitySpec(
-            adapter_name=adapter_name,
-            provider="amazon",
-            available=None,
-            availability_reason=None,
-            is_zero_shot=True,
-            supports_quantiles=True,
-            supports_past_covariates=True,
-            supports_future_covariates=True,
-            supports_static_covariates=False,
-            max_context_length=None,
-            max_horizon=None,
-            dependencies=["torch", "chronos-forecasting>=2.0.0"],
-            notes="Chronos 2 pipeline supports context + future covariates via predict_df.",
-        )
+def predict(dataset: TSDataset, artifact: dict[str, Any], h: int | None = None) -> pd.DataFrame:
+    """Generate forecasts from Chronos model."""
+    adapter = artifact["adapter"]
+    return adapter.predict(dataset, artifact, h)

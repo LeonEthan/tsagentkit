@@ -107,4 +107,3 @@ python -m tsagentkit describe
 - **API Reference**: `skill/tool_map.md` — task-to-API lookup table
 - **Troubleshooting**: `skill/TROUBLESHOOTING.md` — error codes and fix hints
 - **Architecture**: `docs/ARCHITECTURE.md` — system design and layering
-- **API Stability**: `docs/API_STABILITY.md` — compatibility guarantees

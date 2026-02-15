@@ -1,83 +1,35 @@
-"""TSFM (Time-Series Foundation Model) adapters for tsagentkit.
+"""TSFM adapters for tsagentkit.
 
-This module provides unified adapters for popular time-series foundation models:
-- Amazon Chronos
-- Salesforce Moirai
-- Google TimesFM
-
-Example:
-    >>> from tsagentkit.models.adapters import AdapterConfig, AdapterRegistry
-    >>> from tsagentkit.models.adapters import ChronosAdapter
-    >>>
-    >>> # Register adapters
-    >>> AdapterRegistry.register("chronos", ChronosAdapter)
-    >>>
-    >>> # Create and use adapter
-    >>> config = AdapterConfig(model_name="chronos", model_size="base")
-    >>> adapter = AdapterRegistry.create("chronos", config)
-    >>> adapter.load_model()
-    >>> result = adapter.predict(dataset, horizon=30)
+Minimal wrappers for Time-Series Foundation Models:
+- Chronos (Amazon)
+- TimesFM (Google)
+- Moirai (Salesforce)
 """
 
 from __future__ import annotations
 
-# Base classes
-from .base import AdapterConfig, TSFMAdapter
-from .registry import AdapterRegistry
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    pass
+
+# Adapters are loaded on demand to avoid heavy imports at module load time
 __all__ = [
-    # Base classes
-    "AdapterConfig",
-    "TSFMAdapter",
-    "AdapterRegistry",
+    "ChronosAdapter",
+    "TimesFMAdapter",
+    "MoiraiAdapter",
 ]
 
-# Lazily import specific adapters as they become available
-# This prevents import errors when dependencies are not installed
 
-
-def _try_import_chronos():
-    """Try to import ChronosAdapter if dependencies are available."""
-    try:
-        from .chronos import ChronosAdapter
-
+def __getattr__(name: str):
+    """Lazy load adapters to minimize import overhead."""
+    if name == "ChronosAdapter":
+        from tsagentkit.models.adapters.chronos import ChronosAdapter
         return ChronosAdapter
-    except ImportError:
-        return None
-
-
-def _try_import_moirai():
-    """Try to import MoiraiAdapter if dependencies are available."""
-    try:
-        from .moirai import MoiraiAdapter
-
-        return MoiraiAdapter
-    except ImportError:
-        return None
-
-
-def _try_import_timesfm():
-    """Try to import TimesFMAdapter if dependencies are available."""
-    try:
-        from .timesfm import TimesFMAdapter
-
+    elif name == "TimesFMAdapter":
+        from tsagentkit.models.adapters.timesfm import TimesFMAdapter
         return TimesFMAdapter
-    except ImportError:
-        return None
-
-
-# Auto-register available adapters
-_chronos = _try_import_chronos()
-if _chronos:
-    AdapterRegistry.register("chronos", _chronos)
-    __all__.append("ChronosAdapter")
-
-_moirai = _try_import_moirai()
-if _moirai:
-    AdapterRegistry.register("moirai", _moirai)
-    __all__.append("MoiraiAdapter")
-
-_timesfm = _try_import_timesfm()
-if _timesfm:
-    AdapterRegistry.register("timesfm", _timesfm)
-    __all__.append("TimesFMAdapter")
+    elif name == "MoiraiAdapter":
+        from tsagentkit.models.adapters.moirai import MoiraiAdapter
+        return MoiraiAdapter
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
