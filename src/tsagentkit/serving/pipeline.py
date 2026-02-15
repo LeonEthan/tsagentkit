@@ -525,7 +525,16 @@ class ForecastPipeline:
         """Fit model(s) on the dataset."""
         step_start = time.time()
 
-        if self.state.selection_map is not None:
+        if self.mode == "quick":
+            # Quick mode: fit all TSFM candidates for ensemble
+            # Fall back to single model if no TSFM models available
+            tsfm_models = [m for m in self.state.plan.candidate_models if m.lower().startswith("tsfm-")]
+            if tsfm_models:
+                self._fit_all_for_ensemble(step_start)
+            else:
+                # No TSFM models, fall back to single model (old behavior)
+                self._fit_single(step_start)
+        elif self.state.selection_map is not None:
             self._fit_per_series(step_start)
         else:
             self._fit_single(step_start)
@@ -567,6 +576,28 @@ class ForecastPipeline:
 
         self._log_event("fit", "success", step_start, artifacts=["model_artifact"])
 
+    def _fit_all_for_ensemble(self, step_start: float) -> None:
+        """Fit all TSFM candidate models for ensemble prediction (quick mode)."""
+        from tsagentkit.models import fit_all_tsfm_models
+
+        self.state.model_artifacts = fit_all_tsfm_models(
+            dataset=self.state.dataset,
+            plan=self.state.plan,
+            fit_func=self.fit_func,
+            on_fallback=self._on_fallback,
+        )
+
+        self._log_event(
+            "fit_all_candidates",
+            "success",
+            step_start,
+            artifacts=["model_artifacts"],
+            context={
+                "n_models": len(self.state.model_artifacts),
+                "models": list(self.state.model_artifacts.keys()),
+            },
+        )
+
     def _on_fallback(self, from_model: str, to_model: str, error: Exception) -> None:
         """Callback when model fallback occurs."""
         self.fallbacks_triggered.append({
@@ -581,7 +612,10 @@ class ForecastPipeline:
         step_start = time.time()
 
         try:
-            if self.state.selection_map is not None:
+            if self.mode == "quick" and self.state.model_artifacts:
+                # Quick mode with TSFM models: use median ensemble
+                self._predict_ensemble(step_start)
+            elif self.state.selection_map is not None:
                 self._predict_per_series(step_start)
             else:
                 self._predict_single(step_start)
@@ -626,6 +660,29 @@ class ForecastPipeline:
         )
 
         self._log_event("predict", "success", step_start, artifacts=["forecast"])
+
+    def _predict_ensemble(self, step_start: float) -> None:
+        """Predict using median ensemble (quick mode)."""
+        from tsagentkit.models import predict_ensemble_median
+
+        self.state.forecast_df = predict_ensemble_median(
+            dataset=self.state.dataset,
+            artifacts=self.state.model_artifacts,
+            spec=self.state.task_spec,
+            predict_func=self.predict_func,
+        )
+        self.state.forecast_df = self._normalize_forecast(self.state.forecast_df)
+
+        self._log_event(
+            "predict_ensemble",
+            "success",
+            step_start,
+            artifacts=["forecast"],
+            context={
+                "ensemble_type": "median",
+                "n_models": len(self.state.model_artifacts),
+            },
+        )
 
     def _handle_predict_error(self, error: Exception, step_start: float) -> None:
         """Handle prediction errors with fallback."""

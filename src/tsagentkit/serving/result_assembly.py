@@ -56,8 +56,16 @@ def resolve_model_identity(
     selection_map: dict[str, str] | None,
     model_artifact: object | None,
     model_artifacts: dict[str, object] | None,
+    mode: str = "standard",
 ) -> tuple[str, object | None]:
     """Resolve model name string and primary artifact for final packaging."""
+    # Quick mode with multiple artifacts = median ensemble
+    if mode == "quick" and model_artifacts and len(model_artifacts) > 0:
+        model_names = sorted(model_artifacts.keys())
+        model_name = f"median_ensemble({','.join(model_names)})"
+        primary_artifact = next(iter(model_artifacts.values()))
+        return model_name, primary_artifact
+
     if selection_map is not None and model_artifacts:
         model_names = sorted(set(selection_map.values()))
         model_name = f"per_series({','.join(model_names)})"
@@ -99,6 +107,7 @@ def assemble_run_artifact(
         selection_map=selection_map,
         model_artifact=model_artifact,
         model_artifacts=model_artifacts,
+        mode=mode,
     )
 
     provenance = create_provenance(
@@ -139,5 +148,7 @@ def assemble_run_artifact(
             "total_duration_ms": total_duration_ms,
             "events": events,
             "per_series_selection": selection_map is not None,
+            "ensemble_used": mode == "quick" and model_artifacts is not None and len(model_artifacts) > 0,
+            "ensemble_model_count": len(model_artifacts) if model_artifacts and mode == "quick" else None,
         },
     )

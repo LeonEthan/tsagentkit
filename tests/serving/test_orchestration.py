@@ -341,8 +341,10 @@ class TestRunForecast:
         assert "qa" in event_names
         assert "build_dataset" in event_names
         assert "make_plan" in event_names
-        assert "fit" in event_names
-        assert "predict" in event_names
+        # Quick mode may use "fit" (single) or "fit_all_candidates" (ensemble with TSFM)
+        assert any(name in event_names for name in ["fit", "fit_all_candidates"])
+        # Quick mode may use "predict" (single) or "predict_ensemble" (ensemble with TSFM)
+        assert any(name in event_names for name in ["predict", "predict_ensemble"])
 
     def test_repair_strategy_from_run_forecast(self) -> None:
         """Repairs should use provided repair_strategy when supplied."""

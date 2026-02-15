@@ -23,6 +23,11 @@ from tsagentkit.contracts import (
 # Import adapters submodules
 from tsagentkit.models import adapters
 from tsagentkit.models.baselines import fit_baseline, is_baseline_model, predict_baseline
+from tsagentkit.models.ensemble import (
+    compute_median_ensemble,
+    fit_all_tsfm_models,
+    predict_ensemble_median,
+)
 from tsagentkit.models.per_series import (
     fit_per_series,
     fit_predict_per_series,
@@ -259,4 +264,7 @@ __all__ = [
     "adapters",
     "get_adapter_capability",
     "list_adapter_capabilities",
+    "fit_all_tsfm_models",
+    "predict_ensemble_median",
+    "compute_median_ensemble",
 ]
