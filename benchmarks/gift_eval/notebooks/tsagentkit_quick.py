@@ -1,14 +1,15 @@
 """
-Running GIFT-Eval with tsagentkit (Quick Mode)
+Running GIFT-Eval with tsagentkit v2.0 (Ensemble Mode)
 
-This script evaluates tsagentkit on the GIFT-Eval benchmark using
-the standard tsagentkit API (run_forecast) in quick mode.
+This script evaluates tsagentkit v2.0 on the GIFT-Eval benchmark using
+the ensemble forecasting API (forecast) with TSFM + statistical models.
 
 Usage:
     python tsagentkit_quick.py
     python tsagentkit_quick.py --debug --max-series 50
     python tsagentkit_quick.py --download --max-series 1000
     python tsagentkit_quick.py --datasets m4_yearly m4_monthly --max-series 200
+    python tsagentkit_quick.py --ensemble-method mean  # Use mean instead of median
 """
 
 # %% Import dependencies and setup
@@ -39,7 +40,7 @@ from gluonts.ev.metrics import (
 )
 from gluonts.time_feature import get_seasonality
 
-from tsagentkit import TaskSpec, run_forecast
+from tsagentkit import forecast, ForecastConfig
 from tsagentkit.gift_eval import Dataset, Term, download_data, normalize_freq
 
 if TYPE_CHECKING:
@@ -114,9 +115,21 @@ parser.add_argument(
 )
 parser.add_argument(
     "--mode",
-    choices=["quick", "standard", "production"],
+    choices=["quick", "standard", "strict"],
     default="quick",
     help="tsagentkit run mode (default: quick)",
+)
+parser.add_argument(
+    "--ensemble-method",
+    choices=["median", "mean"],
+    default="median",
+    help="Ensemble aggregation method (default: median)",
+)
+parser.add_argument(
+    "--tsfm-mode",
+    choices=["required", "preferred", "disabled"],
+    default="preferred",
+    help="TSFM policy (default: preferred)",
 )
 
 args = parser.parse_args()
@@ -128,8 +141,10 @@ output_dir = args.output_dir
 os.makedirs(output_dir, exist_ok=True)
 
 # Model configuration
-model_name = f"tsagentkit_{args.mode}"
+model_name = f"tsagentkit_v2_{args.mode}_{args.ensemble_method}"
 mode = args.mode
+ensemble_method = args.ensemble_method
+tsfm_mode = args.tsfm_mode
 
 # Debug mode
 debug = args.debug and not args.all_datasets
@@ -287,6 +302,8 @@ if download:
 print(f"storage_path={storage_path.resolve()}")
 print(f"output_dir={output_dir.resolve()}")
 print(f"Mode: {mode}")
+print(f"Ensemble method: {ensemble_method}")
+print(f"TSFM mode: {tsfm_mode}")
 print(f"Debug mode: {debug}")
 if max_series:
     print(f"Max series per dataset: {max_series}")
@@ -650,16 +667,21 @@ for ds_name in all_datasets:
         # Get seasonality for metrics
         seasonality = get_seasonality(freq)
 
-        # Run forecast with tsagentkit API
-        spec = TaskSpec(
-            h=dataset.prediction_length,
-            freq=freq,
-            quantiles=quantiles,
-        )
-
+        # Run forecast with tsagentkit v2.0 ensemble API
         try:
-            result = run_forecast(train_df, spec, mode=mode)
+            result = forecast(
+                train_df,
+                h=dataset.prediction_length,
+                freq=freq,
+                quantiles=quantiles,
+                mode=mode,
+                ensemble_method=ensemble_method,
+                tsfm_mode=tsfm_mode,
+            )
             forecast_df = result.forecast.df
+            # Log ensemble info
+            ensemble_count = forecast_df["_ensemble_count"].iloc[0] if "_ensemble_count" in forecast_df.columns else "N/A"
+            print(f"  Ensemble: {ensemble_count} models contributed")
         except Exception as e:
             print(f"  Error forecasting {ds_config}: {e}")
             continue
