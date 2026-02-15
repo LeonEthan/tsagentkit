@@ -1,5 +1,7 @@
-# tsagentkit Architecture
+# tsagentkit Architecture (v1.x - Legacy)
 
+> **⚠️ DEPRECATED**: This document describes the v1.x architecture. For v2.0 (current minimalist ensemble version), see [ARCHITECTURE_v2.md](./ARCHITECTURE_v2.md).
+>
 > Purpose: describe the **implemented technical architecture**, module boundaries and dependency directions, extension points, and stable APIs as an implementation-oriented supplement to the PRD.
 > Scope: code structure, data flow, and module responsibilities. Model selection and business policy details are out of scope.
 

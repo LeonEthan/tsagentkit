@@ -1,8 +1,10 @@
-# tsagentkit Product Requirements Document (PRD)
+# tsagentkit Product Requirements Document (PRD) (v1.x - Legacy)
 
+> **⚠️ DEPRECATED**: This document describes the v1.x requirements with competitive model selection. For v2.0 (current minimalist ensemble version), see [PRD_v2.md](./PRD_v2.md).
+>
 > **Document Goal**: Define the technical baseline, architecture, and verification standards for `tsagentkit` — a **pure time-series forecasting toolbox** designed to be **called by external LLM/Agents**, but containing **no LLM logic itself**.
 >
-> **Target Audience**: Coding agents (tool callers), System Architects, Data/ML Engineers  
+> **Target Audience**: Coding agents (tool callers), System Architects, Data/ML Engineers
 > **Last Updated**: 2026-02-02 (Asia/Tokyo)
 
 ---
