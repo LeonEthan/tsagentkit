@@ -17,6 +17,7 @@ from gluonts.dataset.split import TestData, TrainingDataset, split
 from gluonts.itertools import Map
 from gluonts.time_feature import norm_freq_str
 from gluonts.transform import Transformation
+from huggingface_hub import snapshot_download
 from pandas.tseries.frequencies import to_offset
 from toolz import compose
 
@@ -25,6 +26,24 @@ MAX_WINDOW = 20
 
 M4_PRED_LENGTH = {"A": 6, "Q": 8, "M": 18, "W": 13, "D": 14, "H": 48}
 PRED_LENGTH = {"M": 12, "W": 8, "D": 30, "H": 48, "T": 48, "S": 60}
+
+
+def download_data(storage_path: Path | str) -> None:
+    """Download the full GIFT-Eval dataset snapshot from Hugging Face.
+
+    Args:
+        storage_path: Directory where the dataset will be downloaded.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.info("Downloading GIFT-Eval dataset to %s ...", storage_path)
+    snapshot_download(
+        repo_id="Salesforce/GiftEval",
+        repo_type="dataset",
+        local_dir=storage_path,
+    )
+    logger.info("Download complete")
 
 
 def itemize_start(data_entry: DataEntry) -> DataEntry:
@@ -49,11 +68,17 @@ class MultivariateToUnivariate(Transformation):
         _ = is_train  # kept for transformation protocol compatibility
         for entry in data_it:
             item_id = entry["item_id"]
-            for idx, val in enumerate(entry[self.field]):
-                new_entry = entry.copy()
-                new_entry[self.field] = val
-                new_entry["item_id"] = f"{item_id}_dim{idx}"
-                yield new_entry
+            target = entry[self.field]
+            # If already univariate (1D), pass through unchanged
+            if target.ndim == 1:
+                yield entry
+            else:
+                # Multivariate (2D): iterate over dimensions
+                for idx, val in enumerate(target):
+                    new_entry = entry.copy()
+                    new_entry[self.field] = val
+                    new_entry["item_id"] = f"{item_id}_dim{idx}"
+                    yield new_entry
 
 
 class Term(Enum):
@@ -248,9 +273,6 @@ def get_all_dataset_terms() -> list[tuple[str, str]]:
         configs.extend([(dataset, "medium"), (dataset, "long")])
     return configs
 
-
-DATASETS_WITH_TERMS = tuple(get_all_dataset_terms())
-FULL_MATRIX_SIZE = len(DATASETS_WITH_TERMS)
 
 # Keep this alias to match upstream naming conventions (`gift_eval.data.Dataset`).
 Dataset = GIFTEvalDataset

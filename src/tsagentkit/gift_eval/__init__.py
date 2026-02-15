@@ -1,35 +1,39 @@
-"""GIFT-Eval integration helpers for tsagentkit."""
+"""GIFT-Eval dataset loading utilities for tsagentkit.
+
+This module provides thin wrappers around GIFT-Eval Hugging Face datasets
+for use with tsagentkit's core API (run_forecast, forecast).
+
+Example:
+    from tsagentkit.gift_eval import Dataset, Term
+    from tsagentkit import run_forecast, TaskSpec
+
+    dataset = Dataset(name="m4_yearly", term=Term.SHORT, storage_path="./data")
+
+    # Convert training data to DataFrame for tsagentkit
+    train_data = dataset.training_dataset
+    df = gluonts_to_dataframe(train_data, dataset.freq)
+
+    # Use tsagentkit's API directly
+    spec = TaskSpec(h=dataset.prediction_length, freq=dataset.freq)
+    result = run_forecast(df, spec)
+"""
 
 from .data import (
-    DATASETS_WITH_TERMS,
-    FULL_MATRIX_SIZE,
-    MED_LONG_DATASETS,
-    SHORT_DATASETS,
     Dataset,
     GIFTEvalDataset,
     Term,
-    get_all_dataset_terms,
+    download_data,
+    MultivariateToUnivariate,
+    normalize_freq,
+    itemize_start,
 )
-from .eval import RESULT_COLUMNS, GIFTEval, GIFTEvalRunner, run_combinations
-from .predictor import QUANTILES, TSAgentKitPredictor
-from .score import compute_aggregate_scores, compute_normalized_scores, geometric_mean
 
 __all__ = [
-    "DATASETS_WITH_TERMS",
-    "FULL_MATRIX_SIZE",
     "Dataset",
-    "GIFTEval",
     "GIFTEvalDataset",
-    "GIFTEvalRunner",
-    "MED_LONG_DATASETS",
-    "QUANTILES",
-    "RESULT_COLUMNS",
-    "SHORT_DATASETS",
-    "TSAgentKitPredictor",
     "Term",
-    "compute_aggregate_scores",
-    "compute_normalized_scores",
-    "geometric_mean",
-    "get_all_dataset_terms",
-    "run_combinations",
+    "download_data",
+    "MultivariateToUnivariate",
+    "normalize_freq",
+    "itemize_start",
 ]

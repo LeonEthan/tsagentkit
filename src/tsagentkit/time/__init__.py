@@ -38,17 +38,13 @@ def infer_freq(
     return max(freq_counts, key=lambda k: freq_counts[k])
 
 
-_MONTH_END_RE = re.compile(r"^(?P<mult>\d+)?M$")
-
-
 def normalize_pandas_freq(freq: str) -> str:
-    """Normalize pandas frequency aliases to avoid deprecation warnings."""
-    if not freq:
-        return freq
-    match = _MONTH_END_RE.match(freq)
-    if match:
-        mult = match.group("mult") or ""
-        return f"{mult}ME"
+    """Normalize pandas frequency aliases to avoid deprecation warnings.
+
+    Note: ME (month end) alias is not supported in all pandas versions,
+    so we keep M which works in both pandas 1.x and 2.x.
+    """
+    # M and other standard aliases work in all pandas versions
     return freq
 
 
