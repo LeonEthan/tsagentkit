@@ -1,6 +1,7 @@
-"""Simplified plan representation.
+"""Simplified plan representation using the model registry.
 
-Replaces PlanSpec, PlanGraphSpec, and PlanNodeSpec with a single Plan dataclass.
+Replaces PlanSpec, PlanGraphSpec, and PlanNodeSpec with a single Plan dataclass
+that works with the REGISTRY for model specifications.
 """
 
 from __future__ import annotations
@@ -49,41 +50,33 @@ class Plan:
 
         Returns dict with fitted artifacts for all successful models.
         """
-        from tsagentkit.core.errors import EModelFailed
+        from tsagentkit.core.errors import EInsufficient
+        from tsagentkit.models.protocol import fit
+        from tsagentkit.models.registry import get_spec
 
         artifacts = []
         errors = []
 
         for candidate in self.all_models():
             try:
-                artifact = self._fit_candidate(candidate, dataset)
+                spec = get_spec(candidate.adapter_name or candidate.name)
+                artifact = fit(spec, dataset)
                 artifacts.append({"candidate": candidate, "artifact": artifact})
             except Exception as e:
                 if candidate.is_tsfm and self.require_all_tsfm:
-                    raise EModelFailed(
+                    raise EInsufficient(
                         f"Required TSFM model '{candidate.name}' failed",
                         context={"error": str(e)},
                     )
                 errors.append((candidate.name, str(e)))
 
         if len(artifacts) < self.min_models_for_ensemble:
-            raise EModelFailed(
+            raise EInsufficient(
                 f"Insufficient models succeeded: {len(artifacts)} < {self.min_models_for_ensemble}",
                 context={"errors": errors, "succeeded": len(artifacts)},
             )
 
         return {"artifacts": artifacts, "errors": errors}
-
-    def _fit_candidate(self, candidate: ModelCandidate, dataset: TSDataset) -> Any:
-        """Fit a single candidate model."""
-        if candidate.is_tsfm:
-            from tsagentkit.models import fit_tsfm
-
-            return fit_tsfm(dataset, candidate.adapter_name or candidate.name.replace("tsfm-", ""))
-        else:
-            from tsagentkit.models import fit
-
-            return fit(dataset, candidate.name)
 
 
 def inspect_tsfm_adapters() -> list[str]:
@@ -91,20 +84,13 @@ def inspect_tsfm_adapters() -> list[str]:
 
     Returns list of available adapter names (e.g., ['chronos', 'moirai', 'timesfm'])
     """
-    adapters = []
-    try:
-        import importlib
+    from tsagentkit.models.registry import REGISTRY, check_available
 
-        for name in ["chronos", "moirai", "timesfm"]:
-            try:
-                module = importlib.import_module(f"tsagentkit.models.adapters.{name}")
-                if hasattr(module, f"{name.capitalize()}Adapter"):
-                    adapters.append(name)
-            except ImportError:
-                pass
-    except Exception:
-        pass
-    return adapters
+    available = []
+    for name, spec in REGISTRY.items():
+        if spec.is_tsfm and check_available(spec):
+            available.append(name)
+    return available
 
 
 def build_plan(
@@ -126,6 +112,9 @@ def build_plan(
     Returns:
         Plan with all TSFM and statistical models for ensemble
     """
+    from tsagentkit.core.errors import ENoTSFM
+    from tsagentkit.models.registry import REGISTRY, check_available
+
     available_tsfm = inspect_tsfm_adapters()
 
     # Build TSFM candidates
@@ -137,17 +126,14 @@ def build_plan(
     # Build statistical candidates
     statistical_candidates = []
     if allow_fallback:
-        statistical_candidates = [
-            ModelCandidate(name="SeasonalNaive"),
-            ModelCandidate(name="HistoricAverage"),
-            ModelCandidate(name="Naive"),
-        ]
+        # Check which baseline models are available
+        for name in ["naive", "seasonal_naive"]:
+            if name in REGISTRY and check_available(REGISTRY[name]):
+                statistical_candidates.append(ModelCandidate(name=name))
 
     # Validate TSFM availability
     if tsfm_mode == "required" and not tsfm_candidates:
-        from tsagentkit.core.errors import ETSFMRequired
-
-        raise ETSFMRequired("TSFM required but no adapters available")
+        raise ENoTSFM("TSFM required but no adapters available")
 
     return Plan(
         tsfm_models=tsfm_candidates,

@@ -173,18 +173,15 @@ class TestTSFMAdapters:
         with pytest.raises(ValueError, match="Unknown TSFM adapter"):
             fit_tsfm(dataset, "unknown_adapter")
 
+    @pytest.mark.skip(reason="TSFMs are now default dependencies - import errors won't occur")
     def test_fit_tsfm_import_error(self, sample_df, config, monkeypatch):
-        """TSFM adapter import error handling."""
-        dataset = TSDataset.from_dataframe(sample_df, config)
+        """TSFM adapter import error handling - DEPRECATED.
 
-        # Mock __import__ to raise ImportError
-        def mock_import(*args, **kwargs):
-            raise ImportError("No module named 'chronos'")
-
-        monkeypatch.setattr("builtins.__import__", mock_import)
-
-        with pytest.raises(ImportError, match="not available"):
-            fit_tsfm(dataset, "chronos")
+        TSFMs are now default dependencies, so this test is no longer valid.
+        Import guards have been removed since chronos, tsagentkit-timesfm,
+        and tsagentkit-uni2ts are required dependencies.
+        """
+        pass
 
     def test_predict_tsfm_invalid_artifact(self, sample_df, config):
         """Invalid TSFM artifact raises ValueError."""
@@ -199,7 +196,7 @@ class TestTSFMAdapters:
         dataset = TSDataset.from_dataframe(sample_df, config)
         invalid_artifact = {"adapter": object()}  # Object without predict method
 
-        with pytest.raises(ValueError, match="missing predict method"):
+        with pytest.raises(ValueError, match="Invalid TSFM artifact"):
             predict_tsfm(dataset, invalid_artifact, h=7)
 
 

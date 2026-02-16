@@ -14,7 +14,7 @@ import pandas as pd
 
 from tsagentkit.core.config import ForecastConfig
 from tsagentkit.core.data import CovariateSet, TSDataset
-from tsagentkit.core.errors import EContractViolation, EDataQuality, EModelFailed
+from tsagentkit.core.errors import EContract, EInsufficient
 from tsagentkit.core.results import ForecastResult, RunResult
 
 
@@ -43,20 +43,20 @@ def validate_stage(df: pd.DataFrame, config: ForecastConfig) -> pd.DataFrame:
     required = [config.id_col, config.time_col, config.target_col]
     missing = [c for c in required if c not in df.columns]
     if missing:
-        raise EContractViolation(
+        raise EContract(
             f"Missing required columns: {missing}",
             context={"required": required, "found": list(df.columns)},
         )
 
     # Check for empty DataFrame
     if len(df) == 0:
-        raise EContractViolation("DataFrame is empty")
+        raise EContract("DataFrame is empty")
 
     # Check for nulls in key columns
     for col in required:
         null_count = df[col].isnull().sum()
         if null_count > 0:
-            raise EContractViolation(
+            raise EContract(
                 f"Column '{col}' has {null_count} null values",
                 fix_hint="Remove or fill null values in key columns",
             )
@@ -89,7 +89,7 @@ def qa_stage(df: pd.DataFrame, config: ForecastConfig) -> pd.DataFrame:
     # Check for duplicate keys
     dups = df.duplicated(subset=["unique_id", "ds"], keep=False).sum()
     if dups > 0:
-        raise EDataQuality(
+        raise EContract(
             f"Found {dups} duplicate (unique_id, ds) pairs",
             fix_hint="Remove duplicates: df = df.drop_duplicates(subset=['unique_id', 'ds'], keep='last')",
         )
@@ -97,14 +97,14 @@ def qa_stage(df: pd.DataFrame, config: ForecastConfig) -> pd.DataFrame:
     # Check temporal ordering
     for uid, group in df.groupby("unique_id"):
         if not group["ds"].is_monotonic_increasing:
-            raise EDataQuality(
+            raise EContract(
                 f"Series '{uid}' is not sorted by time",
                 fix_hint="Sort data: df = df.sort_values(['unique_id', 'ds'])",
             )
 
     # In strict mode, any issue is an error
     if config.mode == "strict" and issues:
-        raise EDataQuality(
+        raise EContract(
             "Data quality issues found in strict mode",
             context={"issues": issues},
         )
@@ -165,17 +165,13 @@ def _fit_and_predict_single(
 
     Returns None if the model fails.
     """
-    from tsagentkit.models import fit, fit_tsfm, predict, predict_tsfm
+    from tsagentkit.models.protocol import fit, predict
+    from tsagentkit.models.registry import get_spec
 
     try:
-        if candidate.is_tsfm:
-            adapter_name = candidate.adapter_name or candidate.name.replace("tsfm-", "")
-            artifact = fit_tsfm(dataset, adapter_name)
-            forecast_df = predict_tsfm(dataset, artifact, h, quantiles=quantiles)
-        else:
-            artifact = fit(dataset, candidate.name)
-            forecast_df = predict(dataset, artifact, h, quantiles=quantiles)
-
+        spec = get_spec(candidate.adapter_name or candidate.name)
+        artifact = fit(spec, dataset)
+        forecast_df = predict(spec, artifact, dataset, h)
         return forecast_df
     except Exception:
         return None
@@ -196,48 +192,19 @@ def _compute_ensemble(
     Returns:
         Ensemble forecast DataFrame
     """
-    import numpy as np
+    from tsagentkit.models.ensemble import ensemble_with_quantiles
 
     if not predictions:
-        raise EModelFailed("No predictions to ensemble")
+        raise EInsufficient("No predictions to ensemble")
 
     if len(predictions) == 1:
         return predictions[0]
 
-    # Use first prediction as base for structure
-    base = predictions[0].copy()
-
-    # Stack yhat values from all predictions
-    yhat_stack = np.stack([p["yhat"].values for p in predictions])
-
-    # Compute ensemble
-    if method == "median":
-        base["yhat"] = np.median(yhat_stack, axis=0)
-    elif method == "mean":
-        base["yhat"] = np.mean(yhat_stack, axis=0)
-    else:
-        raise ValueError(f"Unknown ensemble method: {method}")
-
-    # Ensemble quantile columns if present
-    if quantiles:
-        for q in quantiles:
-            q_col = f"q{q}"
-            # Check if quantile column exists in at least one prediction
-            if any(q_col in p.columns for p in predictions):
-                # Stack available quantile values, using yhat as fallback
-                q_stack = np.stack([
-                    p[q_col].values if q_col in p.columns else p["yhat"].values
-                    for p in predictions
-                ])
-                if method == "median":
-                    base[q_col] = np.median(q_stack, axis=0)
-                else:
-                    base[q_col] = np.mean(q_stack, axis=0)
-
-    # Add metadata about contributing models
-    base["_ensemble_count"] = len(predictions)
-
-    return base
+    return ensemble_with_quantiles(
+        predictions,
+        method=method,  # type: ignore[arg-type]
+        quantiles=quantiles,
+    )
 
 
 def ensemble_stage(
@@ -274,14 +241,14 @@ def ensemble_stage(
             })
             # If required TSFM failed, check if we should abort
             if candidate.is_tsfm and plan.require_all_tsfm:
-                raise EModelFailed(
+                raise EInsufficient(
                     f"Required TSFM model '{candidate.name}' failed",
                     context={"errors": model_errors},
                 )
 
     # Check minimum models requirement
     if len(predictions) < plan.min_models_for_ensemble:
-        raise EModelFailed(
+        raise EInsufficient(
             f"Insufficient models succeeded: {len(predictions)} < {plan.min_models_for_ensemble}",
             context={"errors": model_errors},
         )

@@ -49,9 +49,9 @@ class TestForecastConfigDefaults:
     """Test config defaults."""
 
     def test_default_quantiles(self):
-        """Default quantiles are [0.1, 0.5, 0.9]."""
+        """Default quantiles are [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]."""
         config = ForecastConfig(h=7, freq="D")
-        assert config.quantiles == [0.1, 0.5, 0.9]
+        assert config.quantiles == [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 
     def test_default_columns(self):
         """Default column names."""

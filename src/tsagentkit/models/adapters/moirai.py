@@ -1,6 +1,7 @@
-"""Moirai TSFM adapter for tsagentkit.
+"""Moirai 2.0 TSFM adapter for tsagentkit.
 
-Wraps Salesforce's Moirai model for zero-shot time series forecasting.
+Wraps Salesforce's Moirai 2.0 model for zero-shot time series forecasting.
+Uses uni2ts library (via tsagentkit-uni2ts) and Salesforce/moirai-2.0-R-small model.
 """
 
 from __future__ import annotations
@@ -13,107 +14,117 @@ if TYPE_CHECKING:
     from tsagentkit.core.data import TSDataset
 
 
-class MoiraiAdapter:
-    """Moirai adapter for zero-shot forecasting."""
+# Module-level cache for the loaded model
+_loaded_model: Any | None = None
+_default_model_name: str = "Salesforce/moirai-2.0-R-small"
 
-    def __init__(self, model_name: str = "moirai-1.1-R-small"):
-        """Initialize adapter with model specification.
 
-        Args:
-            model_name: Moirai model variant (moirai-1.1-R-small/base/large)
-        """
-        self.model_name = model_name
-        self._model = None
+def load(model_name: str = "Salesforce/moirai-2.0-R-small") -> Any:
+    """Load pretrained Moirai 2.0 model.
 
-    def fit(self, dataset: TSDataset) -> dict[str, Any]:
-        """Load pretrained Moirai model.
+    Args:
+        model_name: Moirai model variant (Salesforce/moirai-2.0-R-small, etc.)
 
-        Moirai is a zero-shot model, so fit() just loads the model.
+    Returns:
+        Loaded Moirai model module
+    """
+    global _loaded_model, _default_model_name
 
-        Args:
-            dataset: Time-series dataset (used for validation only)
+    if _loaded_model is None or _default_model_name != model_name:
+        # Import from tsagentkit_uni2ts package
+        from tsagentkit_uni2ts.model.moirai import MoiraiModule
 
-        Returns:
-            Model artifact containing loaded model
-        """
-        try:
-            import torch
-            from moirai_forecast import MoiraiForecast
-        except ImportError:
-            raise ImportError(
-                "moirai is required. Install with: pip install moirai-forecast"
-            )
+        # Load the pretrained module
+        module = MoiraiModule.from_pretrained(model_name)
 
-        # Load pretrained model
-        self._model = MoiraiForecast(
-            module_name=self.model_name,
-            prediction_length=dataset.config.h,
-            context_length=dataset.min_length,
+        _loaded_model = {"model_name": model_name, "module": module}
+        _default_model_name = model_name
+
+    return _loaded_model
+
+
+def unload() -> None:
+    """Unload model to free memory."""
+    global _loaded_model
+    _loaded_model = None
+
+
+def fit(dataset: TSDataset) -> Any:
+    """Fit Moirai model (loads pretrained).
+
+    Moirai is a zero-shot model, so fit() just loads the model.
+
+    Args:
+        dataset: Time-series dataset (used for validation only)
+
+    Returns:
+        Loaded model
+    """
+    return load()
+
+
+def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
+    """Generate forecasts using Moirai.
+
+    Args:
+        model: Loaded Moirai model (dict with model_name and module)
+        dataset: Time-series dataset
+        h: Forecast horizon
+
+    Returns:
+        Forecast DataFrame with columns [unique_id, ds, yhat]
+    """
+    import numpy as np
+    from tsagentkit_uni2ts.model.moirai import MoiraiForecast
+
+    model_name = model["model_name"]
+    module = model["module"]
+    forecasts = []
+    id_col = dataset.config.id_col
+    time_col = dataset.config.time_col
+    target_col = dataset.config.target_col
+
+    # Process each series
+    for unique_id in dataset.df[id_col].unique():
+        mask = dataset.df[id_col] == unique_id
+        series_df = dataset.df[mask].sort_values(time_col)
+        context = series_df[target_col].values.astype(np.float32)
+
+        # Create forecast model with Moirai 2.0
+        # Moirai 2.0 uses specific patch sizes - auto-select based on context length
+        ctx_len = len(context)
+        if ctx_len >= 512:
+            patch_size = 64
+        elif ctx_len >= 128:
+            patch_size = 32
+        else:
+            patch_size = 16
+
+        forecast_model = MoiraiForecast(
+            module=module,
+            prediction_length=h,
+            context_length=ctx_len,
+            patch_size=patch_size,
+            num_samples=100,
         )
 
-        return {
-            "model": self._model,
-            "model_name": self.model_name,
-            "adapter": self,
-        }
+        # Generate forecast - Moirai returns distribution samples
+        samples = forecast_model.predict(context, h)
 
-    def predict(
-        self,
-        dataset: TSDataset,
-        artifact: dict[str, Any],
-        h: int | None = None,
-    ) -> pd.DataFrame:
-        """Generate forecasts using Moirai.
+        # Extract median forecast
+        forecast_values = np.median(samples, axis=0)
 
-        Args:
-            dataset: Time-series dataset
-            artifact: Model artifact from fit()
-            h: Forecast horizon
+        # Generate future timestamps
+        last_date = series_df[time_col].iloc[-1]
+        freq = dataset.config.freq
+        future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
-        Returns:
-            Forecast DataFrame with columns [unique_id, ds, yhat]
-        """
-        import numpy as np
+        # Create forecast DataFrame
+        forecast_df = pd.DataFrame({
+            id_col: unique_id,
+            time_col: future_dates,
+            "yhat": forecast_values,
+        })
+        forecasts.append(forecast_df)
 
-        model = artifact["model"]
-        horizon = h or dataset.config.h
-
-        forecasts = []
-
-        # Process each series
-        for unique_id in dataset.df["unique_id"].unique():
-            series_df = dataset.df[dataset.df["unique_id"] == unique_id].sort_values("ds")
-            context = series_df["y"].values.astype(np.float32)
-
-            # Generate forecast - Moirai returns distribution samples
-            samples = model.predict(context, horizon)
-
-            # Extract median forecast
-            forecast_values = np.median(samples, axis=0)
-
-            # Generate future timestamps
-            last_date = series_df["ds"].iloc[-1]
-            freq = dataset.config.freq
-            future_dates = pd.date_range(start=last_date, periods=horizon + 1, freq=freq)[1:]
-
-            # Create forecast DataFrame
-            forecast_df = pd.DataFrame({
-                "unique_id": unique_id,
-                "ds": future_dates,
-                "yhat": forecast_values,
-            })
-            forecasts.append(forecast_df)
-
-        return pd.concat(forecasts, ignore_index=True)
-
-
-def fit(dataset: TSDataset, model_name: str = "moirai-1.1-R-small") -> dict[str, Any]:
-    """Fit Moirai model (loads pretrained)."""
-    adapter = MoiraiAdapter(model_name)
-    return adapter.fit(dataset)
-
-
-def predict(dataset: TSDataset, artifact: dict[str, Any], h: int | None = None) -> pd.DataFrame:
-    """Generate forecasts from Moirai model."""
-    adapter = artifact["adapter"]
-    return adapter.predict(dataset, artifact, h)
+    return pd.concat(forecasts, ignore_index=True)

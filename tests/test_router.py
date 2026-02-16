@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from tsagentkit import ForecastConfig, TSDataset
-from tsagentkit.core.errors import EModelFailed, ETSFMRequired
+from tsagentkit.core.errors import EInsufficient, EModelFailed, ENoTSFM, ETSFMRequired
 from tsagentkit.router import (
     ModelCandidate,
     Plan,
@@ -139,7 +139,7 @@ class TestBuildPlan:
         plan = build_plan(dataset, tsfm_mode="disabled", allow_fallback=True)
 
         assert len(plan.tsfm_models) == 0
-        assert len(plan.statistical_models) == 3  # SeasonalNaive, HistoricAverage, Naive
+        assert len(plan.statistical_models) == 2  # naive, seasonal_naive
 
     def test_build_plan_no_fallback(self, dataset):
         """Build plan without fallback models."""
@@ -172,7 +172,7 @@ class TestBuildPlan:
         plan_module.inspect_tsfm_adapters = mock_inspect
 
         try:
-            with pytest.raises(ETSFMRequired) as exc_info:
+            with pytest.raises(ENoTSFM) as exc_info:
                 build_plan(dataset, tsfm_mode="required")
             assert "TSFM required but no adapters available" in str(exc_info.value)
         finally:
@@ -191,7 +191,7 @@ class TestBuildPlan:
         try:
             plan = build_plan(dataset, tsfm_mode="preferred", allow_fallback=True)
             assert len(plan.tsfm_models) == 0
-            assert len(plan.statistical_models) == 3
+            assert len(plan.statistical_models) == 2  # naive, seasonal_naive
         finally:
             plan_module.inspect_tsfm_adapters = original_inspect
 
@@ -201,8 +201,8 @@ class TestBuildPlan:
 
         # Should have TSFM models (chronos, timesfm, moirai)
         assert len(plan.tsfm_models) >= 3
-        # Should also have statistical models
-        assert len(plan.statistical_models) == 3
+        # Should also have statistical models (naive, seasonal_naive)
+        assert len(plan.statistical_models) == 2
 
     def test_build_plan_min_models_for_ensemble(self, dataset):
         """Plan has min_models_for_ensemble set."""
@@ -218,7 +218,7 @@ class TestPlanExecution:
         dataset = TSDataset.from_dataframe(sample_df, config)
         plan = Plan(tsfm_models=[], statistical_models=[])
 
-        with pytest.raises(EModelFailed, match="Insufficient models"):
+        with pytest.raises((EInsufficient, EModelFailed), match="Insufficient models"):
             plan.execute(dataset)
 
     def test_execute_statistical_models(self, sample_df, config):
@@ -229,18 +229,18 @@ class TestPlanExecution:
         result = plan.execute(dataset)
 
         assert "artifacts" in result
-        assert len(result["artifacts"]) == 3  # 3 statistical models
+        assert len(result["artifacts"]) == 2  # 2 statistical models
         assert len(result["errors"]) == 0
 
     def test_execute_with_min_models_requirement(self, sample_df, config):
         """Execute plan with min_models_for_ensemble requirement."""
         dataset = TSDataset.from_dataframe(sample_df, config)
         plan = Plan(
-            statistical_models=[ModelCandidate(name="Naive")],
+            statistical_models=[ModelCandidate(name="naive")],
             min_models_for_ensemble=5,  # More than we have
         )
 
-        with pytest.raises(EModelFailed, match="Insufficient models"):
+        with pytest.raises((EInsufficient, EModelFailed), match="Insufficient models"):
             plan.execute(dataset)
 
 
