@@ -21,25 +21,6 @@ if TYPE_CHECKING:
 ModelArtifact = Any  # Adapter decides what to store
 
 
-def load(spec: ModelSpec) -> ModelArtifact:
-    """Load a model.
-
-    For TSFMs, this loads the pretrained model weights.
-    For statistical models, this is a no-op (stateless).
-
-    Args:
-        spec: Model specification
-
-    Returns:
-        Model artifact (type depends on adapter)
-    """
-    import importlib
-
-    module = importlib.import_module(spec.adapter_path)
-    load_fn = getattr(module, "load")
-    return load_fn(**spec.config_fields)
-
-
 def fit(spec: ModelSpec, dataset: TSDataset) -> ModelArtifact:
     """Fit a model to the dataset.
 
@@ -119,7 +100,6 @@ def predict_all(
 
 __all__ = [
     "ModelArtifact",
-    "load",
     "fit",
     "predict",
     "predict_all",

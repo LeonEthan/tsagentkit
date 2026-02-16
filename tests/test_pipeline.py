@@ -111,19 +111,17 @@ class TestBuildDataset:
 class TestMakePlan:
     """Test make_plan function."""
 
-    def test_make_plan_returns_models(self, sample_df, config):
+    def test_make_plan_returns_models(self):
         """make_plan returns list of models."""
-        dataset = TSDataset.from_dataframe(sample_df, config)
-        models = make_plan(dataset, tsfm_only=True)
+        models = make_plan(tsfm_only=True)
         assert isinstance(models, list)
         # Should have TSFM models (chronos, timesfm, moirai)
         assert len(models) >= 3
 
-    def test_make_plan_no_tsfm_raises(self, sample_df, config):
+    def test_make_plan_no_tsfm_raises(self):
         """make_plan with no available TSFMs raises ENoTSFM."""
         from tsagentkit.core.errors import ENoTSFM
 
-        dataset = TSDataset.from_dataframe(sample_df, config)
         # Mock empty registry by patching list_available
         import tsagentkit.pipeline as pipeline_module
         original_list_available = pipeline_module.list_available
@@ -135,7 +133,7 @@ class TestMakePlan:
 
         try:
             with pytest.raises(ENoTSFM):
-                make_plan(dataset, tsfm_only=True)
+                make_plan(tsfm_only=True)
         finally:
             pipeline_module.list_available = original_list_available
 

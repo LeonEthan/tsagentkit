@@ -37,9 +37,6 @@ class ForecastConfig:
     ensemble_method: Literal["median", "mean"] = "median"
     min_tsfm: int = 1  # Min TSFMs required
 
-    # Behavior
-    fail_on_missing_tsfm: bool = False  # True = abort if TSFM unavailable
-
     # Output
     quantiles: tuple[float, ...] = (0.1, 0.5, 0.9)
 
@@ -58,12 +55,12 @@ class ForecastConfig:
     @staticmethod
     def quick(h: int, freq: str = "D") -> ForecastConfig:
         """Quick preset - minimal validation, allows fallback."""
-        return ForecastConfig(h=h, freq=freq, fail_on_missing_tsfm=False)
+        return ForecastConfig(h=h, freq=freq)
 
     @staticmethod
     def strict(h: int, freq: str = "D") -> ForecastConfig:
         """Strict preset - fail fast if TSFM unavailable."""
-        return ForecastConfig(h=h, freq=freq, fail_on_missing_tsfm=True, min_tsfm=1)
+        return ForecastConfig(h=h, freq=freq, min_tsfm=1)
 
     @property
     def season_length(self) -> int | None:

@@ -6,7 +6,6 @@ Core logic: validate → build dataset → fit TSFMs → ensemble → return
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -14,8 +13,7 @@ import pandas as pd
 from tsagentkit.core.config import ForecastConfig
 from tsagentkit.core.dataset import CovariateSet, TSDataset
 from tsagentkit.core.errors import EContract, EInsufficient, ENoTSFM
-from tsagentkit.core.results import ForecastResult, RunResult
-from tsagentkit.models.cache import ModelCache
+from tsagentkit.core.results import ForecastResult
 from tsagentkit.models.ensemble import ensemble_with_quantiles
 from tsagentkit.models.protocol import fit, predict
 from tsagentkit.models.registry import REGISTRY, ModelSpec, list_available
@@ -104,16 +102,12 @@ def build_dataset(
 
 
 def make_plan(
-    dataset: TSDataset,
     tsfm_only: bool = True,
-    ensemble_method: str = "median",
 ) -> list[ModelSpec]:
     """Create execution plan with models for ensemble.
 
     Args:
-        dataset: Time-series dataset
         tsfm_only: If True, only include TSFM models
-        ensemble_method: Aggregation method (for metadata)
 
     Returns:
         List of model specifications to run
@@ -235,14 +229,12 @@ def run_forecast(
     Returns:
         ForecastResult with ensemble forecast
     """
-    start_time = time.time()
-
     # Phase 1: Validate and build dataset
     df = validate(data, config)
     dataset = build_dataset(df, config, covariates)
 
     # Phase 2: Get TSFM models
-    models = make_plan(dataset, tsfm_only=True, ensemble_method=config.ensemble_method)
+    models = make_plan(tsfm_only=True)
 
     # Phase 3: Fit all models (uses ModelCache for TSFMs)
     artifacts = fit_all(models, dataset)

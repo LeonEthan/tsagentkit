@@ -65,11 +65,6 @@ class TestForecastConfigDefaults:
         config = ForecastConfig(h=7, freq="D")
         assert config.min_tsfm == 1
 
-    def test_default_fail_on_missing_tsfm(self):
-        """Default fail_on_missing_tsfm is False."""
-        config = ForecastConfig(h=7, freq="D")
-        assert config.fail_on_missing_tsfm is False
-
 
 class TestForecastConfigPresets:
     """Test config presets."""
@@ -79,7 +74,6 @@ class TestForecastConfigPresets:
         config = ForecastConfig.quick(h=7, freq="D")
         assert config.h == 7
         assert config.freq == "D"
-        assert config.fail_on_missing_tsfm is False
 
     def test_quick_preset_hourly(self):
         """Quick preset with hourly frequency."""
@@ -92,7 +86,6 @@ class TestForecastConfigPresets:
         config = ForecastConfig.strict(h=7, freq="D")
         assert config.h == 7
         assert config.freq == "D"
-        assert config.fail_on_missing_tsfm is True
         assert config.min_tsfm == 1
 
 
