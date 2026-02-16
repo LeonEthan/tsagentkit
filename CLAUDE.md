@@ -63,7 +63,8 @@ src/tsagentkit/
 │       ├── tsfm/          # Thin wrappers (~100 lines each)
 │       │   ├── chronos.py
 │       │   ├── timesfm.py
-│       │   └── moirai.py
+│       │   ├── moirai.py
+│       │   └── patchtst_fm.py
 │       └── baseline/      # Naive, SeasonalNaive (stateless)
 │           ├── naive.py
 │           └── seasonal.py
@@ -392,7 +393,7 @@ class EContract(TSAgentKitError):
 class ENoTSFM(TSAgentKitError):
     """No TSFM adapters available."""
     code = "E_NO_TSFM"
-    hint = "Install TSFMs: pip install chronos-forecasting tsagentkit-timesfm tsagentkit-uni2ts gluonts"
+    hint = "Install TSFMs: pip install chronos-forecasting tsagentkit-timesfm tsagentkit-uni2ts tsagentkit-patchtst-fm gluonts"
 
 class EInsufficient(TSAgentKitError):
     """Not enough TSFMs succeeded."""
@@ -552,6 +553,52 @@ gts_dataset = PandasDataset([{
 # Predict
 forecasts = list(predictor.predict(gts_dataset))
 median_forecast = forecasts[0].quantile(0.5)
+```
+
+### PatchTST-FM-r1 (IBM)
+
+**Installation**: `pip install tsagentkit-patchtst-fm`
+
+**Usage**:
+```python
+from tsagentkit.models.adapters.tsfm.patchtst_fm import load, predict
+from tsagentkit import TSDataset, ForecastConfig
+
+# Load model
+model = load(model_name="ibm-research/patchtst-fm-r1")
+
+# Create dataset
+config = ForecastConfig(h=7, freq="D")
+dataset = TSDataset.from_dataframe(df, config)
+
+# Predict
+forecast_df = predict(model, dataset, h=7)
+```
+
+**Direct API** (without tsagentkit):
+```python
+from tsfm_public import PatchTSTFMForPrediction
+import torch
+
+# Determine device
+device = "cuda" if torch.cuda.is_available() else ("mps" if torch.mps.is_available() else "cpu")
+
+# Load model
+model = PatchTSTFMForPrediction.from_pretrained(
+    "ibm-research/patchtst-fm-r1",
+    device_map=device
+)
+
+# Prepare context (numpy array of historical values)
+context = torch.tensor(df["y"].values, dtype=torch.float32).unsqueeze(0)
+
+# Generate forecast
+with torch.no_grad():
+    outputs = model(context)
+    predictions = outputs.prediction_outputs  # Shape: (batch, horizon, quantiles)
+
+# Extract median (q=0.5) or other quantiles
+median_forecast = predictions[0, :, 4].numpy()  # Index 4 typically corresponds to q=0.5
 ```
 
 ---
@@ -790,11 +837,11 @@ from tsagentkit.inspect import list_models, check_health
 
 # List available TSFMs
 print(list_models(tsfm_only=True))
-# ['chronos', 'timesfm', 'moirai']
+# ['chronos', 'timesfm', 'moirai', 'patchtst_fm']
 
 # Health check
 health = check_health()
-print(health.tsfm_available)  # ['chronos', 'timesfm']
+print(health.tsfm_available)  # ['chronos', 'timesfm', 'patchtst_fm']
 print(health.tsfm_missing)    # ['moirai: pip install moirai']
 ```
 
@@ -820,7 +867,7 @@ for df in dataset_batch:
 ModelCache.unload()  # Free memory when done
 
 # Check cache status
-print(ModelCache.list_loaded())  # ['chronos', 'timesfm', 'moirai']
+print(ModelCache.list_loaded())  # ['chronos', 'timesfm', 'moirai', 'patchtst_fm']
 ```
 
 ---
