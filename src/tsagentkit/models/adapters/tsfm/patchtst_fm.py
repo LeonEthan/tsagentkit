@@ -7,10 +7,7 @@ Uses `tsfm_public.PatchTSTFMForPrediction` and keeps module-level caching.
 from __future__ import annotations
 
 import importlib
-import os
-import sys
 from contextlib import contextmanager
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -62,59 +59,15 @@ def _resolve_device_map() -> str:
     return "cpu"
 
 
-def _candidate_granite_roots() -> list[Path]:
-    """Collect candidate roots that may contain a local granite-tsfm checkout."""
-    candidates: list[Path] = []
-
-    for env_var in ("TSFM_PUBLIC_ROOT", "GRANITE_TSFM_PATH"):
-        value = os.getenv(env_var)
-        if value:
-            candidates.append(Path(value).expanduser())
-
-    # Try sibling discovery (e.g. .../augment-projects/{tsagentkit,granite-tsfm}).
-    for parent in Path(__file__).resolve().parents:
-        candidates.append(parent / "granite-tsfm")
-
-    # Try cwd sibling if invoked from repository root.
-    candidates.append(Path.cwd().resolve().parent / "granite-tsfm")
-
-    unique_candidates: list[Path] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        key = str(candidate.resolve()) if candidate.exists() else str(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique_candidates.append(candidate)
-
-    return unique_candidates
-
-
 def _ensure_tsfm_public_import() -> None:
-    """Ensure `tsfm_public` is importable, using local granite-tsfm fallback."""
+    """Ensure `tsfm_public` is importable from installed dependencies."""
     try:
         importlib.import_module("tsfm_public")
         return
     except ImportError:
-        pass
-
-    for root in _candidate_granite_roots():
-        if not (root / "tsfm_public").exists():
-            continue
-        root_str = str(root)
-        if root_str not in sys.path:
-            sys.path.insert(0, root_str)
-        try:
-            importlib.import_module("tsfm_public")
-            return
-        except ImportError:
-            continue
-
-    raise ImportError(
-        "PatchTST-FM requires `tsfm_public`. Install a granite-tsfm build that "
-        "includes PatchTST-FM, or set TSFM_PUBLIC_ROOT/GRANITE_TSFM_PATH to a "
-        "local granite-tsfm checkout."
-    )
+        raise ImportError(
+            "PatchTST-FM requires `tsfm_public`. Install `tsagentkit-patchtst-fm>=1.0.2`."
+        ) from None
 
 
 def _get_patchtst_fm_class() -> Any:

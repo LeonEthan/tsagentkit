@@ -16,6 +16,7 @@ dependencies = [
     "torch",
     "huggingface-hub",
     "transformers>=4.56.0",
+    "tsagentkit-patchtst-fm>=1.0.2",
     "chronos-forecasting>=2.0.0",
     "tsagentkit-timesfm",
     "tsagentkit-uni2ts",

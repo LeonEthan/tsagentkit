@@ -15,7 +15,6 @@ Requirements:
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -347,15 +346,10 @@ class TestPatchTSTFMRealSmoke:
 
         print(f"✓ PatchTST-FM multi-series test passed: {len(forecast)} total forecasts")
 
-    def test_patchtst_fm_short_context_padding(self, forecast_config, monkeypatch):
+    def test_patchtst_fm_short_context_padding(self, forecast_config):
         """Verify PatchTST-FM handles short context inputs without NaN outputs."""
         from tsagentkit import TSDataset
         from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
-
-        # Prefer local patched granite-tsfm when available.
-        local_granite = Path(__file__).resolve().parents[3] / "granite-tsfm"
-        if local_granite.exists():
-            monkeypatch.setenv("TSFM_PUBLIC_ROOT", str(local_granite))
 
         short_df = create_minimal_dataset(n_series=1, n_points=32)
         dataset = TSDataset.from_dataframe(short_df, forecast_config)
