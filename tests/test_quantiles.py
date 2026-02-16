@@ -1,6 +1,6 @@
 """Tests for quantile forecasting functionality.
 
-Tests quantile prediction, ensembling, and configuration.
+Tests quantile configuration and ensemble aggregation.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from tsagentkit import ForecastConfig, TSDataset
-from tsagentkit.models import fit, predict
+from tsagentkit.models import ensemble, ensemble_with_quantiles, fit, predict, get_spec
 
 
 @pytest.fixture
@@ -58,157 +58,151 @@ class TestQuantileConfiguration:
         assert config.quantiles == (0.5,)
 
 
-class TestQuantilePrediction:
-    """Test quantile prediction in models."""
+class TestEnsembleAggregation:
+    """Test ensemble aggregation methods."""
 
-    def test_predict_with_quantiles(self, sample_df):
-        """Predict returns quantile columns."""
+    def test_ensemble_median(self, sample_df):
+        """Median ensemble of multiple models."""
         config = ForecastConfig(h=7, freq="D")
         dataset = TSDataset.from_dataframe(sample_df, config)
-        artifact = fit(dataset, "Naive")
 
-        forecast_df = predict(dataset, artifact, h=7, quantiles=[0.1, 0.5, 0.9])
+        # Get predictions from multiple models
+        specs = [get_spec("naive"), get_spec("seasonal_naive")]
+        predictions = []
+        for spec in specs:
+            artifact = fit(spec, dataset)
+            pred = predict(spec, artifact, dataset, h=7)
+            predictions.append(pred)
 
-        assert "q0.1" in forecast_df.columns
-        assert "q0.5" in forecast_df.columns
-        assert "q0.9" in forecast_df.columns
+        result = ensemble(predictions, method="median")
+        assert len(result) == 7
+        assert "yhat" in result.columns
 
-    def test_quantile_column_naming(self, sample_df):
-        """Quantile columns are named correctly."""
+    def test_ensemble_mean(self, sample_df):
+        """Mean ensemble of multiple models."""
         config = ForecastConfig(h=7, freq="D")
         dataset = TSDataset.from_dataframe(sample_df, config)
-        artifact = fit(dataset, "HistoricAverage")
 
-        forecast_df = predict(dataset, artifact, h=7, quantiles=[0.05, 0.95])
+        specs = [get_spec("naive"), get_spec("seasonal_naive")]
+        predictions = []
+        for spec in specs:
+            artifact = fit(spec, dataset)
+            pred = predict(spec, artifact, dataset, h=7)
+            predictions.append(pred)
 
-        assert "q0.05" in forecast_df.columns
-        assert "q0.95" in forecast_df.columns
+        result = ensemble(predictions, method="mean")
+        assert len(result) == 7
+        assert "yhat" in result.columns
 
-    def test_quantile_values_ordered(self, sample_df):
-        """Quantile values are properly ordered."""
+    def test_ensemble_single_prediction(self, sample_df):
+        """Ensemble with single prediction returns that prediction."""
         config = ForecastConfig(h=7, freq="D")
         dataset = TSDataset.from_dataframe(sample_df, config)
-        artifact = fit(dataset, "HistoricAverage")
 
-        forecast_df = predict(dataset, artifact, h=7, quantiles=[0.1, 0.5, 0.9])
+        spec = get_spec("naive")
+        artifact = fit(spec, dataset)
+        pred = predict(spec, artifact, dataset, h=7)
 
-        # Lower quantile should be less than higher quantile
-        assert all(forecast_df["q0.1"] <= forecast_df["q0.9"])
-        assert all(forecast_df["q0.1"] <= forecast_df["q0.5"])
-        assert all(forecast_df["q0.5"] <= forecast_df["q0.9"])
+        result = ensemble([pred])
+        pd.testing.assert_frame_equal(result, pred)
 
-    def test_median_quantile_near_mean(self, sample_df):
-        """Median (0.5) quantile should be close to point forecast."""
+
+class TestEnsembleWithQuantiles:
+    """Test ensemble with quantile columns."""
+
+    def test_ensemble_with_manual_quantiles(self, sample_df):
+        """Ensemble predictions that have quantile columns added manually."""
         config = ForecastConfig(h=7, freq="D")
         dataset = TSDataset.from_dataframe(sample_df, config)
-        artifact = fit(dataset, "HistoricAverage")
 
-        forecast_df = predict(dataset, artifact, h=7, quantiles=[0.5])
+        # Create predictions with manual quantile columns
+        spec = get_spec("naive")
+        artifact = fit(spec, dataset)
+        pred = predict(spec, artifact, dataset, h=7)
 
-        # Median should be close to yhat (point forecast)
-        assert np.allclose(forecast_df["q0.5"], forecast_df["yhat"], rtol=0.1)
+        # Simulate quantile columns (e.g., from different model runs)
+        pred1 = pred.copy()
+        pred1["q0.1"] = pred1["yhat"] * 0.9
+        pred1["q0.9"] = pred1["yhat"] * 1.1
 
-    def test_quantile_spread_increases_with_uncertainty(self, sample_df):
-        """Quantile spread reflects uncertainty."""
-        config = ForecastConfig(h=14, freq="D")
+        pred2 = pred.copy()
+        pred2["q0.1"] = pred2["yhat"] * 0.85
+        pred2["q0.9"] = pred2["yhat"] * 1.15
+
+        result = ensemble_with_quantiles([pred1, pred2], quantiles=[0.1, 0.9])
+
+        assert "q0.1" in result.columns
+        assert "q0.9" in result.columns
+
+    def test_ensemble_quantile_fallback_to_yhat(self, sample_df):
+        """When quantile column is missing, use yhat as fallback."""
+        config = ForecastConfig(h=7, freq="D")
         dataset = TSDataset.from_dataframe(sample_df, config)
-        artifact = fit(dataset, "Naive")
 
-        forecast_df = predict(dataset, artifact, h=14, quantiles=[0.1, 0.9])
+        spec = get_spec("naive")
+        artifact = fit(spec, dataset)
+        pred = predict(spec, artifact, dataset, h=7)
 
-        # Calculate spread (90% - 10%)
-        spread = forecast_df["q0.9"] - forecast_df["q0.1"]
+        # First prediction has quantiles, second doesn't
+        pred1 = pred.copy()
+        pred1["q0.5"] = pred1["yhat"]
 
-        # All spreads should be non-negative
-        assert all(spread >= 0)
+        pred2 = pred.copy()  # No quantile column
 
-    def test_quantiles_for_multi_series(self, multi_series_df):
-        """Quantiles work with multiple series."""
+        result = ensemble_with_quantiles([pred1, pred2], quantiles=[0.5])
+
+        assert "q0.5" in result.columns
+        # Result should be median of [pred1["q0.5"], pred2["yhat"]]
+        expected = np.median([pred1["q0.5"].values, pred2["yhat"].values], axis=0)
+        np.testing.assert_array_equal(result["q0.5"].values, expected)
+
+
+class TestEnsembleMultiSeries:
+    """Test ensemble with multiple series."""
+
+    def test_ensemble_multi_series(self, multi_series_df):
+        """Ensemble works with multiple series."""
         config = ForecastConfig(h=7, freq="D")
         dataset = TSDataset.from_dataframe(multi_series_df, config)
-        artifact = fit(dataset, "SeasonalNaive")
 
-        forecast_df = predict(dataset, artifact, h=7, quantiles=[0.1, 0.5, 0.9])
+        specs = [get_spec("naive"), get_spec("seasonal_naive")]
+        predictions = []
+        for spec in specs:
+            artifact = fit(spec, dataset)
+            pred = predict(spec, artifact, dataset, h=7)
+            predictions.append(pred)
 
-        # Should have 14 rows (2 series * 7 horizon)
-        assert len(forecast_df) == 14
-        assert "q0.1" in forecast_df.columns
-        assert "q0.9" in forecast_df.columns
+        result = ensemble(predictions)
 
-        # Check per series
-        for uid in ["A", "B"]:
-            series_df = forecast_df[forecast_df["unique_id"] == uid]
-            assert all(series_df["q0.1"] <= series_df["q0.9"])
-
-
-class TestQuantileValues:
-    """Test specific quantile value calculations."""
-
-    def test_known_quantile_values(self):
-        """Test with known data to verify quantile calculations."""
-        # Create data with known statistical properties
-        np.random.seed(42)
-        values = np.random.normal(loc=100, scale=10, size=100)
-
-        df = pd.DataFrame({
-            "unique_id": ["A"] * 100,
-            "ds": pd.date_range("2024-01-01", periods=100),
-            "y": values,
-        })
-
-        config = ForecastConfig(h=7, freq="D")
-        dataset = TSDataset.from_dataframe(df, config)
-        artifact = fit(dataset, "HistoricAverage")
-
-        forecast_df = predict(dataset, artifact, h=7, quantiles=[0.1, 0.5, 0.9])
-
-        # For a normal distribution:
-        # 10th percentile ≈ mean - 1.28 * std
-        # 90th percentile ≈ mean + 1.28 * std
-
-        mean_val = values.mean()
-        std_val = values.std()
-        expected_10 = mean_val - 1.28 * std_val
-        expected_90 = mean_val + 1.28 * std_val
-
-        # Check that quantiles are reasonable (within 20% of expected)
-        assert np.abs(forecast_df["q0.1"].iloc[0] - expected_10) / expected_10 < 0.2
-        assert np.abs(forecast_df["q0.9"].iloc[0] - expected_90) / expected_90 < 0.2
+        assert len(result) == 14  # 2 series * 7 horizon
+        assert set(result["unique_id"].unique()) == {"A", "B"}
 
 
-class TestQuantileEdgeCases:
-    """Test edge cases for quantiles."""
+class TestEnsembleEdgeCases:
+    """Test ensemble edge cases."""
 
-    def test_extreme_quantiles(self, sample_df):
-        """Extreme quantiles (near 0 or 1)."""
+    def test_ensemble_empty_raises(self):
+        """Empty predictions list raises EInsufficient."""
+        from tsagentkit.core.errors import EInsufficient
+
+        with pytest.raises(EInsufficient, match="No predictions"):
+            ensemble([])
+
+    def test_ensemble_unknown_method(self, sample_df):
+        """Unknown ensemble method raises ValueError."""
         config = ForecastConfig(h=7, freq="D")
         dataset = TSDataset.from_dataframe(sample_df, config)
-        artifact = fit(dataset, "Naive")
 
-        # Very extreme quantiles might be problematic but should still work
-        forecast_df = predict(dataset, artifact, h=7, quantiles=[0.01, 0.99])
+        # Need multiple predictions to trigger method validation
+        specs = [get_spec("naive"), get_spec("seasonal_naive")]
+        predictions = []
+        for spec in specs:
+            artifact = fit(spec, dataset)
+            pred = predict(spec, artifact, dataset, h=7)
+            predictions.append(pred)
 
-        assert "q0.01" in forecast_df.columns
-        assert "q0.99" in forecast_df.columns
-        assert all(forecast_df["q0.01"] <= forecast_df["q0.99"])
-
-    def test_many_quantiles(self, sample_df):
-        """Many quantiles at once."""
-        config = ForecastConfig(h=7, freq="D")
-        dataset = TSDataset.from_dataframe(sample_df, config)
-        artifact = fit(dataset, "Naive")
-
-        quantiles = [i / 10 for i in range(1, 10)]  # 0.1, 0.2, ..., 0.9
-        forecast_df = predict(dataset, artifact, h=7, quantiles=quantiles)
-
-        for q in quantiles:
-            assert f"q{q}" in forecast_df.columns
-
-        # Verify ordering
-        for i in range(len(quantiles) - 1):
-            q_low = quantiles[i]
-            q_high = quantiles[i + 1]
-            assert all(forecast_df[f"q{q_low}"] <= forecast_df[f"q{q_high}"])
+        with pytest.raises(ValueError, match="Unknown ensemble method"):
+            ensemble(predictions, method="unknown")
 
 
 if __name__ == "__main__":
