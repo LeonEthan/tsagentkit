@@ -15,8 +15,6 @@ Requirements:
 from __future__ import annotations
 
 import os
-import warnings
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -284,6 +282,71 @@ class TestMoiraiRealSmoke:
         print(f"✓ Moirai multi-series test passed: {len(forecast)} total forecasts")
 
 
+class TestPatchTSTFMRealSmoke:
+    """Real smoke tests for PatchTST-FM adapter."""
+
+    def test_patchtst_fm_loads_and_predicts(self, minimal_df, forecast_config, device):
+        """Verify PatchTST-FM can download, load, and run inference."""
+        from tsagentkit import TSDataset
+        from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
+
+        device_type = "GPU" if device == "cuda" else "MPS" if device == "mps" else "CPU"
+        print(f"\nRunning PatchTST-FM smoke test on {device_type}...")
+
+        # Create dataset
+        dataset = TSDataset.from_dataframe(minimal_df, forecast_config)
+
+        # Initialize adapter
+        adapter = PatchTSTFMAdapter(model_name="ibm-research/patchtst-fm-r1")
+
+        # Load model (downloads from HuggingFace on first run)
+        artifact = adapter.fit(dataset)
+
+        # Verify artifact structure
+        assert "model" in artifact
+        assert "model_name" in artifact
+        assert artifact["model_name"] == "ibm-research/patchtst-fm-r1"
+        assert "adapter" in artifact
+
+        # Run inference
+        forecast = adapter.predict(dataset, artifact, h=7)
+
+        # Verify forecast structure
+        assert isinstance(forecast, pd.DataFrame)
+        assert len(forecast) == 7
+        assert "unique_id" in forecast.columns
+        assert "ds" in forecast.columns
+        assert "yhat" in forecast.columns
+
+        # Verify forecast values are reasonable
+        assert not forecast["yhat"].isnull().any()
+        assert all(np.isfinite(forecast["yhat"]))
+
+        # Verify dates
+        last_data_date = minimal_df["ds"].iloc[-1]
+        expected_first_date = last_data_date + pd.Timedelta(days=1)
+        assert forecast["ds"].iloc[0] == expected_first_date
+
+        print(f"✓ PatchTST-FM smoke test passed: generated {len(forecast)} forecasts")
+
+    def test_patchtst_fm_multi_series(self, minimal_multi_series_df, forecast_config, device):
+        """Verify PatchTST-FM handles multiple series."""
+        from tsagentkit import TSDataset
+        from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
+
+        dataset = TSDataset.from_dataframe(minimal_multi_series_df, forecast_config)
+        adapter = PatchTSTFMAdapter(model_name="ibm-research/patchtst-fm-r1")
+
+        artifact = adapter.fit(dataset)
+        forecast = adapter.predict(dataset, artifact, h=7)
+
+        # Should have forecasts for all 3 series
+        assert len(forecast) == 21  # 3 series * 7 horizon
+        assert set(forecast["unique_id"].unique()) == {"S0", "S1", "S2"}
+
+        print(f"✓ PatchTST-FM multi-series test passed: {len(forecast)} total forecasts")
+
+
 class TestTSFMSmokeCommon:
     """Common smoke tests for all TSFM adapters."""
 
@@ -291,17 +354,20 @@ class TestTSFMSmokeCommon:
         """Verify all TSFM adapters can be imported."""
         from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
         from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
+        from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
         from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
 
         # Just verify we can instantiate with defaults
         chronos = ChronosAdapter()
         timesfm = TimesFMAdapter()
         moirai = MoiraiAdapter()
+        patchtst_fm = PatchTSTFMAdapter()
 
         assert chronos.model_name == "amazon/chronos-2"
         assert timesfm.context_len == 512
         assert timesfm.horizon_len == 128
         assert moirai.model_name == "Salesforce/moirai-2.0-R-small"
+        assert patchtst_fm.model_name == "ibm-research/patchtst-fm-r1"
 
     def test_different_horizons(self, minimal_df, forecast_config):
         """Verify all adapters work with different horizon values."""

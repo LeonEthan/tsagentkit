@@ -15,6 +15,7 @@ dependencies = [
     # TSFM dependencies (formerly optional)
     "torch",
     "huggingface-hub",
+    "transformers>=4.56.0",
     "chronos-forecasting>=2.0.0",
     "tsagentkit-timesfm",
     "tsagentkit-uni2ts",

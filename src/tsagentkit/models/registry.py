@@ -53,6 +53,13 @@ REGISTRY: dict[str, ModelSpec] = {
         requires=["tsagentkit_uni2ts", "gluonts", "torch"],  # pip install tsagentkit-uni2ts
         is_tsfm=True,
     ),
+    "patchtst_fm": ModelSpec(
+        name="patchtst_fm",
+        adapter_path="tsagentkit.models.adapters.tsfm.patchtst_fm",
+        config_fields={"model_name": "ibm-research/patchtst-fm-r1"},
+        requires=["transformers", "torch"],  # pip install transformers torch
+        is_tsfm=True,
+    ),
     "naive": ModelSpec(
         name="naive",
         adapter_path="tsagentkit.models.adapters.baseline.naive",
