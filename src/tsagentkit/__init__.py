@@ -1,9 +1,8 @@
 """tsagentkit - Minimalist time-series forecasting for AI agents.
 
-This library provides a strict, production-grade execution engine for
-time-series forecasting with TSFM-first strategy and automatic fallback.
+Ultra-lightweight execution engine for time-series forecasting with TSFM ensemble.
 
-Version 2.0.0 - Nanobot-Inspired Refactoring
+Version 2.0.0 - Nanobot-Inspired Architecture
 
 Basic usage:
     >>> from tsagentkit import forecast
@@ -31,7 +30,7 @@ __version__ = "2.0.0"
 
 # Core API
 from tsagentkit.core.config import ForecastConfig
-from tsagentkit.core.data import CovariateSet, TSDataset
+from tsagentkit.core.dataset import CovariateSet, TSDataset
 from tsagentkit.core.errors import (
     EContract,
     EInsufficient,
@@ -41,53 +40,57 @@ from tsagentkit.core.errors import (
 )
 from tsagentkit.core.results import ForecastResult, RunResult
 
-# Main entry points
-from tsagentkit.pipeline.runner import forecast, run_pipeline
+# Main entry points (Standard Pipeline)
+from tsagentkit.pipeline import forecast, run_forecast
+
+# Agent Building (granular control)
+from tsagentkit.pipeline import (
+    build_dataset,
+    ensemble,
+    fit_all,
+    make_plan,
+    predict_all,
+    validate,
+)
 
 # Model Cache (for explicit lifecycle management)
 from tsagentkit.models.cache import ModelCache
 
 # Registry (for agent building)
-from tsagentkit.models.registry import REGISTRY, ModelSpec, list_models, list_available
+from tsagentkit.models.registry import REGISTRY, ModelSpec, list_models
 
 # Inspection utilities
 from tsagentkit.inspect import check_health, list_models as inspect_list_models
 
-# Legacy aliases for backward compatibility
-EContractViolation = EContract
-EDataQuality = EContract
-EModelFailed = EInsufficient
-ETSFMRequired = ENoTSFM
-
 __all__ = [
     "__version__",
-    # Core
+    # Standard Pipeline
     "forecast",
-    "run_pipeline",
+    "run_forecast",
     "ForecastConfig",
+    "ForecastResult",
     "TSDataset",
     "CovariateSet",
-    "RunResult",
-    "ForecastResult",
+    # Agent Building
+    "validate",
+    "build_dataset",
+    "make_plan",
+    "fit_all",
+    "predict_all",
+    "ensemble",
     # Model Cache
     "ModelCache",
     # Registry
     "REGISTRY",
     "ModelSpec",
     "list_models",
-    "list_available",
     # Inspection
     "check_health",
     "inspect_list_models",
-    # Errors (new names)
+    # Errors
     "TSAgentKitError",
     "EContract",
     "ENoTSFM",
     "EInsufficient",
     "ETemporal",
-    # Errors (legacy aliases)
-    "EContractViolation",
-    "EDataQuality",
-    "EModelFailed",
-    "ETSFMRequired",
 ]

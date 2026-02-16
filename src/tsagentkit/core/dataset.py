@@ -72,9 +72,9 @@ class TSDataset:
         required = [config.id_col, config.time_col, config.target_col]
         missing = [c for c in required if c not in df.columns]
         if missing:
-            from tsagentkit.core.errors import EContractViolation
+            from tsagentkit.core.errors import EContract
 
-            raise EContractViolation(
+            raise EContract(
                 f"Missing required columns: {missing}",
                 context={"required": required, "found": list(df.columns)},
             )

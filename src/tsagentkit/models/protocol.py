@@ -15,7 +15,7 @@ from tsagentkit.models.cache import ModelCache
 from tsagentkit.models.registry import ModelSpec
 
 if TYPE_CHECKING:
-    from tsagentkit.core.data import TSDataset
+    from tsagentkit.core.dataset import TSDataset
 
 
 ModelArtifact = Any  # Adapter decides what to store

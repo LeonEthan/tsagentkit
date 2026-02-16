@@ -1,6 +1,7 @@
 """Chronos2 TSFM adapter for tsagentkit.
 
 Wraps Amazon's Chronos2 model for zero-shot time series forecasting.
+Uses chronos library (pip install chronos-forecasting) with amazon/chronos-2 model.
 Uses module-level caching for efficient model reuse.
 """
 
@@ -11,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 if TYPE_CHECKING:
-    from tsagentkit.core.data import TSDataset
+    from tsagentkit.core.dataset import TSDataset
 
 
 # Module-level cache for the loaded model
@@ -23,6 +24,9 @@ _default_model_name: str = "amazon/chronos-2"
 def load(model_name: str = "amazon/chronos-2") -> Any:
     """Load pretrained Chronos2 model.
 
+    Uses chronos library (https://github.com/amazon-science/chronos-forecasting)
+    Install: pip install chronos-forecasting pandas pyarrow
+
     Args:
         model_name: Chronos model version (amazon/chronos-2, amazon/chronos-2-small, etc.)
 
@@ -32,6 +36,7 @@ def load(model_name: str = "amazon/chronos-2") -> Any:
     global _loaded_model, _default_model_name
 
     if _loaded_model is None or _default_model_name != model_name:
+        # chronos package import (from chronos-forecasting)
         from chronos import Chronos2Pipeline
 
         _loaded_model = Chronos2Pipeline.from_pretrained(
@@ -111,3 +116,30 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
         forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)
+
+
+# Backward compatibility wrapper
+class ChronosAdapter:
+    """Backward-compatible wrapper for Chronos adapter.
+
+    DEPRECATED: Use module-level functions directly:
+        from tsagentkit.models.adapters.tsfm.chronos import load, fit, predict
+        model = load(model_name="amazon/chronos-2")
+        artifact = fit(dataset)  # or just use load()
+        forecast = predict(artifact, dataset, h=7)
+    """
+
+    def __init__(self, model_name: str = "amazon/chronos-2"):
+        self.model_name = model_name
+
+    def fit(self, dataset: TSDataset) -> dict[str, Any]:
+        """Load model and return artifact."""
+        model = load(self.model_name)
+        return {"pipeline": model, "model_name": self.model_name, "adapter": self}
+
+    def predict(self, dataset: TSDataset, artifact: dict[str, Any], h: int) -> pd.DataFrame:
+        """Generate forecasts."""
+        model = artifact.get("pipeline", _loaded_model)
+        if model is None:
+            model = load(self.model_name)
+        return predict(model, dataset, h)

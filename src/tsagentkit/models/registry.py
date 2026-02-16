@@ -34,35 +34,35 @@ class ModelSpec:
 REGISTRY: dict[str, ModelSpec] = {
     "chronos": ModelSpec(
         name="chronos",
-        adapter_path="tsagentkit.models.adapters.chronos",
+        adapter_path="tsagentkit.models.adapters.tsfm.chronos",
         config_fields={"model_name": "amazon/chronos-2"},
-        requires=["chronos", "torch"],
+        requires=["chronos", "torch"],  # pip install chronos-forecasting
         is_tsfm=True,
     ),
     "timesfm": ModelSpec(
         name="timesfm",
-        adapter_path="tsagentkit.models.adapters.timesfm",
+        adapter_path="tsagentkit.models.adapters.tsfm.timesfm",
         config_fields={},
-        requires=["tsagentkit_timesfm"],
+        requires=["tsagentkit_timesfm", "torch"],  # pip install tsagentkit-timesfm
         is_tsfm=True,
     ),
     "moirai": ModelSpec(
         name="moirai",
-        adapter_path="tsagentkit.models.adapters.moirai",
+        adapter_path="tsagentkit.models.adapters.tsfm.moirai",
         config_fields={"model_name": "Salesforce/moirai-2.0-R-small"},
-        requires=["tsagentkit_uni2ts", "torch"],
+        requires=["tsagentkit_uni2ts", "gluonts", "torch"],  # pip install tsagentkit-uni2ts
         is_tsfm=True,
     ),
     "naive": ModelSpec(
         name="naive",
-        adapter_path="tsagentkit.models.adapters.naive",
+        adapter_path="tsagentkit.models.adapters.baseline.naive",
         config_fields={},
         requires=["statsforecast"],
         is_tsfm=False,
     ),
     "seasonal_naive": ModelSpec(
         name="seasonal_naive",
-        adapter_path="tsagentkit.models.adapters.seasonal",
+        adapter_path="tsagentkit.models.adapters.baseline.seasonal",
         config_fields={},
         requires=["statsforecast"],
         is_tsfm=False,

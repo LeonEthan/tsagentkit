@@ -24,118 +24,46 @@ class ForecastConfig:
         id_col: Column name for series identifier
         time_col: Column name for timestamp
         target_col: Column name for target variable
-        mode: Execution mode - affects backtest and strictness
-        tsfm_mode: TSFM policy - 'required', 'preferred', or 'disabled'
-        n_backtest_windows: Number of rolling windows for backtest (0 to skip)
-        min_train_size: Minimum observations required per series
-        allow_fallback: Whether to allow fallback to simpler models on failure
         ensemble_method: How to aggregate ensemble forecasts ('median' or 'mean')
-        require_all_tsfm: If True, fail if any TSFM model fails
-        min_models_for_ensemble: Minimum successful models required
+        min_tsfm: Minimum TSFMs required for ensemble
+        fail_on_missing_tsfm: If True, abort if TSFM unavailable
     """
 
-    # Core forecasting parameters
+    # Required
     h: int
     freq: str = "D"
 
-    # Output configuration
-    quantiles: list[float] = field(default_factory=lambda: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
+    # Ensemble
+    ensemble_method: Literal["median", "mean"] = "median"
+    min_tsfm: int = 1  # Min TSFMs required
+
+    # Behavior
+    fail_on_missing_tsfm: bool = False  # True = abort if TSFM unavailable
+
+    # Output
+    quantiles: tuple[float, ...] = (0.1, 0.5, 0.9)
 
     # Column names (panel contract simplified)
     id_col: str = "unique_id"
     time_col: str = "ds"
     target_col: str = "y"
 
-    # Execution mode
-    mode: Literal["quick", "standard", "strict"] = "standard"
-
-    # TSFM policy (simplified from TSFMPolicy)
-    tsfm_mode: Literal["required", "preferred", "disabled"] = "preferred"
-
-    # Backtest configuration (simplified from BacktestSpec)
-    n_backtest_windows: int = 5
-    min_train_size: int = 56
-
-    # Fallback behavior
-    allow_fallback: bool = True
-
-    # Ensemble configuration
-    ensemble_method: Literal["median", "mean"] = "median"
-    require_all_tsfm: bool = False
-    min_models_for_ensemble: int = 1
-
     def __post_init__(self) -> None:
         # Validation
         if self.h <= 0:
             raise ValueError(f"h must be positive, got {self.h}")
-        if self.n_backtest_windows < 0:
-            raise ValueError("n_backtest_windows must be non-negative")
-        if self.min_models_for_ensemble < 1:
-            raise ValueError("min_models_for_ensemble must be at least 1")
+        if self.min_tsfm < 1:
+            raise ValueError("min_tsfm must be at least 1")
 
-    @classmethod
-    def quick(cls, h: int, freq: str = "D") -> ForecastConfig:
-        """Quick experimentation preset.
+    @staticmethod
+    def quick(h: int, freq: str = "D") -> "ForecastConfig":
+        """Quick preset - minimal validation, allows fallback."""
+        return ForecastConfig(h=h, freq=freq, fail_on_missing_tsfm=False)
 
-        Uses minimal backtest (2 windows), allows TSFM fallback to baselines.
-        """
-        return cls(
-            h=h,
-            freq=freq,
-            mode="quick",
-            tsfm_mode="preferred",
-            n_backtest_windows=2,
-            allow_fallback=True,
-        )
-
-    @classmethod
-    def standard(cls, h: int, freq: str = "D") -> ForecastConfig:
-        """Standard preset - balanced for most use cases."""
-        return cls(
-            h=h,
-            freq=freq,
-            mode="standard",
-            tsfm_mode="required",
-            n_backtest_windows=5,
-            allow_fallback=True,
-        )
-
-    @classmethod
-    def strict(cls, h: int, freq: str = "D") -> ForecastConfig:
-        """Strict preset - fails fast on any issues.
-
-        No auto-repair, no fallback, requires TSFM, all TSFM must succeed.
-        """
-        return cls(
-            h=h,
-            freq=freq,
-            mode="strict",
-            tsfm_mode="required",
-            n_backtest_windows=5,
-            allow_fallback=False,
-            require_all_tsfm=True,
-        )
-
-    def with_covariates(
-        self,
-        static: list[str] | None = None,
-        past: list[str] | None = None,
-        future: list[str] | None = None,
-    ) -> ForecastConfig:
-        """Return config with covariate columns specified.
-
-        Note: This is a simplified approach - covariates are referenced
-        by column names in the main DataFrame or provided separately.
-        """
-        # Store covariate config in extra (for now)
-        extra = getattr(self, "_extra", {})
-        extra["covariates"] = {
-            "static": static or [],
-            "past": past or [],
-            "future": future or [],
-        }
-        object.__setattr__(self, "_extra", extra)
-        return self
+    @staticmethod
+    def strict(h: int, freq: str = "D") -> "ForecastConfig":
+        """Strict preset - fail fast if TSFM unavailable."""
+        return ForecastConfig(h=h, freq=freq, fail_on_missing_tsfm=True, min_tsfm=1)
 
     @property
     def season_length(self) -> int | None:

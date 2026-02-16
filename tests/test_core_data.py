@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from tsagentkit import CovariateSet, ForecastConfig, TSDataset
-from tsagentkit.core.errors import EContractViolation
+from tsagentkit.core.errors import EContract
 
 
 @pytest.fixture
@@ -127,7 +127,7 @@ class TestTSDatasetCreation:
     def test_from_dataframe_missing_column(self, sample_df, config):
         """Raise error if column missing."""
         df_missing = sample_df.drop(columns=["y"])
-        with pytest.raises(EContractViolation) as exc_info:
+        with pytest.raises(EContract) as exc_info:
             TSDataset.from_dataframe(df_missing, config)
         assert "Missing required columns" in str(exc_info.value)
         assert "y" in str(exc_info.value)
@@ -135,7 +135,7 @@ class TestTSDatasetCreation:
     def test_from_dataframe_missing_multiple_columns(self, config):
         """Raise error if multiple columns missing."""
         df = pd.DataFrame({"x": [1, 2, 3]})
-        with pytest.raises(EContractViolation) as exc_info:
+        with pytest.raises(EContract) as exc_info:
             TSDataset.from_dataframe(df, config)
         assert "unique_id" in str(exc_info.value)
         assert "ds" in str(exc_info.value)

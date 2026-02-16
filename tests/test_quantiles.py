@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tsagentkit import ForecastConfig, TSDataset, forecast
+from tsagentkit import ForecastConfig, TSDataset
 from tsagentkit.models import fit, predict
 
 
@@ -43,24 +43,19 @@ class TestQuantileConfiguration:
     """Test quantile configuration."""
 
     def test_default_quantiles(self):
-        """Default quantiles are [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]."""
+        """Default quantiles are (0.1, 0.5, 0.9)."""
         config = ForecastConfig(h=7, freq="D")
-        assert config.quantiles == [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+        assert config.quantiles == (0.1, 0.5, 0.9)
 
     def test_custom_quantiles(self):
         """Can set custom quantiles."""
-        config = ForecastConfig(h=7, freq="D", quantiles=[0.05, 0.25, 0.5, 0.75, 0.95])
-        assert config.quantiles == [0.05, 0.25, 0.5, 0.75, 0.95]
+        config = ForecastConfig(h=7, freq="D", quantiles=(0.05, 0.25, 0.5, 0.75, 0.95))
+        assert config.quantiles == (0.05, 0.25, 0.5, 0.75, 0.95)
 
     def test_single_quantile(self):
         """Can set single quantile."""
-        config = ForecastConfig(h=7, freq="D", quantiles=[0.5])
-        assert config.quantiles == [0.5]
-
-    def test_empty_quantiles(self):
-        """Empty quantiles list means no quantile forecasts."""
-        config = ForecastConfig(h=7, freq="D", quantiles=[])
-        assert config.quantiles == []
+        config = ForecastConfig(h=7, freq="D", quantiles=(0.5,))
+        assert config.quantiles == (0.5,)
 
 
 class TestQuantilePrediction:
@@ -88,17 +83,6 @@ class TestQuantilePrediction:
 
         assert "q0.05" in forecast_df.columns
         assert "q0.95" in forecast_df.columns
-
-    def test_no_quantiles_when_empty_list(self, sample_df):
-        """No quantile columns when quantiles list is empty."""
-        config = ForecastConfig(h=7, freq="D")
-        dataset = TSDataset.from_dataframe(sample_df, config)
-        artifact = fit(dataset, "Naive")
-
-        forecast_df = predict(dataset, artifact, h=7, quantiles=[])
-
-        quantile_cols = [c for c in forecast_df.columns if c.startswith("q")]
-        assert len(quantile_cols) == 0
 
     def test_quantile_values_ordered(self, sample_df):
         """Quantile values are properly ordered."""
@@ -155,50 +139,6 @@ class TestQuantilePrediction:
         for uid in ["A", "B"]:
             series_df = forecast_df[forecast_df["unique_id"] == uid]
             assert all(series_df["q0.1"] <= series_df["q0.9"])
-
-
-class TestEndToEndQuantiles:
-    """Test end-to-end quantile forecasting."""
-
-    @pytest.mark.skip(reason="Quantiles require TSFM models that support them - Naive/SeasonalNaive don't generate quantiles")
-    def test_forecast_with_quantiles(self, sample_df):
-        """End-to-end forecast with quantiles.
-
-        NOTE: This test is skipped because statistical models (Naive, SeasonalNaive)
-        don't generate quantile predictions. To test quantiles, TSFMs that support
-        quantile output are needed (Chronos, TimesFM, Moirai).
-        """
-        result = forecast(
-            sample_df,
-            h=7,
-            freq="D",
-            tsfm_mode="disabled",
-            quantiles=[0.1, 0.5, 0.9],
-        )
-
-        forecast_df = result.forecast.df
-
-        assert "q0.1" in forecast_df.columns
-        assert "q0.5" in forecast_df.columns
-        assert "q0.9" in forecast_df.columns
-
-        # Verify ordering
-        assert all(forecast_df["q0.1"] <= forecast_df["q0.9"])
-
-    def test_forecast_without_quantiles(self, sample_df):
-        """End-to-end forecast without quantiles."""
-        result = forecast(
-            sample_df,
-            h=7,
-            freq="D",
-            tsfm_mode="disabled",
-            quantiles=[],
-        )
-
-        forecast_df = result.forecast.df
-
-        quantile_cols = [c for c in forecast_df.columns if c.startswith("q")]
-        assert len(quantile_cols) == 0
 
 
 class TestQuantileValues:

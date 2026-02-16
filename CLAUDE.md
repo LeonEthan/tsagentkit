@@ -392,7 +392,7 @@ class EContract(TSAgentKitError):
 class ENoTSFM(TSAgentKitError):
     """No TSFM adapters available."""
     code = "E_NO_TSFM"
-    hint = "Install a TSFM: pip install chronos-timesfm"
+    hint = "Install TSFMs: pip install chronos-forecasting tsagentkit-timesfm tsagentkit-uni2ts gluonts"
 
 class EInsufficient(TSAgentKitError):
     """Not enough TSFMs succeeded."""
@@ -406,6 +406,153 @@ class ETemporal(TSAgentKitError):
 ```
 
 **Benefit**: 4 errors cover 99% of cases. Each has a fix hint.
+
+---
+
+## TSFM Adapter Reference
+
+### Chronos 2 (Amazon)
+
+**Installation**: `pip install chronos-forecasting pandas pyarrow`
+
+**Usage**:
+```python
+from tsagentkit.models.adapters.tsfm.chronos import load, predict
+from tsagentkit import TSDataset, ForecastConfig
+
+# Load model
+model = load(model_name="amazon/chronos-2")  # or amazon/chronos-2-small
+
+# Create dataset
+config = ForecastConfig(h=7, freq="D")
+dataset = TSDataset.from_dataframe(df, config)
+
+# Predict
+forecast_df = predict(model, dataset, h=7)
+```
+
+**Direct API** (without tsagentkit):
+```python
+from chronos import Chronos2Pipeline
+import torch
+
+pipeline = Chronos2Pipeline.from_pretrained(
+    "amazon/chronos-2",
+    device_map="cuda"  # or "cpu"
+)
+
+# Predict quantiles directly
+quantiles, mean = pipeline.predict_quantiles(
+    context=torch.tensor(df["y"].values),
+    prediction_length=7,
+    quantile_levels=[0.1, 0.5, 0.9],
+)
+```
+
+### TimesFM 2.5 (Google)
+
+**Installation**: `pip install tsagentkit-timesfm`
+
+**Usage**:
+```python
+from tsagentkit.models.adapters.tsfm.timesfm import load, predict
+from tsagentkit import TSDataset, ForecastConfig
+
+# Load model
+model = load()  # Loads google/timesfm-2.5-200m-pytorch
+
+# Create dataset
+config = ForecastConfig(h=7, freq="D")
+dataset = TSDataset.from_dataframe(df, config)
+
+# Predict
+forecast_df = predict(model, dataset, h=7)
+```
+
+**Direct API** (without tsagentkit):
+```python
+import timesfm
+import numpy as np
+
+# Load model
+model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
+    "google/timesfm-2.5-200m-pytorch"
+)
+
+# Configure
+model.compile(
+    timesfm.ForecastConfig(
+        max_context=1024,
+        max_horizon=256,
+        normalize_inputs=True,
+        use_continuous_quantile_head=True,
+    )
+)
+
+# Forecast
+point_forecast, quantile_forecast = model.forecast(
+    horizon=7,
+    inputs=[np.array(df["y"].values)],
+    freq=[0],  # 0=high freq (daily), 1=medium, 2=low
+)
+```
+
+### Moirai 2.0 (Salesforce)
+
+**Installation**: `pip install tsagentkit-uni2ts`
+
+**Usage**:
+```python
+from tsagentkit.models.adapters.tsfm.moirai import load, predict
+from tsagentkit import TSDataset, ForecastConfig
+
+# Load model
+model = load(model_name="Salesforce/moirai-2.0-R-small")
+
+# Create dataset
+config = ForecastConfig(h=7, freq="D")
+dataset = TSDataset.from_dataframe(df, config)
+
+# Predict
+forecast_df = predict(model, dataset, h=7)
+```
+
+**Direct API** (without tsagentkit):
+```python
+from tsagentkit_uni2ts.model.moirai2 import Moirai2Forecast, Moirai2Module
+from gluonts.dataset.pandas import PandasDataset
+import pandas as pd
+
+# Load model
+module = Moirai2Module.from_pretrained("Salesforce/moirai-2.0-R-small")
+
+# Create forecaster
+forecaster = Moirai2Forecast(
+    module=module,
+    prediction_length=7,
+    context_length=1680,  # Moirai 2.0 recommended context
+    target_dim=1,  # Univariate
+    feat_dynamic_real_dim=0,
+    past_feat_dynamic_real_dim=0,
+)
+
+# Create predictor
+predictor = forecaster.create_predictor(batch_size=32)
+
+# Prepare data (GluonTS format)
+ts_df = pd.DataFrame({
+    "target": df["y"].values,
+}, index=pd.date_range(start=df["ds"].iloc[0], periods=len(df), freq="D"))
+
+gts_dataset = PandasDataset([{
+    "target": ts_df["target"].values,
+    "start": ts_df.index[0]
+}])
+
+# Predict
+forecasts = list(predictor.predict(gts_dataset))
+median_forecast = forecasts[0].quantile(0.5)
+```
 
 ---
 
@@ -429,15 +576,12 @@ from tsagentkit.core.dataset import TSDataset
 # ModelCache manages this automatically
 _loaded_model: Any | None = None
 
-def load(context_length: int = 512) -> Any:
+def load(model_name: str = "my-model") -> Any:
     """Load model weights. Called by ModelCache on first use."""
     global _loaded_model
     if _loaded_model is None:
-        from mytsfm import MyTSFMModel
-        _loaded_model = MyTSFMModel.from_pretrained(
-            "mytsfm/base",
-            context_length=context_length
-        )
+        from mytsfm_library import MyTSFMModel
+        _loaded_model = MyTSFMModel.from_pretrained(model_name)
     return _loaded_model
 
 def unload() -> None:
@@ -445,19 +589,37 @@ def unload() -> None:
     global _loaded_model
     _loaded_model = None
 
+def fit(dataset: TSDataset) -> Any:
+    """TSFMs are pre-trained, no fitting needed."""
+    return load()
+
 def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
     """Generate predictions using loaded model."""
-    # TSFMs are pre-trained, no fitting needed
-    predictions = model.predict(
-        dataset.df,
-        h=h,
-        freq=dataset.freq
-    )
-    return pd.DataFrame({
-        "unique_id": dataset.unique_ids,
-        "ds": dataset.future_dates(h),
-        "yhat": predictions,
-    })
+    forecasts = []
+    id_col = dataset.config.id_col
+    time_col = dataset.config.time_col
+    target_col = dataset.config.target_col
+
+    for unique_id in dataset.df[id_col].unique():
+        mask = dataset.df[id_col] == unique_id
+        series_df = dataset.df[mask].sort_values(time_col)
+        context = series_df[target_col].values
+
+        # Generate forecast
+        prediction = model.predict(context, h)
+
+        # Create forecast DataFrame
+        last_date = series_df[time_col].iloc[-1]
+        future_dates = pd.date_range(start=last_date, periods=h + 1, freq=dataset.config.freq)[1:]
+
+        forecast_df = pd.DataFrame({
+            id_col: unique_id,
+            time_col: future_dates,
+            "yhat": prediction,
+        })
+        forecasts.append(forecast_df)
+
+    return pd.concat(forecasts, ignore_index=True)
 ```
 
 ### Step 2: Register in Registry (1 line)

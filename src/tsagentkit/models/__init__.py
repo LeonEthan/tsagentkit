@@ -21,7 +21,7 @@ from tsagentkit.models.registry import (
 )
 
 if TYPE_CHECKING:
-    from tsagentkit.core.data import TSDataset
+    from tsagentkit.core.dataset import TSDataset
 
 
 def fit(dataset: TSDataset, model_name: str) -> Any:

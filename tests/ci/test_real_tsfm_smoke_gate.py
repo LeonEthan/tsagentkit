@@ -97,7 +97,7 @@ class TestChronosRealSmoke:
     def test_chronos_loads_and_predicts(self, minimal_df, forecast_config, device):
         """Verify Chronos can download, load, and run inference."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.chronos import ChronosAdapter
+        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
 
         device_type = "GPU" if device == "cuda" else "MPS" if device == "mps" else "CPU"
         print(f"\nRunning Chronos smoke test on {device_type}...")
@@ -141,7 +141,7 @@ class TestChronosRealSmoke:
     def test_chronos_multi_series(self, minimal_multi_series_df, forecast_config, device):
         """Verify Chronos handles multiple series."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.chronos import ChronosAdapter
+        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
 
         dataset = TSDataset.from_dataframe(minimal_multi_series_df, forecast_config)
         adapter = ChronosAdapter(model_name="chronos-t5-tiny")
@@ -162,7 +162,7 @@ class TestTimesFMRealSmoke:
     def test_timesfm_loads_and_predicts(self, minimal_df, forecast_config, device):
         """Verify TimesFM can download, load, and run inference."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.timesfm import TimesFMAdapter
+        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
 
         device_type = "GPU" if device == "cuda" else "MPS" if device == "mps" else "CPU"
         print(f"\nRunning TimesFM smoke test on {device_type}...")
@@ -204,7 +204,7 @@ class TestTimesFMRealSmoke:
     def test_timesfm_multi_series(self, minimal_multi_series_df, forecast_config, device):
         """Verify TimesFM handles multiple series."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.timesfm import TimesFMAdapter
+        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
 
         dataset = TSDataset.from_dataframe(minimal_multi_series_df, forecast_config)
         adapter = TimesFMAdapter(context_len=128, horizon_len=64)
@@ -225,7 +225,7 @@ class TestMoiraiRealSmoke:
     def test_moirai_loads_and_predicts(self, minimal_df, forecast_config, device):
         """Verify Moirai can download, load, and run inference."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.moirai import MoiraiAdapter
+        from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
 
         device_type = "GPU" if device == "cuda" else "MPS" if device == "mps" else "CPU"
         print(f"\nRunning Moirai smoke test on {device_type}...")
@@ -269,7 +269,7 @@ class TestMoiraiRealSmoke:
     def test_moirai_multi_series(self, minimal_multi_series_df, forecast_config, device):
         """Verify Moirai handles multiple series."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.moirai import MoiraiAdapter
+        from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
 
         dataset = TSDataset.from_dataframe(minimal_multi_series_df, forecast_config)
         adapter = MoiraiAdapter(model_name="moirai-1.1-R-small")
@@ -289,9 +289,9 @@ class TestTSFMSmokeCommon:
 
     def test_all_adapters_available(self):
         """Verify all TSFM adapters can be imported."""
-        from tsagentkit.models.adapters.chronos import ChronosAdapter
-        from tsagentkit.models.adapters.moirai import MoiraiAdapter
-        from tsagentkit.models.adapters.timesfm import TimesFMAdapter
+        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
+        from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
+        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
 
         # Just verify we can instantiate with defaults
         chronos = ChronosAdapter()
@@ -306,7 +306,7 @@ class TestTSFMSmokeCommon:
     def test_different_horizons(self, minimal_df, forecast_config):
         """Verify all adapters work with different horizon values."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.chronos import ChronosAdapter
+        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
 
         dataset = TSDataset.from_dataframe(minimal_df, forecast_config)
         adapter = ChronosAdapter(model_name="chronos-t5-tiny")
@@ -322,7 +322,7 @@ class TestTSFMSmokeCommon:
     def test_frequency_handling(self, device):
         """Verify adapters handle different frequencies."""
         from tsagentkit import ForecastConfig, TSDataset
-        from tsagentkit.models.adapters.timesfm import TimesFMAdapter
+        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
 
         # Test with daily frequency
         np.random.seed(42)
