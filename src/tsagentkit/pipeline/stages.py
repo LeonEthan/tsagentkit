@@ -6,8 +6,9 @@ Stages are composed in the runner to form the complete pipeline.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 import pandas as pd
 
@@ -164,7 +165,7 @@ def _fit_and_predict_single(
 
     Returns None if the model fails.
     """
-    from tsagentkit.models import fit, predict, fit_tsfm, predict_tsfm
+    from tsagentkit.models import fit, fit_tsfm, predict, predict_tsfm
 
     try:
         if candidate.is_tsfm:

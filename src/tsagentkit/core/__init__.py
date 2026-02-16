@@ -7,11 +7,11 @@ following a minimalist design philosophy.
 from tsagentkit.core.config import ForecastConfig
 from tsagentkit.core.data import CovariateSet, TSDataset
 from tsagentkit.core.errors import (
-    TSAgentKitError,
     EContractViolation,
     EDataQuality,
     EModelFailed,
     ETSFMRequired,
+    TSAgentKitError,
 )
 from tsagentkit.core.results import ForecastResult, RunResult
 

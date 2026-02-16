@@ -7,7 +7,7 @@ CovariateSpec, BacktestSpec, etc. with a single, minimal configuration class.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -39,7 +39,7 @@ class ForecastConfig:
     freq: str = "D"
 
     # Output configuration
-    quantiles: list[float] = field(default_factory=lambda: [0.1, 0.5, 0.9])
+    quantiles: list[float] = field(default_factory=lambda: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
 
     # Column names (panel contract simplified)
     id_col: str = "unique_id"
@@ -69,9 +69,9 @@ class ForecastConfig:
         if self.h <= 0:
             raise ValueError(f"h must be positive, got {self.h}")
         if self.n_backtest_windows < 0:
-            raise ValueError(f"n_backtest_windows must be non-negative")
+            raise ValueError("n_backtest_windows must be non-negative")
         if self.min_models_for_ensemble < 1:
-            raise ValueError(f"min_models_for_ensemble must be at least 1")
+            raise ValueError("min_models_for_ensemble must be at least 1")
 
     @classmethod
     def quick(cls, h: int, freq: str = "D") -> ForecastConfig:

@@ -10,11 +10,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tsagentkit import forecast, ForecastConfig
-from tsagentkit.core.config import ForecastConfig
+from tsagentkit import ForecastConfig, forecast
 from tsagentkit.core.data import TSDataset
-from tsagentkit.pipeline.stages import _compute_ensemble, ensemble_stage
-from tsagentkit.router import build_plan, inspect_tsfm_adapters, Plan
+from tsagentkit.pipeline.stages import _compute_ensemble
+from tsagentkit.router import build_plan, inspect_tsfm_adapters
 
 
 @pytest.fixture
