@@ -129,29 +129,3 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
     return pd.concat(forecasts, ignore_index=True)
 
 
-# Backward compatibility wrapper
-class TimesFMAdapter:
-    """Backward-compatible wrapper for TimesFM adapter.
-
-    DEPRECATED: Use module-level functions directly:
-        from tsagentkit.models.adapters.tsfm.timesfm import load, fit, predict
-        model = load()
-        artifact = fit(dataset)
-        forecast = predict(artifact, dataset, h=7)
-    """
-
-    def __init__(self, context_len: int = 512, horizon_len: int = 128):
-        self.context_len = context_len
-        self.horizon_len = horizon_len
-
-    def fit(self, dataset: TSDataset) -> dict[str, Any]:
-        """Load model and return artifact."""
-        model = load()
-        return {"model": model, "adapter": self}
-
-    def predict(self, dataset: TSDataset, artifact: dict[str, Any], h: int) -> pd.DataFrame:
-        """Generate forecasts."""
-        model = artifact.get("model", _loaded_model)
-        if model is None:
-            model = load()
-        return predict(model, dataset, h)

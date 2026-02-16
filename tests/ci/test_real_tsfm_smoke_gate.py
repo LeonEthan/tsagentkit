@@ -95,14 +95,13 @@ class TestChronosRealSmoke:
     def test_chronos_handles_short_context(self, forecast_config):
         """Verify Chronos handles short context inputs without NaN outputs."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
+        from tsagentkit.models.adapters.tsfm.chronos import load, predict
 
         short_df = create_minimal_dataset(n_series=1, n_points=10)
         dataset = TSDataset.from_dataframe(short_df, forecast_config)
-        adapter = ChronosAdapter(model_name="amazon/chronos-2")
+        model = load(model_name="amazon/chronos-2")
 
-        artifact = adapter.fit(dataset)
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         assert isinstance(forecast, pd.DataFrame)
         assert len(forecast) == 7
@@ -114,19 +113,17 @@ class TestChronosRealSmoke:
     def test_chronos_handles_nan_input(self, forecast_config):
         """Verify Chronos handles NaN values in input (padding/fallback)."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
+        from tsagentkit.models.adapters.tsfm.chronos import load, predict
 
         df = create_minimal_dataset(n_series=1, n_points=50)
         df.loc[5:10, "y"] = np.nan  # Insert NaN values
 
         dataset = TSDataset.from_dataframe(df, forecast_config)
-        adapter = ChronosAdapter(model_name="amazon/chronos-2")
-
-        artifact = adapter.fit(dataset)
+        model = load(model_name="amazon/chronos-2")
 
         # Should either produce valid forecast or raise proper error
         try:
-            forecast = adapter.predict(dataset, artifact, h=7)
+            forecast = predict(model, dataset, h=7)
             assert not forecast["yhat"].isnull().any()
             assert all(np.isfinite(forecast["yhat"]))
             print("✓ Chronos NaN input handled (with forecast)")
@@ -137,7 +134,7 @@ class TestChronosRealSmoke:
     def test_chronos_loads_and_predicts(self, minimal_df, forecast_config, device):
         """Verify Chronos can download, load, and run inference."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
+        from tsagentkit.models.adapters.tsfm.chronos import load, predict
 
         device_type = "GPU" if device == "cuda" else "MPS" if device == "mps" else "CPU"
         print(f"\nRunning Chronos smoke test on {device_type}...")
@@ -145,20 +142,11 @@ class TestChronosRealSmoke:
         # Create dataset
         dataset = TSDataset.from_dataframe(minimal_df, forecast_config)
 
-        # Initialize adapter with chronos-2 model
-        adapter = ChronosAdapter(model_name="amazon/chronos-2")
-
         # Load model (downloads from HuggingFace on first run)
-        artifact = adapter.fit(dataset)
-
-        # Verify artifact structure
-        assert "pipeline" in artifact
-        assert "model_name" in artifact
-        assert artifact["model_name"] == "amazon/chronos-2"
-        assert "adapter" in artifact
+        model = load(model_name="amazon/chronos-2")
 
         # Run inference
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         # Verify forecast structure
         assert isinstance(forecast, pd.DataFrame)
@@ -181,13 +169,12 @@ class TestChronosRealSmoke:
     def test_chronos_multi_series(self, minimal_multi_series_df, forecast_config, device):
         """Verify Chronos handles multiple series."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
+        from tsagentkit.models.adapters.tsfm.chronos import load, predict
 
         dataset = TSDataset.from_dataframe(minimal_multi_series_df, forecast_config)
-        adapter = ChronosAdapter(model_name="amazon/chronos-2")
+        model = load(model_name="amazon/chronos-2")
 
-        artifact = adapter.fit(dataset)
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         # Should have forecasts for all 3 series
         assert len(forecast) == 21  # 3 series * 7 horizon
@@ -202,14 +189,13 @@ class TestTimesFMRealSmoke:
     def test_timesfm_handles_short_context(self, forecast_config):
         """Verify TimesFM handles short context inputs without NaN outputs."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
+        from tsagentkit.models.adapters.tsfm.timesfm import load, predict
 
         short_df = create_minimal_dataset(n_series=1, n_points=10)
         dataset = TSDataset.from_dataframe(short_df, forecast_config)
-        adapter = TimesFMAdapter(context_len=128, horizon_len=64)
+        model = load()
 
-        artifact = adapter.fit(dataset)
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         assert isinstance(forecast, pd.DataFrame)
         assert len(forecast) == 7
@@ -221,19 +207,17 @@ class TestTimesFMRealSmoke:
     def test_timesfm_handles_nan_input(self, forecast_config):
         """Verify TimesFM handles NaN values in input (padding/fallback)."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
+        from tsagentkit.models.adapters.tsfm.timesfm import load, predict
 
         df = create_minimal_dataset(n_series=1, n_points=50)
         df.loc[5:10, "y"] = np.nan  # Insert NaN values
 
         dataset = TSDataset.from_dataframe(df, forecast_config)
-        adapter = TimesFMAdapter(context_len=128, horizon_len=64)
-
-        artifact = adapter.fit(dataset)
+        model = load()
 
         # Should either produce valid forecast or raise proper error
         try:
-            forecast = adapter.predict(dataset, artifact, h=7)
+            forecast = predict(model, dataset, h=7)
             assert not forecast["yhat"].isnull().any()
             assert all(np.isfinite(forecast["yhat"]))
             print("✓ TimesFM NaN input handled (with forecast)")
@@ -244,7 +228,7 @@ class TestTimesFMRealSmoke:
     def test_timesfm_loads_and_predicts(self, minimal_df, forecast_config, device):
         """Verify TimesFM can download, load, and run inference."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
+        from tsagentkit.models.adapters.tsfm.timesfm import load, predict
 
         device_type = "GPU" if device == "cuda" else "MPS" if device == "mps" else "CPU"
         print(f"\nRunning TimesFM smoke test on {device_type}...")
@@ -252,18 +236,11 @@ class TestTimesFMRealSmoke:
         # Create dataset
         dataset = TSDataset.from_dataframe(minimal_df, forecast_config)
 
-        # Initialize adapter with smaller context for speed
-        adapter = TimesFMAdapter(context_len=128, horizon_len=64)
-
         # Load model (downloads checkpoint on first run)
-        artifact = adapter.fit(dataset)
-
-        # Verify artifact structure
-        assert "model" in artifact
-        assert "adapter" in artifact
+        model = load()
 
         # Run inference
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         # Verify forecast structure
         assert isinstance(forecast, pd.DataFrame)
@@ -286,13 +263,12 @@ class TestTimesFMRealSmoke:
     def test_timesfm_multi_series(self, minimal_multi_series_df, forecast_config, device):
         """Verify TimesFM handles multiple series."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
+        from tsagentkit.models.adapters.tsfm.timesfm import load, predict
 
         dataset = TSDataset.from_dataframe(minimal_multi_series_df, forecast_config)
-        adapter = TimesFMAdapter(context_len=128, horizon_len=64)
+        model = load()
 
-        artifact = adapter.fit(dataset)
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         # Should have forecasts for all 3 series
         assert len(forecast) == 21  # 3 series * 7 horizon
@@ -307,14 +283,13 @@ class TestMoiraiRealSmoke:
     def test_moirai_handles_short_context(self, forecast_config):
         """Verify Moirai handles short context inputs without NaN outputs."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
+        from tsagentkit.models.adapters.tsfm.moirai import load, predict
 
         short_df = create_minimal_dataset(n_series=1, n_points=10)
         dataset = TSDataset.from_dataframe(short_df, forecast_config)
-        adapter = MoiraiAdapter(model_name="Salesforce/moirai-2.0-R-small")
+        model = load(model_name="Salesforce/moirai-2.0-R-small")
 
-        artifact = adapter.fit(dataset)
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         assert isinstance(forecast, pd.DataFrame)
         assert len(forecast) == 7
@@ -326,19 +301,17 @@ class TestMoiraiRealSmoke:
     def test_moirai_handles_nan_input(self, forecast_config):
         """Verify Moirai handles NaN values in input (padding/fallback)."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
+        from tsagentkit.models.adapters.tsfm.moirai import load, predict
 
         df = create_minimal_dataset(n_series=1, n_points=50)
         df.loc[5:10, "y"] = np.nan  # Insert NaN values
 
         dataset = TSDataset.from_dataframe(df, forecast_config)
-        adapter = MoiraiAdapter(model_name="Salesforce/moirai-2.0-R-small")
-
-        artifact = adapter.fit(dataset)
+        model = load(model_name="Salesforce/moirai-2.0-R-small")
 
         # Should either produce valid forecast or raise proper error
         try:
-            forecast = adapter.predict(dataset, artifact, h=7)
+            forecast = predict(model, dataset, h=7)
             assert not forecast["yhat"].isnull().any()
             assert all(np.isfinite(forecast["yhat"]))
             print("✓ Moirai NaN input handled (with forecast)")
@@ -349,7 +322,7 @@ class TestMoiraiRealSmoke:
     def test_moirai_loads_and_predicts(self, minimal_df, forecast_config, device):
         """Verify Moirai can download, load, and run inference."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
+        from tsagentkit.models.adapters.tsfm.moirai import load, predict
 
         device_type = "GPU" if device == "cuda" else "MPS" if device == "mps" else "CPU"
         print(f"\nRunning Moirai smoke test on {device_type}...")
@@ -357,20 +330,11 @@ class TestMoiraiRealSmoke:
         # Create dataset
         dataset = TSDataset.from_dataframe(minimal_df, forecast_config)
 
-        # Initialize adapter with small model
-        adapter = MoiraiAdapter(model_name="Salesforce/moirai-2.0-R-small")
-
         # Load model (downloads from HuggingFace on first run)
-        artifact = adapter.fit(dataset)
-
-        # Verify artifact structure
-        assert "model" in artifact
-        assert "model_name" in artifact
-        assert artifact["model_name"] == "Salesforce/moirai-2.0-R-small"
-        assert "adapter" in artifact
+        model = load(model_name="Salesforce/moirai-2.0-R-small")
 
         # Run inference
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         # Verify forecast structure
         assert isinstance(forecast, pd.DataFrame)
@@ -393,13 +357,12 @@ class TestMoiraiRealSmoke:
     def test_moirai_multi_series(self, minimal_multi_series_df, forecast_config, device):
         """Verify Moirai handles multiple series."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
+        from tsagentkit.models.adapters.tsfm.moirai import load, predict
 
         dataset = TSDataset.from_dataframe(minimal_multi_series_df, forecast_config)
-        adapter = MoiraiAdapter(model_name="Salesforce/moirai-2.0-R-small")
+        model = load(model_name="Salesforce/moirai-2.0-R-small")
 
-        artifact = adapter.fit(dataset)
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         # Should have forecasts for all 3 series
         assert len(forecast) == 21  # 3 series * 7 horizon
@@ -414,19 +377,17 @@ class TestPatchTSTFMRealSmoke:
     def test_patchtst_fm_handles_nan_input(self, forecast_config):
         """Verify PatchTST-FM handles NaN values in input (padding/fallback)."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
+        from tsagentkit.models.adapters.tsfm.patchtst_fm import load, predict
 
         df = create_minimal_dataset(n_series=1, n_points=50)
         df.loc[5:10, "y"] = np.nan  # Insert NaN values
 
         dataset = TSDataset.from_dataframe(df, forecast_config)
-        adapter = PatchTSTFMAdapter(model_name="ibm-research/patchtst-fm-r1")
-
-        artifact = adapter.fit(dataset)
+        model = load(model_name="ibm-research/patchtst-fm-r1")
 
         # Should either produce valid forecast or raise proper error
         try:
-            forecast = adapter.predict(dataset, artifact, h=7)
+            forecast = predict(model, dataset, h=7)
             assert not forecast["yhat"].isnull().any()
             assert all(np.isfinite(forecast["yhat"]))
             print("✓ PatchTST-FM NaN input handled (with forecast)")
@@ -437,7 +398,7 @@ class TestPatchTSTFMRealSmoke:
     def test_patchtst_fm_loads_and_predicts(self, minimal_df, forecast_config, device):
         """Verify PatchTST-FM can download, load, and run inference."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
+        from tsagentkit.models.adapters.tsfm.patchtst_fm import load, predict
 
         device_type = "GPU" if device == "cuda" else "MPS" if device == "mps" else "CPU"
         print(f"\nRunning PatchTST-FM smoke test on {device_type}...")
@@ -445,20 +406,11 @@ class TestPatchTSTFMRealSmoke:
         # Create dataset
         dataset = TSDataset.from_dataframe(minimal_df, forecast_config)
 
-        # Initialize adapter
-        adapter = PatchTSTFMAdapter(model_name="ibm-research/patchtst-fm-r1")
-
         # Load model (downloads from HuggingFace on first run)
-        artifact = adapter.fit(dataset)
-
-        # Verify artifact structure
-        assert "model" in artifact
-        assert "model_name" in artifact
-        assert artifact["model_name"] == "ibm-research/patchtst-fm-r1"
-        assert "adapter" in artifact
+        model = load(model_name="ibm-research/patchtst-fm-r1")
 
         # Run inference
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         # Verify forecast structure
         assert isinstance(forecast, pd.DataFrame)
@@ -481,13 +433,12 @@ class TestPatchTSTFMRealSmoke:
     def test_patchtst_fm_multi_series(self, minimal_multi_series_df, forecast_config, device):
         """Verify PatchTST-FM handles multiple series."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
+        from tsagentkit.models.adapters.tsfm.patchtst_fm import load, predict
 
         dataset = TSDataset.from_dataframe(minimal_multi_series_df, forecast_config)
-        adapter = PatchTSTFMAdapter(model_name="ibm-research/patchtst-fm-r1")
+        model = load(model_name="ibm-research/patchtst-fm-r1")
 
-        artifact = adapter.fit(dataset)
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         # Should have forecasts for all 3 series
         assert len(forecast) == 21  # 3 series * 7 horizon
@@ -498,18 +449,15 @@ class TestPatchTSTFMRealSmoke:
     def test_patchtst_fm_short_context_padding(self, forecast_config):
         """Verify PatchTST-FM handles short context inputs without NaN outputs."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
+        from tsagentkit.models.adapters.tsfm.patchtst_fm import load, predict
 
         short_df = create_minimal_dataset(n_series=1, n_points=32)
         dataset = TSDataset.from_dataframe(short_df, forecast_config)
-        adapter = PatchTSTFMAdapter(model_name="ibm-research/patchtst-fm-r1")
-
-        artifact = adapter.fit(dataset)
-        model = artifact["model"]
+        model = load(model_name="ibm-research/patchtst-fm-r1")
         context_length = getattr(getattr(model, "config", None), "context_length", 0)
         assert context_length > 32
 
-        forecast = adapter.predict(dataset, artifact, h=7)
+        forecast = predict(model, dataset, h=7)
 
         assert isinstance(forecast, pd.DataFrame)
         assert len(forecast) == 7
@@ -524,36 +472,29 @@ class TestTSFMSmokeCommon:
     """Common smoke tests for all TSFM adapters."""
 
     def test_all_adapters_available(self):
-        """Verify all TSFM adapters can be imported."""
-        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
-        from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
-        from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
-        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
+        """Verify all TSFM adapter functions can be imported."""
+        from tsagentkit.models.adapters.tsfm.chronos import load as chronos_load
+        from tsagentkit.models.adapters.tsfm.moirai import load as moirai_load
+        from tsagentkit.models.adapters.tsfm.patchtst_fm import load as patchtst_load
+        from tsagentkit.models.adapters.tsfm.timesfm import load as timesfm_load
 
-        # Just verify we can instantiate with defaults
-        chronos = ChronosAdapter()
-        timesfm = TimesFMAdapter()
-        moirai = MoiraiAdapter()
-        patchtst_fm = PatchTSTFMAdapter()
-
-        assert chronos.model_name == "amazon/chronos-2"
-        assert timesfm.context_len == 512
-        assert timesfm.horizon_len == 128
-        assert moirai.model_name == "Salesforce/moirai-2.0-R-small"
-        assert patchtst_fm.model_name == "ibm-research/patchtst-fm-r1"
+        # Just verify functions are importable and callable
+        assert callable(chronos_load)
+        assert callable(timesfm_load)
+        assert callable(moirai_load)
+        assert callable(patchtst_load)
 
     def test_different_horizons(self, minimal_df, forecast_config):
         """Verify all adapters work with different horizon values."""
         from tsagentkit import TSDataset
-        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
+        from tsagentkit.models.adapters.tsfm.chronos import load, predict
 
         dataset = TSDataset.from_dataframe(minimal_df, forecast_config)
-        adapter = ChronosAdapter(model_name="amazon/chronos-2")
-        artifact = adapter.fit(dataset)
+        model = load(model_name="amazon/chronos-2")
 
         # Test different horizons
         for h in [1, 7, 14]:
-            forecast = adapter.predict(dataset, artifact, h=h)
+            forecast = predict(model, dataset, h=h)
             assert len(forecast) == h, f"Expected {h} forecasts, got {len(forecast)}"
 
         print("✓ Different horizon tests passed")
@@ -561,7 +502,7 @@ class TestTSFMSmokeCommon:
     def test_frequency_handling(self, device):
         """Verify adapters handle different frequencies."""
         from tsagentkit import ForecastConfig, TSDataset
-        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
+        from tsagentkit.models.adapters.tsfm.timesfm import load, predict
 
         # Test with daily frequency
         np.random.seed(42)
@@ -573,9 +514,8 @@ class TestTSFMSmokeCommon:
 
         config = ForecastConfig(h=7, freq="D")
         dataset = TSDataset.from_dataframe(daily_df, config)
-        adapter = TimesFMAdapter(context_len=64, horizon_len=32)
-        artifact = adapter.fit(dataset)
-        forecast = adapter.predict(dataset, artifact, h=7)
+        model = load()
+        forecast = predict(model, dataset, h=7)
 
         # Verify date increment matches frequency
         date_diff = forecast["ds"].iloc[1] - forecast["ds"].iloc[0]

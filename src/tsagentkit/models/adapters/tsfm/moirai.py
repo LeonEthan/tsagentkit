@@ -143,30 +143,3 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
     return pd.concat(forecasts, ignore_index=True)
 
 
-# Backward compatibility wrapper
-class MoiraiAdapter:
-    """Backward-compatible wrapper for Moirai adapter.
-
-    DEPRECATED: Use module-level functions directly:
-        from tsagentkit.models.adapters.tsfm.moirai import load, fit, predict
-        model = load(model_name="Salesforce/moirai-2.0-R-small")
-        artifact = fit(dataset)
-        forecast = predict(artifact, dataset, h=7)
-    """
-
-    def __init__(self, model_name: str = "Salesforce/moirai-2.0-R-small"):
-        self.model_name = model_name
-
-    def fit(self, dataset: TSDataset) -> dict[str, Any]:
-        """Load model and return artifact."""
-        model = load(self.model_name)
-        return {"model": model["module"], "model_name": self.model_name, "adapter": self}
-
-    def predict(self, dataset: TSDataset, artifact: dict[str, Any], h: int) -> pd.DataFrame:
-        """Generate forecasts."""
-        model_module = artifact.get("model", _loaded_model["module"] if _loaded_model else None)
-        if model_module is None:
-            model_module = load(self.model_name)["module"]
-        # Reconstruct model dict for predict function
-        model = {"model_name": self.model_name, "module": model_module}
-        return predict(model, dataset, h)

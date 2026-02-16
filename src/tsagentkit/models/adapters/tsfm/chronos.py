@@ -122,28 +122,3 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
     return pd.concat(forecasts, ignore_index=True)
 
 
-# Backward compatibility wrapper
-class ChronosAdapter:
-    """Backward-compatible wrapper for Chronos adapter.
-
-    DEPRECATED: Use module-level functions directly:
-        from tsagentkit.models.adapters.tsfm.chronos import load, fit, predict
-        model = load(model_name="amazon/chronos-2")
-        artifact = fit(dataset)  # or just use load()
-        forecast = predict(artifact, dataset, h=7)
-    """
-
-    def __init__(self, model_name: str = "amazon/chronos-2"):
-        self.model_name = model_name
-
-    def fit(self, dataset: TSDataset) -> dict[str, Any]:
-        """Load model and return artifact."""
-        model = load(self.model_name)
-        return {"pipeline": model, "model_name": self.model_name, "adapter": self}
-
-    def predict(self, dataset: TSDataset, artifact: dict[str, Any], h: int) -> pd.DataFrame:
-        """Generate forecasts."""
-        model = artifact.get("pipeline", _loaded_model)
-        if model is None:
-            model = load(self.model_name)
-        return predict(model, dataset, h)
