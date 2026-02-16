@@ -92,6 +92,48 @@ def forecast_config():
 class TestChronosRealSmoke:
     """Real smoke tests for Chronos adapter."""
 
+    def test_chronos_handles_short_context(self, forecast_config):
+        """Verify Chronos handles short context inputs without NaN outputs."""
+        from tsagentkit import TSDataset
+        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
+
+        short_df = create_minimal_dataset(n_series=1, n_points=10)
+        dataset = TSDataset.from_dataframe(short_df, forecast_config)
+        adapter = ChronosAdapter(model_name="amazon/chronos-2")
+
+        artifact = adapter.fit(dataset)
+        forecast = adapter.predict(dataset, artifact, h=7)
+
+        assert isinstance(forecast, pd.DataFrame)
+        assert len(forecast) == 7
+        assert not forecast["yhat"].isnull().any()
+        assert all(np.isfinite(forecast["yhat"]))
+
+        print("✓ Chronos short-context test passed")
+
+    def test_chronos_handles_nan_input(self, forecast_config):
+        """Verify Chronos handles NaN values in input (padding/fallback)."""
+        from tsagentkit import TSDataset
+        from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
+
+        df = create_minimal_dataset(n_series=1, n_points=50)
+        df.loc[5:10, "y"] = np.nan  # Insert NaN values
+
+        dataset = TSDataset.from_dataframe(df, forecast_config)
+        adapter = ChronosAdapter(model_name="amazon/chronos-2")
+
+        artifact = adapter.fit(dataset)
+
+        # Should either produce valid forecast or raise proper error
+        try:
+            forecast = adapter.predict(dataset, artifact, h=7)
+            assert not forecast["yhat"].isnull().any()
+            assert all(np.isfinite(forecast["yhat"]))
+            print("✓ Chronos NaN input handled (with forecast)")
+        except Exception as e:
+            assert isinstance(e, (ValueError, RuntimeError))
+            print(f"✓ Chronos NaN input handled (with error: {type(e).__name__})")
+
     def test_chronos_loads_and_predicts(self, minimal_df, forecast_config, device):
         """Verify Chronos can download, load, and run inference."""
         from tsagentkit import TSDataset
@@ -157,6 +199,48 @@ class TestChronosRealSmoke:
 class TestTimesFMRealSmoke:
     """Real smoke tests for TimesFM adapter."""
 
+    def test_timesfm_handles_short_context(self, forecast_config):
+        """Verify TimesFM handles short context inputs without NaN outputs."""
+        from tsagentkit import TSDataset
+        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
+
+        short_df = create_minimal_dataset(n_series=1, n_points=10)
+        dataset = TSDataset.from_dataframe(short_df, forecast_config)
+        adapter = TimesFMAdapter(context_len=128, horizon_len=64)
+
+        artifact = adapter.fit(dataset)
+        forecast = adapter.predict(dataset, artifact, h=7)
+
+        assert isinstance(forecast, pd.DataFrame)
+        assert len(forecast) == 7
+        assert not forecast["yhat"].isnull().any()
+        assert all(np.isfinite(forecast["yhat"]))
+
+        print("✓ TimesFM short-context test passed")
+
+    def test_timesfm_handles_nan_input(self, forecast_config):
+        """Verify TimesFM handles NaN values in input (padding/fallback)."""
+        from tsagentkit import TSDataset
+        from tsagentkit.models.adapters.tsfm.timesfm import TimesFMAdapter
+
+        df = create_minimal_dataset(n_series=1, n_points=50)
+        df.loc[5:10, "y"] = np.nan  # Insert NaN values
+
+        dataset = TSDataset.from_dataframe(df, forecast_config)
+        adapter = TimesFMAdapter(context_len=128, horizon_len=64)
+
+        artifact = adapter.fit(dataset)
+
+        # Should either produce valid forecast or raise proper error
+        try:
+            forecast = adapter.predict(dataset, artifact, h=7)
+            assert not forecast["yhat"].isnull().any()
+            assert all(np.isfinite(forecast["yhat"]))
+            print("✓ TimesFM NaN input handled (with forecast)")
+        except Exception as e:
+            assert isinstance(e, (ValueError, RuntimeError))
+            print(f"✓ TimesFM NaN input handled (with error: {type(e).__name__})")
+
     def test_timesfm_loads_and_predicts(self, minimal_df, forecast_config, device):
         """Verify TimesFM can download, load, and run inference."""
         from tsagentkit import TSDataset
@@ -219,6 +303,48 @@ class TestTimesFMRealSmoke:
 
 class TestMoiraiRealSmoke:
     """Real smoke tests for Moirai adapter."""
+
+    def test_moirai_handles_short_context(self, forecast_config):
+        """Verify Moirai handles short context inputs without NaN outputs."""
+        from tsagentkit import TSDataset
+        from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
+
+        short_df = create_minimal_dataset(n_series=1, n_points=10)
+        dataset = TSDataset.from_dataframe(short_df, forecast_config)
+        adapter = MoiraiAdapter(model_name="Salesforce/moirai-2.0-R-small")
+
+        artifact = adapter.fit(dataset)
+        forecast = adapter.predict(dataset, artifact, h=7)
+
+        assert isinstance(forecast, pd.DataFrame)
+        assert len(forecast) == 7
+        assert not forecast["yhat"].isnull().any()
+        assert all(np.isfinite(forecast["yhat"]))
+
+        print("✓ Moirai short-context test passed")
+
+    def test_moirai_handles_nan_input(self, forecast_config):
+        """Verify Moirai handles NaN values in input (padding/fallback)."""
+        from tsagentkit import TSDataset
+        from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
+
+        df = create_minimal_dataset(n_series=1, n_points=50)
+        df.loc[5:10, "y"] = np.nan  # Insert NaN values
+
+        dataset = TSDataset.from_dataframe(df, forecast_config)
+        adapter = MoiraiAdapter(model_name="Salesforce/moirai-2.0-R-small")
+
+        artifact = adapter.fit(dataset)
+
+        # Should either produce valid forecast or raise proper error
+        try:
+            forecast = adapter.predict(dataset, artifact, h=7)
+            assert not forecast["yhat"].isnull().any()
+            assert all(np.isfinite(forecast["yhat"]))
+            print("✓ Moirai NaN input handled (with forecast)")
+        except Exception as e:
+            assert isinstance(e, (ValueError, RuntimeError))
+            print(f"✓ Moirai NaN input handled (with error: {type(e).__name__})")
 
     def test_moirai_loads_and_predicts(self, minimal_df, forecast_config, device):
         """Verify Moirai can download, load, and run inference."""
@@ -284,6 +410,29 @@ class TestMoiraiRealSmoke:
 
 class TestPatchTSTFMRealSmoke:
     """Real smoke tests for PatchTST-FM adapter."""
+
+    def test_patchtst_fm_handles_nan_input(self, forecast_config):
+        """Verify PatchTST-FM handles NaN values in input (padding/fallback)."""
+        from tsagentkit import TSDataset
+        from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
+
+        df = create_minimal_dataset(n_series=1, n_points=50)
+        df.loc[5:10, "y"] = np.nan  # Insert NaN values
+
+        dataset = TSDataset.from_dataframe(df, forecast_config)
+        adapter = PatchTSTFMAdapter(model_name="ibm-research/patchtst-fm-r1")
+
+        artifact = adapter.fit(dataset)
+
+        # Should either produce valid forecast or raise proper error
+        try:
+            forecast = adapter.predict(dataset, artifact, h=7)
+            assert not forecast["yhat"].isnull().any()
+            assert all(np.isfinite(forecast["yhat"]))
+            print("✓ PatchTST-FM NaN input handled (with forecast)")
+        except Exception as e:
+            assert isinstance(e, (ValueError, RuntimeError))
+            print(f"✓ PatchTST-FM NaN input handled (with error: {type(e).__name__})")
 
     def test_patchtst_fm_loads_and_predicts(self, minimal_df, forecast_config, device):
         """Verify PatchTST-FM can download, load, and run inference."""
