@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from tsagentkit import ForecastConfig, validate
-from tsagentkit.core.errors import EContract, EInsufficient
+from tsagentkit.core.errors import EContract
 
 
 class TestEmptyData:
@@ -195,10 +195,10 @@ class TestFrequencyHandling:
         """Hourly frequency is handled."""
         df = pd.DataFrame({
             "unique_id": ["A"] * 48,
-            "ds": pd.date_range("2024-01-01", periods=48, freq="H"),
+            "ds": pd.date_range("2024-01-01", periods=48, freq="h"),
             "y": range(48),
         })
-        config = ForecastConfig(h=24, freq="H")
+        config = ForecastConfig(h=24, freq="h")
         result = validate(df, config)
         assert len(result) == 48
 
@@ -217,10 +217,10 @@ class TestFrequencyHandling:
         """Monthly frequency is handled."""
         df = pd.DataFrame({
             "unique_id": ["A"] * 24,
-            "ds": pd.date_range("2024-01-01", periods=24, freq="M"),
+            "ds": pd.date_range("2024-01-01", periods=24, freq="ME"),
             "y": range(24),
         })
-        config = ForecastConfig(h=6, freq="M")
+        config = ForecastConfig(h=6, freq="ME")
         result = validate(df, config)
         assert len(result) == 24
 

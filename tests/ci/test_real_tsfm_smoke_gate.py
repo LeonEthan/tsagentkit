@@ -15,6 +15,7 @@ Requirements:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -345,6 +346,35 @@ class TestPatchTSTFMRealSmoke:
         assert set(forecast["unique_id"].unique()) == {"S0", "S1", "S2"}
 
         print(f"✓ PatchTST-FM multi-series test passed: {len(forecast)} total forecasts")
+
+    def test_patchtst_fm_short_context_padding(self, forecast_config, monkeypatch):
+        """Verify PatchTST-FM handles short context inputs without NaN outputs."""
+        from tsagentkit import TSDataset
+        from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
+
+        # Prefer local patched granite-tsfm when available.
+        local_granite = Path(__file__).resolve().parents[3] / "granite-tsfm"
+        if local_granite.exists():
+            monkeypatch.setenv("TSFM_PUBLIC_ROOT", str(local_granite))
+
+        short_df = create_minimal_dataset(n_series=1, n_points=32)
+        dataset = TSDataset.from_dataframe(short_df, forecast_config)
+        adapter = PatchTSTFMAdapter(model_name="ibm-research/patchtst-fm-r1")
+
+        artifact = adapter.fit(dataset)
+        model = artifact["model"]
+        context_length = getattr(getattr(model, "config", None), "context_length", 0)
+        assert context_length > 32
+
+        forecast = adapter.predict(dataset, artifact, h=7)
+
+        assert isinstance(forecast, pd.DataFrame)
+        assert len(forecast) == 7
+        assert not forecast["yhat"].isnull().any()
+        assert all(np.isfinite(forecast["yhat"]))
+        assert forecast["yhat"].nunique() >= 1
+
+        print("✓ PatchTST-FM short-context padding test passed")
 
 
 class TestTSFMSmokeCommon:

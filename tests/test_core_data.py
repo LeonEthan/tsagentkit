@@ -260,10 +260,10 @@ class TestTSDatasetFutureIndex:
         """Generate future index with hourly frequency."""
         df = pd.DataFrame({
             "unique_id": ["A"] * 48,
-            "ds": pd.date_range("2024-01-01", periods=48, freq="H"),
+            "ds": pd.date_range("2024-01-01", periods=48, freq="h"),
             "y": range(48),
         })
-        config = ForecastConfig(h=12, freq="H")
+        config = ForecastConfig(h=12, freq="h")
         dataset = TSDataset.from_dataframe(df, config)
         future = dataset.future_index()
         assert len(future) == 12

@@ -70,9 +70,11 @@ python_functions = ["test_*"]
 addopts = "-v --cov=src/tsagentkit --cov-report=term-missing"
 markers = [
     "tsfm: real TSFM smoke tests (requires TSFM_RUN_REAL=1 and model dependencies)",
+    "timeout: per-test timeout marker",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
+    "ignore:No data was collected\\.:coverage.exceptions.CoverageWarning",
 ]
 
 [tool.mypy]

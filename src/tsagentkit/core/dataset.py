@@ -6,6 +6,7 @@ complexity into minimal, immutable data containers.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,19 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from tsagentkit.core.config import ForecastConfig
+
+
+def _normalize_freq_alias(freq: str) -> str:
+    """Normalize deprecated pandas aliases to current forms."""
+    hourly_match = re.fullmatch(r"(\d*)H", freq)
+    if hourly_match:
+        return f"{hourly_match.group(1)}h"
+
+    monthly_match = re.fullmatch(r"(\d*)M", freq)
+    if monthly_match:
+        return f"{monthly_match.group(1)}ME"
+
+    return freq
 
 
 @dataclass(frozen=True)
@@ -97,7 +111,7 @@ class TSDataset:
 
         # Generate future dates
         future_rows = []
-        freq = self.config.freq
+        freq = _normalize_freq_alias(self.config.freq)
 
         for uid in ids:
             last = last_ds[uid]

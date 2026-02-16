@@ -6,7 +6,7 @@ CovariateSpec, BacktestSpec, etc. with a single, minimal configuration class.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 
@@ -56,12 +56,12 @@ class ForecastConfig:
             raise ValueError("min_tsfm must be at least 1")
 
     @staticmethod
-    def quick(h: int, freq: str = "D") -> "ForecastConfig":
+    def quick(h: int, freq: str = "D") -> ForecastConfig:
         """Quick preset - minimal validation, allows fallback."""
         return ForecastConfig(h=h, freq=freq, fail_on_missing_tsfm=False)
 
     @staticmethod
-    def strict(h: int, freq: str = "D") -> "ForecastConfig":
+    def strict(h: int, freq: str = "D") -> ForecastConfig:
         """Strict preset - fail fast if TSFM unavailable."""
         return ForecastConfig(h=h, freq=freq, fail_on_missing_tsfm=True, min_tsfm=1)
 
@@ -72,9 +72,11 @@ class ForecastConfig:
             "D": 7,
             "B": 5,
             "H": 24,
+            "h": 24,
             "T": 60,
             "min": 60,
             "M": 12,
+            "ME": 12,
             "MS": 12,
             "Q": 4,
             "QS": 4,

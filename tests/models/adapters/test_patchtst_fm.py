@@ -1,8 +1,4 @@
-"""Unit tests for PatchTST adapter.
-
-These tests use mocking to avoid requiring the actual model download.
-For real model tests, see tests/ci/test_real_tsfm_smoke_gate.py.
-"""
+"""Unit tests for PatchTST-FM adapter."""
 
 from __future__ import annotations
 
@@ -11,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 from tsagentkit import ForecastConfig, TSDataset
 
@@ -38,6 +35,56 @@ def sample_dataset(sample_df, sample_config):
     return TSDataset.from_dataframe(sample_df, sample_config)
 
 
+class DummyPatchTSTFMModel:
+    """Simple stand-in for PatchTSTFMForPrediction."""
+
+    def __init__(
+        self,
+        context_length: int = 64,
+        quantile_levels: list[float] | None = None,
+        nan_output: bool = False,
+    ):
+        self.config = type(
+            "Config",
+            (),
+            {
+                "context_length": context_length,
+                "quantile_levels": quantile_levels or [0.1, 0.5, 0.9],
+            },
+        )()
+        self.device = torch.device("cpu")
+        self.nan_output = nan_output
+        self.calls: list[dict[str, object]] = []
+
+    def eval(self):
+        return self
+
+    def __call__(
+        self,
+        *,
+        inputs,
+        prediction_length: int,
+        quantile_levels: list[float] | None = None,
+        return_loss: bool = False,
+    ):
+        del return_loss
+        levels = quantile_levels or self.config.quantile_levels
+        self.calls.append({
+            "inputs": inputs,
+            "prediction_length": prediction_length,
+            "quantile_levels": levels,
+        })
+
+        if self.nan_output:
+            predictions = np.full((1, len(levels), prediction_length), np.nan, dtype=np.float32)
+        else:
+            predictions = np.zeros((1, len(levels), prediction_length), dtype=np.float32)
+            for i in range(len(levels)):
+                predictions[0, i, :] = np.arange(1, prediction_length + 1, dtype=np.float32) + i * 10
+
+        return type("Output", (), {"quantile_predictions": predictions})()
+
+
 class TestPatchTSTFMAdapterFunctions:
     """Test module-level functions."""
 
@@ -45,13 +92,8 @@ class TestPatchTSTFMAdapterFunctions:
         """Test unload() clears the cache."""
         from tsagentkit.models.adapters.tsfm import patchtst_fm
 
-        # Set some cached model
         patchtst_fm._loaded_model = MagicMock()
-
-        # Unload
         patchtst_fm.unload()
-
-        # Verify cache is cleared
         assert patchtst_fm._loaded_model is None
 
     def test_fit_calls_load(self, sample_dataset):
@@ -61,79 +103,56 @@ class TestPatchTSTFMAdapterFunctions:
         with patch.object(patchtst_fm, "load") as mock_load:
             mock_model = MagicMock()
             mock_load.return_value = mock_model
-
             result = patchtst_fm.fit(sample_dataset)
 
-            mock_load.assert_called_once()
-            assert result is mock_model
+        mock_load.assert_called_once()
+        assert result is mock_model
 
-    def test_load_uses_transformers_model_name(self):
-        """Test load() uses transformers model class."""
+    def test_load_uses_patchtst_fm_model_name(self):
+        """Test load() uses PatchTSTFMForPrediction class."""
         from tsagentkit.models.adapters.tsfm import patchtst_fm
 
         patchtst_fm._loaded_model = None
         patchtst_fm._default_model_name = "ibm-research/patchtst-fm-r1"
 
         mock_model = MagicMock()
-        with patch("transformers.PatchTSTForPrediction.from_pretrained", return_value=mock_model) as mock_from_pretrained:
+        mock_model_cls = MagicMock()
+        mock_model_cls.from_pretrained.return_value = mock_model
+
+        with (
+            patch.object(patchtst_fm, "_get_patchtst_fm_class", return_value=mock_model_cls),
+            patch.object(patchtst_fm, "_resolve_device_map", return_value="cpu"),
+        ):
             loaded = patchtst_fm.load("ibm-research/patchtst-fm-r1")
 
         assert loaded is mock_model
-        assert mock_from_pretrained.call_args.args[0] == "ibm-research/patchtst-fm-r1"
+        assert mock_model_cls.from_pretrained.call_args.args[0] == "ibm-research/patchtst-fm-r1"
+        assert mock_model_cls.from_pretrained.call_args.kwargs["device_map"] == "cpu"
 
-    def test_predict_single_series(self, sample_df, sample_config):
-        """Test predict() with single series."""
+    def test_predict_single_series_uses_patchtst_fm_signature(self, sample_dataset):
+        """Test predict() uses inputs/prediction_length/quantile_levels signature."""
         from tsagentkit.models.adapters.tsfm import patchtst_fm
 
-        # Reset module cache
-        patchtst_fm._loaded_model = None
+        model = DummyPatchTSTFMModel(context_length=64, quantile_levels=[0.1, 0.5, 0.9])
+        forecast = patchtst_fm.predict(model, sample_dataset, h=7)
 
-        # Setup mock model with prediction outputs
-        mock_model = MagicMock()
-        mock_outputs = MagicMock()
-        # Shape: (batch=1, horizon=7, quantiles=9)
-        mock_outputs.prediction_outputs = np.array([
-            [[1.0] * 9, [2.0] * 9, [3.0] * 9, [4.0] * 9, [5.0] * 9, [6.0] * 9, [7.0] * 9]
-        ])
-        mock_model.return_value = mock_outputs
-
-        # Create dataset
-        dataset = TSDataset.from_dataframe(sample_df, sample_config)
-
-        # Generate forecast with patched torch
-        with patch("tsagentkit.models.adapters.tsfm.patchtst_fm.torch") as mock_torch:
-            mock_no_grad = MagicMock()
-            mock_no_grad.__enter__ = MagicMock(return_value=None)
-            mock_no_grad.__exit__ = MagicMock(return_value=None)
-            mock_torch.no_grad.return_value = mock_no_grad
-
-            forecast = patchtst_fm.predict(mock_model, dataset, h=7)
-
-        # Verify forecast structure
         assert isinstance(forecast, pd.DataFrame)
         assert len(forecast) == 7
-        assert "unique_id" in forecast.columns
-        assert "ds" in forecast.columns
-        assert "yhat" in forecast.columns
-        assert all(forecast["unique_id"] == "A")
-        assert "past_values" in mock_model.call_args.kwargs
+        assert {"unique_id", "ds", "yhat"}.issubset(forecast.columns)
+        assert forecast["yhat"].tolist() == [1, 2, 3, 4, 5, 6, 7]
+
+        call = model.calls[0]
+        assert call["prediction_length"] == 7
+        assert call["quantile_levels"] == [0.5]
+        assert isinstance(call["inputs"], list)
+        context_tensor = call["inputs"][0]
+        assert isinstance(context_tensor, torch.Tensor)
+        assert context_tensor.shape[0] == 64
 
     def test_predict_multi_series(self, sample_config):
         """Test predict() with multiple series."""
         from tsagentkit.models.adapters.tsfm import patchtst_fm
 
-        # Reset module cache
-        patchtst_fm._loaded_model = None
-
-        # Setup mock model with prediction outputs
-        mock_model = MagicMock()
-        mock_outputs = MagicMock()
-        mock_outputs.prediction_outputs = np.array([
-            [[1.0] * 9, [2.0] * 9, [3.0] * 9, [4.0] * 9, [5.0] * 9, [6.0] * 9, [7.0] * 9]
-        ])
-        mock_model.return_value = mock_outputs
-
-        # Create multi-series data
         np.random.seed(42)
         multi_df = pd.DataFrame({
             "unique_id": ["A"] * 30 + ["B"] * 30,
@@ -141,148 +160,53 @@ class TestPatchTSTFMAdapterFunctions:
             "y": np.random.randn(60).cumsum() + 100,
         })
         dataset = TSDataset.from_dataframe(multi_df, sample_config)
+        model = DummyPatchTSTFMModel(context_length=16)
 
-        # Generate forecast with patched torch
-        with patch("tsagentkit.models.adapters.tsfm.patchtst_fm.torch") as mock_torch:
-            mock_no_grad = MagicMock()
-            mock_no_grad.__enter__ = MagicMock(return_value=None)
-            mock_no_grad.__exit__ = MagicMock(return_value=None)
-            mock_torch.no_grad.return_value = mock_no_grad
-
-            forecast = patchtst_fm.predict(mock_model, dataset, h=7)
-
-        # Verify forecast structure
+        forecast = patchtst_fm.predict(model, dataset, h=7)
         assert isinstance(forecast, pd.DataFrame)
         assert len(forecast) == 14  # 2 series * 7 horizon
         assert set(forecast["unique_id"].unique()) == {"A", "B"}
 
-    def test_predict_with_single_quantile(self, sample_df, sample_config):
-        """Test predict() handles single quantile output."""
+    def test_predict_nan_outputs_fallback_to_last_value(self, sample_dataset):
+        """Test predict() replaces all-NaN forecast with last observed value."""
         from tsagentkit.models.adapters.tsfm import patchtst_fm
 
-        # Reset module cache
-        patchtst_fm._loaded_model = None
+        model = DummyPatchTSTFMModel(context_length=64, nan_output=True)
+        forecast = patchtst_fm.predict(model, sample_dataset, h=7)
 
-        # Setup mock model with single quantile output
-        mock_model = MagicMock()
-        mock_outputs = MagicMock()
-        # Shape: (batch=1, horizon=7, quantiles=1)
-        mock_outputs.prediction_outputs = np.array([
-            [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0]]
-        ])
-        mock_model.return_value = mock_outputs
+        expected = float(sample_dataset.df["y"].iloc[-1])
+        assert forecast["yhat"].tolist() == pytest.approx([expected] * 7, rel=1e-6, abs=1e-6)
 
-        # Create dataset
-        dataset = TSDataset.from_dataframe(sample_df, sample_config)
-
-        # Generate forecast with patched torch
-        with patch("tsagentkit.models.adapters.tsfm.patchtst_fm.torch") as mock_torch:
-            mock_no_grad = MagicMock()
-            mock_no_grad.__enter__ = MagicMock(return_value=None)
-            mock_no_grad.__exit__ = MagicMock(return_value=None)
-            mock_torch.no_grad.return_value = mock_no_grad
-
-            forecast = patchtst_fm.predict(mock_model, dataset, h=7)
-
-        # Verify forecast structure
-        assert isinstance(forecast, pd.DataFrame)
-        assert len(forecast) == 7
-        assert "yhat" in forecast.columns
-
-    def test_predict_with_quantile_predictions_quantile_first(self, sample_df, sample_config):
-        """Test predict() handles quantile_predictions in (batch, quantile, horizon) shape."""
+    def test_extract_forecast_values_horizon_first(self):
+        """Test extraction supports horizon-first quantile outputs."""
         from tsagentkit.models.adapters.tsfm import patchtst_fm
 
-        patchtst_fm._loaded_model = None
+        outputs = type(
+            "Output",
+            (),
+            {
+                "quantile_predictions": np.array(
+                    [
+                        [
+                            [1, 2, 3],
+                            [11, 12, 13],
+                            [21, 22, 23],
+                            [31, 32, 33],
+                            [41, 42, 43],
+                            [51, 52, 53],
+                            [61, 62, 63],
+                        ]
+                    ]
+                )
+            },
+        )()
 
-        mock_model = MagicMock()
-        mock_model.config.quantile_levels = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-        mock_outputs = MagicMock()
-        # Shape: (batch=1, quantiles=9, horizon=7)
-        mock_outputs.quantile_predictions = np.array(
-            [
-                [
-                    [1, 2, 3, 4, 5, 6, 7],
-                    [11, 12, 13, 14, 15, 16, 17],
-                    [21, 22, 23, 24, 25, 26, 27],
-                    [31, 32, 33, 34, 35, 36, 37],
-                    [41, 42, 43, 44, 45, 46, 47],
-                    [51, 52, 53, 54, 55, 56, 57],
-                    [61, 62, 63, 64, 65, 66, 67],
-                    [71, 72, 73, 74, 75, 76, 77],
-                    [81, 82, 83, 84, 85, 86, 87],
-                ]
-            ]
+        values = patchtst_fm._extract_forecast_values(
+            outputs,
+            h=7,
+            quantile_levels=[0.1, 0.5, 0.9],
         )
-        mock_model.return_value = mock_outputs
-
-        dataset = TSDataset.from_dataframe(sample_df, sample_config)
-        with patch("tsagentkit.models.adapters.tsfm.patchtst_fm.torch") as mock_torch:
-            mock_no_grad = MagicMock()
-            mock_no_grad.__enter__ = MagicMock(return_value=None)
-            mock_no_grad.__exit__ = MagicMock(return_value=None)
-            mock_torch.no_grad.return_value = mock_no_grad
-            forecast = patchtst_fm.predict(mock_model, dataset, h=7)
-
-        assert forecast["yhat"].tolist() == [41, 42, 43, 44, 45, 46, 47]
-
-    def test_predict_with_quantile_predictions_horizon_first(self, sample_df, sample_config):
-        """Test predict() handles quantile_predictions in (batch, horizon, quantile) shape."""
-        from tsagentkit.models.adapters.tsfm import patchtst_fm
-
-        patchtst_fm._loaded_model = None
-
-        mock_model = MagicMock()
-        mock_model.config.quantile_levels = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-        mock_outputs = MagicMock()
-        # Shape: (batch=1, horizon=7, quantiles=9)
-        mock_outputs.quantile_predictions = np.array(
-            [
-                [
-                    [1, 2, 3, 4, 5, 6, 7, 8, 9],
-                    [11, 12, 13, 14, 15, 16, 17, 18, 19],
-                    [21, 22, 23, 24, 25, 26, 27, 28, 29],
-                    [31, 32, 33, 34, 35, 36, 37, 38, 39],
-                    [41, 42, 43, 44, 45, 46, 47, 48, 49],
-                    [51, 52, 53, 54, 55, 56, 57, 58, 59],
-                    [61, 62, 63, 64, 65, 66, 67, 68, 69],
-                ]
-            ]
-        )
-        mock_model.return_value = mock_outputs
-
-        dataset = TSDataset.from_dataframe(sample_df, sample_config)
-        with patch("tsagentkit.models.adapters.tsfm.patchtst_fm.torch") as mock_torch:
-            mock_no_grad = MagicMock()
-            mock_no_grad.__enter__ = MagicMock(return_value=None)
-            mock_no_grad.__exit__ = MagicMock(return_value=None)
-            mock_torch.no_grad.return_value = mock_no_grad
-            forecast = patchtst_fm.predict(mock_model, dataset, h=7)
-
-        assert forecast["yhat"].tolist() == [5, 15, 25, 35, 45, 55, 65]
-
-    def test_predict_with_transformers_style_model(self, sample_df, sample_config):
-        """Test predict() handles transformers-style PatchTST interface."""
-        from tsagentkit.models.adapters.tsfm import patchtst_fm
-
-        class DummyTransformersPatchTST:
-            def __init__(self):
-                self.config = type("Config", (), {"quantiles": None})()
-
-            def forward(self, past_values):
-                del past_values
-                return type(
-                    "Output",
-                    (),
-                    {"prediction_outputs": np.array([[[1], [2], [3], [4], [5], [6], [7]]])},
-                )()
-            __call__ = forward
-
-        dataset = TSDataset.from_dataframe(sample_df, sample_config)
-        model = DummyTransformersPatchTST()
-        forecast = patchtst_fm.predict(model, dataset, h=7)
-
-        assert forecast["yhat"].tolist() == [1, 2, 3, 4, 5, 6, 7]
+        assert values.tolist() == [2, 12, 22, 32, 42, 52, 62]
 
 
 class TestPatchTSTFMAdapterClass:
@@ -344,7 +268,6 @@ class TestPatchTSTFMAdapterClass:
         from tsagentkit.models.adapters.tsfm import patchtst_fm
         from tsagentkit.models.adapters.tsfm.patchtst_fm import PatchTSTFMAdapter
 
-        # Clear cache
         patchtst_fm._loaded_model = None
 
         mock_model = MagicMock()
@@ -357,7 +280,7 @@ class TestPatchTSTFMAdapterClass:
         mock_predict.return_value = mock_forecast
 
         adapter = PatchTSTFMAdapter()
-        artifact = {}  # Empty artifact
+        artifact = {}
 
         forecast = adapter.predict(sample_dataset, artifact, h=7)
 
