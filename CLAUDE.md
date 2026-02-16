@@ -557,21 +557,21 @@ median_forecast = forecasts[0].quantile(0.5)
 
 ### PatchTST-FM-r1 (IBM)
 
-**Installation**: `pip install tsagentkit-patchtst-fm`
+**Installation**: `pip install tsagentkit-patchtst-fm>=1.0.2`
 
 **Usage**:
 ```python
 from tsagentkit.models.adapters.tsfm.patchtst_fm import load, predict
 from tsagentkit import TSDataset, ForecastConfig
 
-# Load model
+# Load model (auto-selects device: cuda > cpu, mps guarded)
 model = load(model_name="ibm-research/patchtst-fm-r1")
 
 # Create dataset
 config = ForecastConfig(h=7, freq="D")
 dataset = TSDataset.from_dataframe(df, config)
 
-# Predict
+# Predict (returns median forecast)
 forecast_df = predict(model, dataset, h=7)
 ```
 
@@ -579,26 +579,35 @@ forecast_df = predict(model, dataset, h=7)
 ```python
 from tsfm_public import PatchTSTFMForPrediction
 import torch
+import numpy as np
 
-# Determine device
-device = "cuda" if torch.cuda.is_available() else ("mps" if torch.mps.is_available() else "cpu")
+# Determine device (defaults to cpu on mps for stability)
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Load model
 model = PatchTSTFMForPrediction.from_pretrained(
     "ibm-research/patchtst-fm-r1",
-    device_map=device
+    device_map=device,
 )
+model.eval()
 
-# Prepare context (numpy array of historical values)
-context = torch.tensor(df["y"].values, dtype=torch.float32).unsqueeze(0)
+# Prepare context
+context = np.asarray(df["y"].values, dtype=np.float32)
+context_tensor = torch.tensor(context, dtype=torch.float32, device=device)
 
-# Generate forecast
+# Generate forecast with quantiles
 with torch.no_grad():
-    outputs = model(context)
-    predictions = outputs.prediction_outputs  # Shape: (batch, horizon, quantiles)
+    outputs = model(
+        inputs=[context_tensor],
+        prediction_length=7,
+        quantile_levels=[0.5],  # Median forecast
+        return_loss=False,
+    )
+    # Extract predictions from outputs
+    predictions = outputs.prediction_outputs  # Shape: (batch, quantiles, horizon)
 
-# Extract median (q=0.5) or other quantiles
-median_forecast = predictions[0, :, 4].numpy()  # Index 4 typically corresponds to q=0.5
+# Get median forecast
+median_forecast = predictions[0, 0, :].cpu().numpy()  # First batch, median quantile
 ```
 
 ---

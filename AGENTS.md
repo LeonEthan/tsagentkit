@@ -1,65 +1,97 @@
-# Agent Guidelines
+# AGENTS.md
 
-Guidelines for AI agents working with `tsagentkit` — a **nanobot-inspired**, minimalist time-series forecasting toolkit.
+> **Design Philosophy**: Minimalist, research-ready time-series forecasting toolkit for vibe coding agents.
+> **Core Tenet**: Less code, more clarity. ~2,000 lines for full TSFM ensemble capability.
 
-## Philosophy
+## Project Overview
 
-- **Less is More**: ~2,000 lines core code
-- **Flat Structure**: Minimal nesting, clear imports
-- **Pure Functions**: Functional composition over classes
-- **Single Source of Truth**: One registry, one config
-- **Research-Ready**: Code that's easy to understand and modify
+`tsagentkit` is an ultra-lightweight execution engine for time-series forecasting. It provides **zero-config TSFM ensemble** for production use, while exposing **granular pipeline functions** for agent customization.
 
-## Project Structure
+**Version**: 2.0.0
+**Core Lines**: ~2,000 (excluding adapters)
+**Design Goal**: Research-ready code that's easy to understand, modify, and extend.
+
+---
+
+## Architecture (Nanobot-Inspired)
+
+### Core Principles
+
+1. **Radical Simplicity**: Every module has a single, clear responsibility
+2. **Flat Structure**: Minimal nesting, clear imports
+3. **Pure Functions**: Functional composition over class hierarchies
+4. **Single Source of Truth**: One registry, one config, one way to do things
+5. **Research-Ready**: Clean, readable code for easy modification
+
+### Two Usage Modes
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    tsagentkit v2.0                          │
+│                    ~2,000 lines core                        │
+├─────────────────────────────┬───────────────────────────────┤
+│  Standard Pipeline          │  Agent Building               │
+│  (Zero Config)              │  (Full Control)               │
+├─────────────────────────────┼───────────────────────────────┤
+│                             │                               │
+│  forecast(df, h=7)          │  validate(df)                 │
+│  ↓                          │  build_dataset(df, cfg)       │
+│  TSFM Ensemble Only         │  plan = make_plan(dataset)    │
+│  ↓                          │  artifacts = fit_all(plan)    │
+│  Result                     │  preds = predict_all(...)     │
+│                             │  ensemble(preds)              │
+│                             │                               │
+└─────────────────────────────┴───────────────────────────────┘
+```
+
+### Module Structure (Flat & Clean)
 
 ```
 src/tsagentkit/
 ├── core/
 │   ├── config.py          # Single ForecastConfig (frozen dataclass)
-│   ├── dataset.py         # TSDataset wrapper
-│   ├── types.py           # Shared types
-│   └── errors.py          # 4 error types
+│   ├── dataset.py         # TSDataset (lightweight wrapper)
+│   ├── types.py           # Shared type definitions
+│   └── errors.py          # 4 error types only
 │
 ├── models/
 │   ├── registry.py        # SINGLE SOURCE: all model specs
-│   ├── protocol.py        # fit() / predict() functions
-│   ├── cache.py           # ModelCache: TSFM lifecycle
-│   ├── ensemble.py        # ensemble aggregation
+│   ├── protocol.py        # fit() / predict() interface
+│   ├── cache.py           # ModelCache: TSFM singleton lifecycle
+│   ├── ensemble.py        # median/mean aggregation
 │   └── adapters/
-│       ├── tsfm/          # Thin TSFM wrappers (~100 lines each)
-│       └── baseline/      # Naive, SeasonalNaive
+│       ├── tsfm/          # Thin wrappers (~100 lines each)
+│       │   ├── chronos.py
+│       │   ├── timesfm.py
+│       │   ├── moirai.py
+│       │   └── patchtst_fm.py
+│       └── baseline/      # Naive, SeasonalNaive (stateless)
+│           ├── naive.py
+│           └── seasonal.py
 │
-├── pipeline.py            # forecast(), run_forecast()
-├── inspect.py             # list_models(), check_health()
-└── __init__.py            # Clean public API (7 functions)
+├── pipeline.py            # ONE FILE: forecast(), run_forecast()
+├── inspect.py             # ONE FILE: list_models(), check_health()
+└── __init__.py            # Clean public API
 ```
 
-## Commands
+**Total**: ~2,000 lines core (adapters excluded)
 
-```bash
-# Setup
-uv sync --all-extras
+---
 
-# Test
-uv run pytest
-uv run pytest --cov=src/tsagentkit
+## Design Patterns (From Nanobot)
 
-# Type check
-uv run mypy src/tsagentkit
-
-# Format
-uv run ruff format src/
-uv run ruff check src/
-```
-
-## Key Principles
-
-### 1. Registry Pattern
-
-**The ONLY place to define models**:
+### 1. Registry Pattern (Single Source of Truth)
 
 ```python
-# models/registry.py
+# models/registry.py - The ONLY place that defines available models
+
+@dataclass(frozen=True)
+class ModelSpec:
+    name: str
+    adapter_path: str          # "tsagentkit.models.adapters.tsfm.chronos"
+    config_fields: dict        # {"context_length": 512, ...}
+    requires: list[str]        # ["chronos", "torch"]
+    is_tsfm: bool
 
 REGISTRY: dict[str, ModelSpec] = {
     "chronos": ModelSpec(
@@ -69,81 +101,590 @@ REGISTRY: dict[str, ModelSpec] = {
         requires=["chronos", "torch"],
         is_tsfm=True,
     ),
-    # ... add new models here
+    "timesfm": ModelSpec(...),
+    "moirai": ModelSpec(...),
+    "naive": ModelSpec(...),
+    "seasonal_naive": ModelSpec(...),
 }
+
+def list_models(tsfm_only: bool = False) -> list[str]:
+    """Single function to query available models."""
+    ...
 ```
+
+**Benefit**: Add a new TSFM = add one entry to REGISTRY. Done.
 
 ### 2. Protocol Over Inheritance
 
-**Functions, not base classes**:
-
 ```python
-# Good: Pure functions
+# models/protocol.py - Just functions, no base classes
+
+ModelArtifact = Any  # Adapter decides what to store
+
 def fit(spec: ModelSpec, dataset: TSDataset) -> ModelArtifact:
+    """Load adapter dynamically, fit model."""
     adapter = _load_adapter(spec.adapter_path)
     return adapter.fit(dataset, **spec.config_fields)
 
-# Bad: Complex inheritance
-class BaseModel(ABC):
-    @abstractmethod
-    def fit(self, ...): ...
+def predict(
+    spec: ModelSpec,
+    artifact: ModelArtifact,
+    dataset: TSDataset,
+    h: int
+) -> pd.DataFrame:
+    """Generate predictions."""
+    adapter = _load_adapter(spec.adapter_path)
+    return adapter.predict(artifact, dataset, h)
 ```
 
-### 3. Single Config
+**Benefit**: No complex inheritance trees. Pure functions.
 
-**One frozen dataclass**:
+### 3. Single Config Object
 
 ```python
+# core/config.py - ONE config to rule them all
+
 @dataclass(frozen=True)
 class ForecastConfig:
+    # Required
     h: int
     freq: str = "D"
+
+    # Ensemble
     ensemble_method: Literal["median", "mean"] = "median"
+    min_tsfm: int = 1                    # Min TSFMs required
+
+    # Behavior
+    fail_on_missing_tsfm: bool = False   # True = abort if TSFM unavailable
+
+    # Output
+    quantiles: tuple[float, ...] = (0.1, 0.5, 0.9)
+
+    @staticmethod
+    def quick(h: int, freq: str = "D") -> "ForecastConfig":
+        return ForecastConfig(h=h, freq=freq, fail_on_missing_tsfm=False)
+
+    @staticmethod
+    def strict(h: int, freq: str = "D") -> "ForecastConfig":
+        return ForecastConfig(h=h, freq=freq, fail_on_missing_tsfm=True, min_tsfm=1)
 ```
 
-### 4. Minimal Error Types
+**Benefit**: One frozen dataclass. No Pydantic, no validation overhead.
 
-**4 errors cover 99% of cases**:
+### 4. Pipeline as Simple Function
 
-- `EContract`: Input data invalid
-- `ENoTSFM`: No TSFM adapters available
-- `EInsufficient`: Not enough TSFMs succeeded
-- `ETemporal`: Temporal integrity violation
+```python
+# pipeline.py - The entire standard pipeline in ONE file
 
-## Adding a New TSFM (3 Steps)
+def forecast(
+    data: pd.DataFrame,
+    h: int,
+    freq: str = "D",
+    **kwargs
+) -> ForecastResult:
+    """
+    Zero-config TSFM ensemble forecast.
+    Core logic: validate → build dataset → fit TSFMs → ensemble → return
+    """
+    cfg = ForecastConfig(h=h, freq=freq, **kwargs)
+
+    # 1. Validate (2 lines)
+    df = _validate(data)
+
+    # 2. Build dataset (3 lines)
+    dataset = TSDataset.from_dataframe(df, cfg.freq)
+
+    # 3. Get TSFM models only (1 line)
+    models = [m for m in REGISTRY.values() if m.is_tsfm]
+
+    # 4. Fit all in parallel (5 lines)
+    artifacts = _fit_all(models, dataset)
+
+    # 5. Predict all (3 lines)
+    predictions = _predict_all(models, artifacts, dataset, cfg.h)
+
+    # 6. Ensemble (2 lines)
+    result = ensemble(predictions, method=cfg.ensemble_method)
+
+    return ForecastResult(df=result, models_used=[m.name for m in models])
+```
+
+**Benefit**: Entire standard pipeline in ~50 lines. Readable. Hackable.
+
+### 5. TSFM Model Caching (Critical for Performance)
+
+**Problem**: TSFMs (Chronos, TimesFM, Moirai) have large parameters (100MB-2GB). Loading on every `forecast()` call is prohibitively expensive.
+
+**Solution**: `ModelCache` with singleton lifecycle management.
+
+```python
+# models/cache.py - Model lifecycle management
+
+from typing import Any
+from functools import lru_cache
+
+class ModelCache:
+    """
+    Singleton cache for loaded TSFM models.
+
+    TSFMs are expensive to load but cheap to predict.
+    Cache keeps them in memory for reuse across calls.
+    """
+
+    _cache: dict[str, Any] = {}  # model_name -> loaded_model
+
+    @classmethod
+    def get(cls, spec: ModelSpec) -> Any:
+        """Get cached model or load if not exists."""
+        if spec.name not in cls._cache:
+            cls._cache[spec.name] = cls._load(spec)
+        return cls._cache[spec.name]
+
+    @classmethod
+    def preload(cls, models: list[ModelSpec]) -> None:
+        """Pre-load multiple models (useful for batch processing)."""
+        for spec in models:
+            if spec.name not in cls._cache:
+                cls._cache[spec.name] = cls._load(spec)
+
+    @classmethod
+    def unload(cls, model_name: str | None = None) -> None:
+        """
+        Unload model(s) to free memory.
+
+        Args:
+            model_name: Specific model to unload, or None to clear all
+        """
+        if model_name is None:
+            cls._cache.clear()
+        elif model_name in cls._cache:
+            del cls._cache[model_name]
+
+    @classmethod
+    def _load(cls, spec: ModelSpec) -> Any:
+        """Load model from adapter."""
+        adapter = _load_adapter(spec.adapter_path)
+        return adapter.load(**spec.config_fields)
+
+    @classmethod
+    def list_loaded(cls) -> list[str]:
+        """List currently cached models."""
+        return list(cls._cache.keys())
+```
+
+**Standard Pipeline (Automatic Caching)**:
+
+```python
+# pipeline.py - Automatic cache management
+
+def forecast(data: pd.DataFrame, h: int, freq: str = "D", **kwargs) -> ForecastResult:
+    cfg = ForecastConfig(h=h, freq=freq, **kwargs)
+
+    # ... validate, build dataset ...
+
+    models = [m for m in REGISTRY.values() if m.is_tsfm]
+
+    # Automatic: Use cached models if available, load if not
+    predictions = []
+    for spec in models:
+        model = ModelCache.get(spec)  # Auto-load or reuse
+        pred = predict(spec, model, dataset, cfg.h)
+        predictions.append(pred)
+
+    # Cache persists after function returns - next forecast() reuses models
+    return ensemble(predictions, method=cfg.ensemble_method)
+```
+
+**Agent Building (Explicit Control)**:
+
+```python
+from tsagentkit.models.cache import ModelCache
+from tsagentkit.models.registry import REGISTRY
+
+# 1. Preload all TSFMs upfront (one-time cost)
+models = [m for m in REGISTRY.values() if m.is_tsfm]
+ModelCache.preload(models)
+
+# 2. Run many forecasts - models stay in memory
+for df in large_dataset_batch:
+    result = forecast(df, h=7)  # Uses cached models, no reload
+
+# 3. Optional: Unload when done to free memory
+ModelCache.unload()  # Clear all
+# Or: ModelCache.unload("chronos")  # Clear specific model
+```
+
+**Memory Management Guidelines**:
+
+| Scenario | Strategy |
+|----------|----------|
+| **Single forecast** | Automatic caching (models stay until process ends) |
+| **Batch processing** | `preload()` before loop, `unload()` after |
+| **Long-running server** | Keep cached, monitor memory, unload oldest |
+| **Memory-constrained** | Process one model at a time, unload immediately |
+
+---
+
+## API Surface (Minimal)
+
+### Public API (7 core functions + cache control)
+
+```python
+from tsagentkit import (
+    # Standard Pipeline (zero config, automatic caching)
+    forecast,           # forecast(df, h=7) -> ForecastResult
+    run_forecast,       # run_forecast(df, config) -> ForecastResult
+
+    # Agent Building (granular control)
+    validate,           # validate(df) -> pd.DataFrame
+    TSDataset,          # TSDataset.from_dataframe(df, freq)
+    make_plan,          # make_plan(dataset, tsfm_only=True) -> list[ModelSpec]
+    fit,                # fit(spec, dataset) -> artifact
+    predict,            # predict(spec, artifact, dataset, h) -> pd.DataFrame
+    ensemble,           # ensemble(predictions, method="median") -> pd.DataFrame
+
+    # Model Cache Control (explicit lifecycle management)
+    ModelCache,         # TSFM singleton cache
+)
+
+from tsagentkit.inspect import (
+    list_models,        # list_models(tsfm_only=True) -> ["chronos", "timesfm", ...]
+    check_health,       # check_health() -> HealthReport
+)
+```
+
+### ModelCache API
+
+```python
+# Automatic in standard pipeline - no manual intervention needed
+result = forecast(df, h=7)  # Models cached automatically
+
+# Explicit control for batch processing
+from tsagentkit import ModelCache
+
+# Preload (optional optimization for batch)
+ModelCache.preload([REGISTRY["chronos"], REGISTRY["timesfm"]])
+
+# Check status
+print(ModelCache.list_loaded())  # ["chronos", "timesfm"]
+
+# Unload when done
+ModelCache.unload()  # Clear all
+# ModelCache.unload("chronos")  # Or clear specific model
+```
+
+---
+
+## Error Handling (4 Types Only)
+
+```python
+# core/errors.py
+
+class TSAgentKitError(Exception):
+    """Base error with fix hint."""
+    code: str
+    hint: str
+
+class EContract(TSAgentKitError):
+    """Input data invalid (wrong columns, types, etc.)"""
+    code = "E_CONTRACT"
+    hint = "Ensure df has columns: unique_id, ds, y"
+
+class ENoTSFM(TSAgentKitError):
+    """No TSFM adapters available."""
+    code = "E_NO_TSFM"
+    hint = "Install TSFMs: pip install chronos-forecasting tsagentkit-timesfm tsagentkit-uni2ts tsagentkit-patchtst-fm gluonts"
+
+class EInsufficient(TSAgentKitError):
+    """Not enough TSFMs succeeded."""
+    code = "E_INSUFFICIENT"
+    hint = "Some TSFMs failed. Check logs or reduce min_tsfm."
+
+class ETemporal(TSAgentKitError):
+    """Temporal integrity violation."""
+    code = "E_TEMPORAL"
+    hint = "Data must be sorted by ds. No future dates in covariates."
+```
+
+**Benefit**: 4 errors cover 99% of cases. Each has a fix hint.
+
+---
+
+## TSFM Adapter Reference
+
+### Chronos 2 (Amazon)
+
+**Installation**: `pip install chronos-forecasting pandas pyarrow`
+
+**Usage**:
+```python
+from tsagentkit.models.adapters.tsfm.chronos import load, predict
+from tsagentkit import TSDataset, ForecastConfig
+
+# Load model
+model = load(model_name="amazon/chronos-2")  # or amazon/chronos-2-small
+
+# Create dataset
+config = ForecastConfig(h=7, freq="D")
+dataset = TSDataset.from_dataframe(df, config)
+
+# Predict
+forecast_df = predict(model, dataset, h=7)
+```
+
+**Direct API** (without tsagentkit):
+```python
+from chronos import Chronos2Pipeline
+import torch
+
+pipeline = Chronos2Pipeline.from_pretrained(
+    "amazon/chronos-2",
+    device_map="cuda"  # or "cpu"
+)
+
+# Predict quantiles directly
+quantiles, mean = pipeline.predict_quantiles(
+    context=torch.tensor(df["y"].values),
+    prediction_length=7,
+    quantile_levels=[0.1, 0.5, 0.9],
+)
+```
+
+### TimesFM 2.5 (Google)
+
+**Installation**: `pip install tsagentkit-timesfm`
+
+**Usage**:
+```python
+from tsagentkit.models.adapters.tsfm.timesfm import load, predict
+from tsagentkit import TSDataset, ForecastConfig
+
+# Load model
+model = load()  # Loads google/timesfm-2.5-200m-pytorch
+
+# Create dataset
+config = ForecastConfig(h=7, freq="D")
+dataset = TSDataset.from_dataframe(df, config)
+
+# Predict
+forecast_df = predict(model, dataset, h=7)
+```
+
+**Direct API** (without tsagentkit):
+```python
+import timesfm
+import numpy as np
+
+# Load model
+model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
+    "google/timesfm-2.5-200m-pytorch"
+)
+
+# Configure
+model.compile(
+    timesfm.ForecastConfig(
+        max_context=1024,
+        max_horizon=256,
+        normalize_inputs=True,
+        use_continuous_quantile_head=True,
+    )
+)
+
+# Forecast
+point_forecast, quantile_forecast = model.forecast(
+    horizon=7,
+    inputs=[np.array(df["y"].values)],
+    freq=[0],  # 0=high freq (daily), 1=medium, 2=low
+)
+```
+
+### Moirai 2.0 (Salesforce)
+
+**Installation**: `pip install tsagentkit-uni2ts`
+
+**Usage**:
+```python
+from tsagentkit.models.adapters.tsfm.moirai import load, predict
+from tsagentkit import TSDataset, ForecastConfig
+
+# Load model
+model = load(model_name="Salesforce/moirai-2.0-R-small")
+
+# Create dataset
+config = ForecastConfig(h=7, freq="D")
+dataset = TSDataset.from_dataframe(df, config)
+
+# Predict
+forecast_df = predict(model, dataset, h=7)
+```
+
+**Direct API** (without tsagentkit):
+```python
+from tsagentkit_uni2ts.model.moirai2 import Moirai2Forecast, Moirai2Module
+from gluonts.dataset.pandas import PandasDataset
+import pandas as pd
+
+# Load model
+module = Moirai2Module.from_pretrained("Salesforce/moirai-2.0-R-small")
+
+# Create forecaster
+forecaster = Moirai2Forecast(
+    module=module,
+    prediction_length=7,
+    context_length=1680,  # Moirai 2.0 recommended context
+    target_dim=1,  # Univariate
+    feat_dynamic_real_dim=0,
+    past_feat_dynamic_real_dim=0,
+)
+
+# Create predictor
+predictor = forecaster.create_predictor(batch_size=32)
+
+# Prepare data (GluonTS format)
+ts_df = pd.DataFrame({
+    "target": df["y"].values,
+}, index=pd.date_range(start=df["ds"].iloc[0], periods=len(df), freq="D"))
+
+gts_dataset = PandasDataset([{
+    "target": ts_df["target"].values,
+    "start": ts_df.index[0]
+}])
+
+# Predict
+forecasts = list(predictor.predict(gts_dataset))
+median_forecast = forecasts[0].quantile(0.5)
+```
+
+### PatchTST-FM-r1 (IBM)
+
+**Installation**: `pip install tsagentkit-patchtst-fm>=1.0.2`
+
+**Usage**:
+```python
+from tsagentkit.models.adapters.tsfm.patchtst_fm import load, predict
+from tsagentkit import TSDataset, ForecastConfig
+
+# Load model (auto-selects device: cuda > cpu, mps guarded)
+model = load(model_name="ibm-research/patchtst-fm-r1")
+
+# Create dataset
+config = ForecastConfig(h=7, freq="D")
+dataset = TSDataset.from_dataframe(df, config)
+
+# Predict (returns median forecast)
+forecast_df = predict(model, dataset, h=7)
+```
+
+**Direct API** (without tsagentkit):
+```python
+from tsfm_public import PatchTSTFMForPrediction
+import torch
+import numpy as np
+
+# Determine device (defaults to cpu on mps for stability)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Load model
+model = PatchTSTFMForPrediction.from_pretrained(
+    "ibm-research/patchtst-fm-r1",
+    device_map=device,
+)
+model.eval()
+
+# Prepare context
+context = np.asarray(df["y"].values, dtype=np.float32)
+context_tensor = torch.tensor(context, dtype=torch.float32, device=device)
+
+# Generate forecast with quantiles
+with torch.no_grad():
+    outputs = model(
+        inputs=[context_tensor],
+        prediction_length=7,
+        quantile_levels=[0.5],  # Median forecast
+        return_loss=False,
+    )
+    # Extract predictions from outputs
+    predictions = outputs.prediction_outputs  # Shape: (batch, quantiles, horizon)
+
+# Get median forecast
+median_forecast = predictions[0, 0, :].cpu().numpy()  # First batch, median quantile
+```
+
+---
+
+## Adding a New TSFM Adapter (3 Steps)
 
 ### Step 1: Create Adapter (~100 lines)
 
 ```python
 # models/adapters/tsfm/mytsfm.py
+"""MyTSFM adapter - ~100 lines.
 
-_loaded_model = None
+TSFMs are stateless (pre-trained). The adapter implements:
+- load(): Load model weights (called by ModelCache)
+- predict(): Generate predictions using loaded model
+"""
 
-def load(context_length: int = 512) -> Any:
-    """Load model (called by ModelCache)."""
+import pandas as pd
+from tsagentkit.core.dataset import TSDataset
+
+# Cache key -> loaded model instance
+# ModelCache manages this automatically
+_loaded_model: Any | None = None
+
+def load(model_name: str = "my-model") -> Any:
+    """Load model weights. Called by ModelCache on first use."""
     global _loaded_model
     if _loaded_model is None:
-        from mytsfm import MyTSFMModel
-        _loaded_model = MyTSFMModel.from_pretrained("mytsfm/base")
+        from mytsfm_library import MyTSFMModel
+        _loaded_model = MyTSFMModel.from_pretrained(model_name)
     return _loaded_model
 
+def unload() -> None:
+    """Unload model to free memory. Called by ModelCache.unload()."""
+    global _loaded_model
+    _loaded_model = None
+
+def fit(dataset: TSDataset) -> Any:
+    """TSFMs are pre-trained, no fitting needed."""
+    return load()
+
 def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
-    """Generate predictions."""
-    predictions = model.predict(dataset.df, h=h)
-    return pd.DataFrame({
-        "unique_id": dataset.unique_ids,
-        "ds": dataset.future_dates(h),
-        "yhat": predictions,
-    })
+    """Generate predictions using loaded model."""
+    forecasts = []
+    id_col = dataset.config.id_col
+    time_col = dataset.config.time_col
+    target_col = dataset.config.target_col
+
+    for unique_id in dataset.df[id_col].unique():
+        mask = dataset.df[id_col] == unique_id
+        series_df = dataset.df[mask].sort_values(time_col)
+        context = series_df[target_col].values
+
+        # Generate forecast
+        prediction = model.predict(context, h)
+
+        # Create forecast DataFrame
+        last_date = series_df[time_col].iloc[-1]
+        future_dates = pd.date_range(start=last_date, periods=h + 1, freq=dataset.config.freq)[1:]
+
+        forecast_df = pd.DataFrame({
+            id_col: unique_id,
+            time_col: future_dates,
+            "yhat": prediction,
+        })
+        forecasts.append(forecast_df)
+
+    return pd.concat(forecasts, ignore_index=True)
 ```
 
-### Step 2: Register (1 line)
+### Step 2: Register in Registry (1 line)
 
 ```python
 # models/registry.py
 
 REGISTRY = {
-    # ... existing ...
+    # ... existing models ...
     "mytsfm": ModelSpec(
         name="mytsfm",
         adapter_path="tsagentkit.models.adapters.tsfm.mytsfm",
@@ -154,124 +695,203 @@ REGISTRY = {
 }
 ```
 
-### Step 3: Test
+### Step 3: Test (optional but recommended)
 
 ```python
 # tests/models/adapters/test_mytsfm.py
 
+from tsagentkit.models.cache import ModelCache
+from tsagentkit.models.registry import REGISTRY
+
 def test_mytsfm_basic():
-    from tsagentkit.models.registry import REGISTRY
     spec = REGISTRY["mytsfm"]
-    artifact = fit(spec, sample_dataset)
-    result = predict(spec, artifact, sample_dataset, h=7)
+    model = ModelCache.get(spec)  # Auto-loads
+    result = predict(model, sample_dataset, h=7)
     assert len(result) == 7
+
+def test_mytsfm_cache_reuse():
+    """Models are cached and reused."""
+    spec = REGISTRY["mytsfm"]
+    model1 = ModelCache.get(spec)
+    model2 = ModelCache.get(spec)
+    assert model1 is model2  # Same instance
+
+def test_mytsfm_unload():
+    """Unload frees memory."""
+    ModelCache.unload("mytsfm")
+    assert "mytsfm" not in ModelCache.list_loaded()
 ```
 
-## Code Style
+**Done.** The new TSFM is automatically available via `forecast()` with caching.
 
-- **Indentation**: 4 spaces, no tabs
-- **Naming**: `snake_case` functions, `PascalCase` classes
-- **Types**: Add hints for all public APIs
-- **Docstrings**: Clear, with examples
+---
+
+## Development Workflow
+
+### Environment
+
+```bash
+# Setup
+uv sync --all-extras
+
+# Run tests
+uv run pytest
+
+# Type check
+uv run mypy src/tsagentkit
+
+# Format
+uv run ruff format src/
+```
+
+### Testing Philosophy
+
+- **Unit tests**: Individual functions
+- **Integration tests**: Full pipeline
+- **Adapter tests**: Mock + real (`TSFM_RUN_REAL=1`)
+- **Property tests**: Ensemble aggregation correctness
+
+### Code Style
 
 ```python
-# Good
+# Good: Pure function, clear types, docstring
 def ensemble(
     predictions: list[pd.DataFrame],
     method: Literal["median", "mean"] = "median"
 ) -> pd.DataFrame:
-    """Element-wise ensemble of predictions.
+    """
+    Element-wise ensemble of predictions.
 
     Args:
-        predictions: DataFrames with [unique_id, ds, yhat]
+        predictions: List of DataFrames with columns [unique_id, ds, yhat]
         method: Aggregation method
 
     Returns:
         DataFrame with ensemble predictions
     """
-    ...
+    if not predictions:
+        raise EInsufficient("No predictions to ensemble")
+    # ... implementation ...
 ```
 
-## Testing Guidelines
+---
 
-- **Unit tests**: Individual functions
-- **Integration**: Full pipeline
-- **Adapters**: Mock + real (`TSFM_RUN_REAL=1`)
-- **Property tests**: Ensemble correctness
+## Comparison: v1.x vs v2.0 (Nanobot Style)
 
-```python
-# Good test name
-def test_median_ensemble_with_missing_values():
-    ...
-```
+| Aspect | v1.x (Legacy) | v2.0 (Nanobot-Inspired) |
+|--------|---------------|------------------------|
+| **Lines of Code** | ~10,000+ | ~2,000 core |
+| **Config Objects** | 5+ (TaskSpec, PlanSpec, RouterConfig, ...) | 1 (ForecastConfig) |
+| **Pipeline** | 12+ stages | 6 stages |
+| **Model Selection** | Competitive backtest | Ensemble only |
+| **Registry** | Multiple registries | Single REGISTRY dict |
+| **Errors** | 20+ types | 4 types |
+| **API Surface** | 30+ functions | 7 functions |
+| **Adapters** | Complex inheritance | Simple functions |
+| **Add TSFM** | 5 files, 50 lines | 2 files, 100 lines |
 
-## Commits & PRs
+---
 
-### Commits
-- Clear, imperative: "add chronos adapter"
-- Focused, single-purpose
+## Key Design Decisions
 
-### PRs
-- Describe change and scope
-- Reference CLAUDE.md design
-- Include tests for new adapters
+| Decision | Rationale |
+|----------|-----------|
+| **Dataclass over Pydantic** | Faster, no JSON schema overhead |
+| **Registry pattern** | Single source of truth for models |
+| **Protocol over inheritance** | Simpler, more flexible |
+| **TSFM-only ensemble** | Cleaner production contract |
+| **Pure functions** | Easier to test, reason about |
+| **Frozen configs** | Immutable, hashable, safe |
+| **Lazy loading** | Fast startup when TSFM not used |
+
+---
 
 ## Quick Reference
 
-### Standard Pipeline (Auto Caching)
+### Standard Pipeline
+
 ```python
 from tsagentkit import forecast
 
-# Models loaded once, cached automatically
+# Zero config, TSFM ensemble
 result = forecast(df, h=7, freq="D")
-```
-
-### Batch Processing (Explicit Cache Control)
-```python
-from tsagentkit import forecast, ModelCache
-from tsagentkit.models.registry import REGISTRY
-
-# Preload models for batch processing
-models = [m for m in REGISTRY.values() if m.is_tsfm]
-ModelCache.preload(models)
-
-# Process many datasets - models stay in memory
-for df in dataset_batch:
-    result = forecast(df, h=7)
-
-# Free memory when done
-ModelCache.unload()
+print(result.df)
 ```
 
 ### Agent Building
-```python
-from tsagentkit import validate, TSDataset, fit, predict, ensemble
-from tsagentkit.models.registry import REGISTRY
-from tsagentkit.models.cache import ModelCache
 
+```python
+from tsagentkit import validate, TSDataset, make_plan, fit, predict, ensemble
+from tsagentkit.models.registry import REGISTRY
+
+# Custom pipeline
 df = validate(raw_df)
 dataset = TSDataset.from_dataframe(df, freq="D")
+
+# Get models (TSFM only for production)
 models = [m for m in REGISTRY.values() if m.is_tsfm]
 
-# Models auto-loaded by cache
-artifacts = [ModelCache.get(m) for m in models]
+# Fit & predict
+artifacts = [fit(m, dataset) for m in models]
 preds = [predict(m, a, dataset, h=7) for m, a in zip(models, artifacts)]
+
+# Ensemble
 result = ensemble(preds, method="median")
 ```
 
 ### Inspection
+
 ```python
 from tsagentkit.inspect import list_models, check_health
-from tsagentkit.models.cache import ModelCache
 
+# List available TSFMs
 print(list_models(tsfm_only=True))
-print(ModelCache.list_loaded())  # Check cached models
+# ['chronos', 'timesfm', 'moirai', 'patchtst_fm']
+
+# Health check
 health = check_health()
+print(health.tsfm_available)  # ['chronos', 'timesfm', 'patchtst_fm']
+print(health.tsfm_missing)    # ['moirai: pip install moirai']
 ```
 
-## References
+### Model Cache (Batch Processing)
 
-- `CLAUDE.md`: Core design philosophy
-- `skill/README.md`: Module guide
-- `skill/tool_map.md`: API reference
-- `skill/recipes.md`: Examples
+```python
+from tsagentkit import forecast, ModelCache
+from tsagentkit.models.registry import REGISTRY
+
+# Scenario: Processing 1000 time series
+
+# Option 1: Automatic caching (simplest)
+for df in dataset_batch:
+    result = forecast(df, h=7)  # Models loaded once, reused automatically
+
+# Option 2: Explicit preload (better for memory control)
+models = [m for m in REGISTRY.values() if m.is_tsfm]
+ModelCache.preload(models)  # Load all TSFMs upfront
+
+for df in dataset_batch:
+    result = forecast(df, h=7)  # Uses preloaded models
+
+ModelCache.unload()  # Free memory when done
+
+# Check cache status
+print(ModelCache.list_loaded())  # ['chronos', 'timesfm', 'moirai', 'patchtst_fm']
+```
+
+---
+
+## Summary
+
+`tsagentkit` v2.0 embraces **nanobot's minimalist philosophy** with production-grade optimizations:
+
+- **~2,000 lines** for full TSFM ensemble capability
+- **Single registry** for all models
+- **One config** object
+- **7 public functions**
+- **4 error types**
+- **ModelCache** for efficient TSFM lifecycle management (load once, reuse many)
+
+Research-ready. Hackable. Production-grade.
+
+> "Perfection is achieved not when there is nothing more to add, but when there is nothing left to take away." — Antoine de Saint-Exupéry
