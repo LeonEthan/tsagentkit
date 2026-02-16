@@ -30,7 +30,7 @@ def load() -> Any:
     global _loaded_model
 
     if _loaded_model is None:
-        import tsagentkit_timesfm as timesfm
+        import timesfm
 
         # Load TimesFM 2.5 200M model using from_pretrained
         model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
@@ -91,33 +91,24 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
     target_col = dataset.config.target_col
     freq = dataset.config.freq
 
-    # Map pandas freq to TimesFM frequency token (0=high/daily, 1=medium, 2=low)
-    freq_map = {
-        "D": 0,
-        "H": 0,
-        "T": 0,
-        "min": 0,
-        "B": 0,
-        "W": 1,
-        "M": 1,
-        "MS": 1,
-        "Q": 2,
-        "QS": 2,
-        "Y": 2,
-    }
-    tfm_freq = freq_map.get(freq, 0)
-
     # Process each series
     for unique_id in dataset.df[id_col].unique():
         mask = dataset.df[id_col] == unique_id
         series_df = dataset.df[mask].sort_values(time_col)
         context = series_df[target_col].values.astype(np.float32)
 
-        # Generate forecast
+        # TimesFM 2.5 requires sequences > 992 tokens to avoid NaN output
+        # See: https://github.com/google-research/timesfm/issues/321
+        min_context_length = 993
+        if len(context) < min_context_length:
+            # Pad with zeros at the beginning
+            padding_needed = min_context_length - len(context)
+            context = np.pad(context, (padding_needed, 0), mode='constant', constant_values=0)
+
+        # Generate forecast (freq parameter not supported in this TimesFM version)
         point_forecast, _ = model.forecast(
             horizon=h,
             inputs=[context],
-            freq=[tfm_freq],
         )
 
         # Extract forecast for requested horizon

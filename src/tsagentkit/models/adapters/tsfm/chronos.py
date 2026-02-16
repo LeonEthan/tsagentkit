@@ -92,15 +92,19 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
         series_df = dataset.df[mask].sort_values(time_col)
         context = series_df[target_col].values
 
-        # Convert to tensor
+        # Convert to tensor - Chronos 2 expects 3-d shape (n_series, n_variates, history_length)
         context_tensor = torch.tensor(context, dtype=torch.float32)
+        # Reshape from (history_length,) to (1, 1, history_length) for univariate single series
+        context_tensor = context_tensor.unsqueeze(0).unsqueeze(0)
 
         # Generate forecast
         with torch.no_grad():
             prediction = model.predict(context_tensor, h)
 
-        # Extract median forecast
-        forecast_values = prediction.median(axis=1).values.numpy()
+        # prediction is a list of tensors, each with shape (n_samples, n_variates, prediction_length)
+        # For univariate: extract first element, take median across samples (dim=0), get first variate
+        pred_tensor = prediction[0]  # Shape: (n_samples, n_variates, prediction_length)
+        forecast_values = pred_tensor.median(dim=0).values[0].numpy()  # Take median across samples, first variate
 
         # Generate future timestamps
         last_date = series_df[time_col].iloc[-1]

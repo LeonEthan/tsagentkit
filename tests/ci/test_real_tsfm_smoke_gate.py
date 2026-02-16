@@ -105,8 +105,8 @@ class TestChronosRealSmoke:
         # Create dataset
         dataset = TSDataset.from_dataframe(minimal_df, forecast_config)
 
-        # Initialize adapter with tiny model for speed
-        adapter = ChronosAdapter(model_name="chronos-t5-tiny")
+        # Initialize adapter with chronos-2 model
+        adapter = ChronosAdapter(model_name="amazon/chronos-2")
 
         # Load model (downloads from HuggingFace on first run)
         artifact = adapter.fit(dataset)
@@ -114,7 +114,7 @@ class TestChronosRealSmoke:
         # Verify artifact structure
         assert "pipeline" in artifact
         assert "model_name" in artifact
-        assert artifact["model_name"] == "chronos-t5-tiny"
+        assert artifact["model_name"] == "amazon/chronos-2"
         assert "adapter" in artifact
 
         # Run inference
@@ -144,7 +144,7 @@ class TestChronosRealSmoke:
         from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
 
         dataset = TSDataset.from_dataframe(minimal_multi_series_df, forecast_config)
-        adapter = ChronosAdapter(model_name="chronos-t5-tiny")
+        adapter = ChronosAdapter(model_name="amazon/chronos-2")
 
         artifact = adapter.fit(dataset)
         forecast = adapter.predict(dataset, artifact, h=7)
@@ -234,7 +234,7 @@ class TestMoiraiRealSmoke:
         dataset = TSDataset.from_dataframe(minimal_df, forecast_config)
 
         # Initialize adapter with small model
-        adapter = MoiraiAdapter(model_name="moirai-1.1-R-small")
+        adapter = MoiraiAdapter(model_name="Salesforce/moirai-2.0-R-small")
 
         # Load model (downloads from HuggingFace on first run)
         artifact = adapter.fit(dataset)
@@ -242,7 +242,7 @@ class TestMoiraiRealSmoke:
         # Verify artifact structure
         assert "model" in artifact
         assert "model_name" in artifact
-        assert artifact["model_name"] == "moirai-1.1-R-small"
+        assert artifact["model_name"] == "Salesforce/moirai-2.0-R-small"
         assert "adapter" in artifact
 
         # Run inference
@@ -272,7 +272,7 @@ class TestMoiraiRealSmoke:
         from tsagentkit.models.adapters.tsfm.moirai import MoiraiAdapter
 
         dataset = TSDataset.from_dataframe(minimal_multi_series_df, forecast_config)
-        adapter = MoiraiAdapter(model_name="moirai-1.1-R-small")
+        adapter = MoiraiAdapter(model_name="Salesforce/moirai-2.0-R-small")
 
         artifact = adapter.fit(dataset)
         forecast = adapter.predict(dataset, artifact, h=7)
@@ -298,10 +298,10 @@ class TestTSFMSmokeCommon:
         timesfm = TimesFMAdapter()
         moirai = MoiraiAdapter()
 
-        assert chronos.model_name == "chronos-t5-small"
+        assert chronos.model_name == "amazon/chronos-2"
         assert timesfm.context_len == 512
         assert timesfm.horizon_len == 128
-        assert moirai.model_name == "moirai-1.1-R-small"
+        assert moirai.model_name == "Salesforce/moirai-2.0-R-small"
 
     def test_different_horizons(self, minimal_df, forecast_config):
         """Verify all adapters work with different horizon values."""
@@ -309,7 +309,7 @@ class TestTSFMSmokeCommon:
         from tsagentkit.models.adapters.tsfm.chronos import ChronosAdapter
 
         dataset = TSDataset.from_dataframe(minimal_df, forecast_config)
-        adapter = ChronosAdapter(model_name="chronos-t5-tiny")
+        adapter = ChronosAdapter(model_name="amazon/chronos-2")
         artifact = adapter.fit(dataset)
 
         # Test different horizons

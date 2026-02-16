@@ -38,7 +38,7 @@ def load(model_name: str = "Salesforce/moirai-2.0-R-small") -> Any:
 
     if _loaded_model is None or _default_model_name != model_name:
         # Import from tsagentkit-uni2ts package (Moirai 2.0 uses moirai2 module)
-        from tsagentkit_uni2ts.model.moirai2 import Moirai2Module
+        from uni2ts.model.moirai2 import Moirai2Module
 
         # Load the pretrained module
         module = Moirai2Module.from_pretrained(model_name)
@@ -81,7 +81,7 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
         Forecast DataFrame with columns [unique_id, ds, yhat]
     """
     import numpy as np
-    from tsagentkit_uni2ts.model.moirai2 import Moirai2Forecast
+    from uni2ts.model.moirai2 import Moirai2Forecast
 
     model_name = model["model_name"]
     module = model["module"]
@@ -98,7 +98,6 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
         ctx_len = len(context)
 
         # Create forecast model with Moirai 2.0
-        # Moirai 2.0 uses target_dim=1 for univariate forecasting
         forecast_model = Moirai2Forecast(
             module=module,
             prediction_length=h,
@@ -115,12 +114,11 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
         # Create a simple GluonTS-compatible dataset for prediction
         from gluonts.dataset.pandas import PandasDataset
 
-        # Prepare data for GluonTS format
-        ts_df = pd.DataFrame({
-            "target": context,
-        }, index=pd.date_range(start=series_df[time_col].iloc[0], periods=ctx_len, freq=dataset.config.freq))
+        # Prepare data for GluonTS format - PandasDataset expects a DataFrame or Series
+        ts_index = pd.date_range(start=series_df[time_col].iloc[0], periods=ctx_len, freq=dataset.config.freq)
+        ts_series = pd.Series(context, index=ts_index)
 
-        gts_dataset = PandasDataset([{"target": ts_df["target"].values, "start": ts_df.index[0]}])
+        gts_dataset = PandasDataset(ts_series)
 
         # Generate predictions
         forecast_it = predictor.predict(gts_dataset)
