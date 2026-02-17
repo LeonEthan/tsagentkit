@@ -50,7 +50,7 @@
 src/tsagentkit/
 ├── core/
 │   ├── config.py          # Single ForecastConfig (frozen dataclass)
-│   ├── dataset.py         # TSDataset (lightweight wrapper)
+│   ├── dataset.py         # TSDataset + CovariateSet (structural placeholder)
 │   ├── types.py           # Shared type definitions
 │   └── errors.py          # 4 error types only
 │
@@ -333,6 +333,77 @@ ModelCache.unload()  # Clear all
 
 ---
 
+## Covariate Support (Structural Only)
+
+`tsagentkit` includes a **structural placeholder** for covariate data that enables storage and pass-through, while acknowledging that TSFM adapters do not currently consume covariates in predictions.
+
+### The CovariateSet Dataclass
+
+```python
+# core/dataset.py - Covariate storage container
+
+@dataclass
+class CovariateSet:
+    """
+    Container for optional covariate data.
+
+    TSFMs are pre-trained on raw time series; covariates are currently
+    stored but not consumed by any model adapter. This structure
+    exists for forward compatibility and agent customization.
+    """
+    static: pd.DataFrame | None = None      # Static features (per unique_id)
+    past: pd.DataFrame | None = None        # Past-observed dynamic features
+    future: pd.DataFrame | None = None      # Future-known dynamic features
+```
+
+### Covariate Types Explained
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **static** | Time-invariant features per series | Product category, store location |
+| **past** | Historical dynamic features (must exist for full history) | Past promotions, observed weather |
+| **future** | Future-known dynamic features (must cover forecast horizon) | Planned promotions, holidays |
+
+### Current Limitations (By Design)
+
+Per nanobot-inspired minimalism, covariates are intentionally **storage-only** in v2.0:
+
+1. **No adapter consumes covariates** - All TSFM adapters ignore `dataset.covariates`
+2. **No validation logic** - No alignment checking for covariate timestamps
+3. **No integration with predictions** - Covariates do not affect forecast outputs
+
+**Rationale**:
+- TSFMs (Chronos, TimesFM, Moirai, PatchTST-FM) are pre-trained on raw time series
+- Full covariate support requires model-specific handling (GluonTS format, different dimensions, etc.)
+- Adding covariate-aware forecasting would significantly expand scope and complexity
+- Structure exists for users who want to extend adapters for covariate support
+
+### Attaching Covariates to Dataset
+
+```python
+from tsagentkit import build_dataset, ForecastConfig, CovariateSet
+
+config = ForecastConfig(h=7, freq="D")
+
+# Create covariate set (storage only)
+covariates = CovariateSet(
+    static=pd.DataFrame({
+        "unique_id": ["A", "B"],
+        "category": ["retail", "wholesale"]
+    }),
+    future=pd.DataFrame({
+        "unique_id": ["A"]*7 + ["B"]*7,
+        "ds": pd.date_range("2024-01-01", periods=7).tolist() * 2,
+        "promotion": [1, 0, 0, 1, 0, 0, 0] * 2
+    })
+)
+
+# Attach to dataset (stored but not used by TSFMs)
+dataset = build_dataset(df, config, covariates=covariates)
+```
+
+---
+
 ## API Surface (Minimal)
 
 ### Public API (top-level exports)
@@ -395,6 +466,29 @@ ModelCache.unload()  # Clear all
 - calls adapter-level `unload` hooks (if implemented)
 - triggers backend cleanup (`gc.collect`, CUDA/MPS cache clear)
 - cannot reclaim memory still held by external references
+
+### CovariateSet API
+
+```python
+from tsagentkit import CovariateSet, build_dataset
+
+# Covariates are structural placeholders (storage only)
+covariates = CovariateSet(
+    static=static_df,      # Per-series static features
+    past=past_df,          # Past-observed dynamic features
+    future=future_df       # Future-known dynamic features
+)
+
+# Attach to dataset (passes through pipeline)
+dataset = build_dataset(df, config, covariates=covariates)
+
+# Access via dataset
+dataset.covariates.static   # Static features DataFrame
+dataset.covariates.past     # Past features DataFrame
+dataset.covariates.future   # Future features DataFrame
+```
+
+**Note**: Covariates are currently stored but not consumed by any TSFM adapter. They exist for forward compatibility and agent customization.
 
 ---
 
@@ -901,6 +995,32 @@ ModelCache.unload()  # Free memory when done
 
 # Check cache status
 print(ModelCache.list_loaded())  # ['chronos', 'timesfm', 'moirai', 'patchtst_fm']
+```
+
+### Covariates (Structural Storage)
+
+```python
+from tsagentkit import build_dataset, CovariateSet
+from tsagentkit import forecast  # Covariates attach but don't affect output
+
+# Covariates can be attached for storage (structural support)
+covariates = CovariateSet(
+    static=pd.DataFrame({
+        "unique_id": ["A"],
+        "category": ["retail"]
+    }),
+    future=pd.DataFrame({
+        "unique_id": ["A"]*7,
+        "ds": future_dates,
+        "promotion": [1, 0, 0, 1, 0, 0, 0]
+    })
+)
+
+# Attach covariates to dataset
+dataset = build_dataset(df, config, covariates=covariates)
+
+# Note: TSFM adapters currently ignore covariates in predictions
+result = forecast(df, h=7)  # Same output with or without covariates
 ```
 
 ---
