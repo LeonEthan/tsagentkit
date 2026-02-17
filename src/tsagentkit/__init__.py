@@ -46,12 +46,12 @@ from tsagentkit.pipeline import forecast, run_forecast
 # Agent Building (granular control)
 from tsagentkit.pipeline import (
     build_dataset,
-    ensemble,
     fit_all,
     make_plan,
     predict_all,
     validate,
 )
+from tsagentkit.models.ensemble import ensemble_with_quantiles as ensemble
 
 # Model Cache (for explicit lifecycle management)
 from tsagentkit.models.cache import ModelCache

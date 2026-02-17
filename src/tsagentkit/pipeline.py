@@ -175,39 +175,6 @@ def predict_all(
 
 
 # =============================================================================
-# Ensemble
-# =============================================================================
-
-
-def ensemble(
-    predictions: list[pd.DataFrame],
-    method: str = "median",
-    quantiles: tuple[float, ...] | None = None,
-) -> pd.DataFrame:
-    """Compute ensemble forecast from multiple predictions.
-
-    Args:
-        predictions: List of forecast DataFrames
-        method: Aggregation method ('median' or 'mean')
-        quantiles: Optional quantile levels
-
-    Returns:
-        Ensemble forecast DataFrame
-    """
-    if not predictions:
-        raise EInsufficient("No predictions to ensemble")
-
-    if len(predictions) == 1:
-        return predictions[0]
-
-    return ensemble_with_quantiles(
-        predictions,
-        method=method,  # type: ignore[arg-type]
-        quantiles=list(quantiles) if quantiles else None,
-    )
-
-
-# =============================================================================
 # Main Pipeline
 # =============================================================================
 
@@ -250,7 +217,7 @@ def run_forecast(
         )
 
     # Phase 5: Ensemble
-    ensemble_df = ensemble(predictions, method=config.ensemble_method, quantiles=config.quantiles)
+    ensemble_df = ensemble_with_quantiles(predictions, method=config.ensemble_method, quantiles=config.quantiles)
 
     # Build result
     result = ForecastResult(
@@ -299,5 +266,4 @@ __all__ = [
     "make_plan",
     "fit_all",
     "predict_all",
-    "ensemble",
 ]

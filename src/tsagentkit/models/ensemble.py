@@ -55,25 +55,36 @@ def ensemble(
 def ensemble_with_quantiles(
     predictions: list[pd.DataFrame],
     method: Literal["median", "mean"] = "median",
-    quantiles: list[float] | None = None,
+    quantiles: tuple[float, ...] | list[float] | None = None,
 ) -> pd.DataFrame:
     """Element-wise ensemble with quantile aggregation.
 
     Args:
         predictions: List of DataFrames with columns [unique_id, ds, yhat, q0.1, ...]
         method: Aggregation method ("median" or "mean")
-        quantiles: List of quantile levels to ensemble
+        quantiles: Quantile levels to ensemble (tuple or list)
 
     Returns:
         DataFrame with ensemble predictions and quantiles
+
+    Raises:
+        EInsufficient: If no predictions provided
     """
+    if not predictions:
+        raise EInsufficient("No predictions to ensemble")
+
+    if len(predictions) == 1:
+        return predictions[0].copy()
+
     result = ensemble(predictions, method)
 
     # Ensemble quantile columns if present
     if quantiles:
+        # Convert tuple to list for iteration
+        quantiles_list = list(quantiles) if isinstance(quantiles, tuple) else quantiles
         import numpy as np
 
-        for q in quantiles:
+        for q in quantiles_list:
             q_col = f"q{q}"
             # Check if quantile column exists in at least one prediction
             if any(q_col in p.columns for p in predictions):

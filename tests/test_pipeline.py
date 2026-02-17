@@ -11,9 +11,9 @@ import pytest
 from tsagentkit import ForecastConfig, TSDataset
 from tsagentkit.core.dataset import CovariateSet
 from tsagentkit.core.errors import EContract, EInsufficient
+from tsagentkit.models.ensemble import ensemble_with_quantiles as ensemble
 from tsagentkit.pipeline import (
     build_dataset,
-    ensemble,
     forecast,
     make_plan,
     run_forecast,
