@@ -15,7 +15,7 @@ from tsagentkit.core.dataset import CovariateSet, TSDataset
 from tsagentkit.core.errors import EContract, EInsufficient, ENoTSFM
 from tsagentkit.core.results import ForecastResult
 from tsagentkit.models.ensemble import ensemble_with_quantiles
-from tsagentkit.models.protocol import fit, predict
+from tsagentkit.models.protocol import fit, predict_all as protocol_predict_all
 from tsagentkit.models.registry import REGISTRY, ModelSpec, list_available
 
 if TYPE_CHECKING:
@@ -162,16 +162,13 @@ def predict_all(
     Returns:
         List of forecast DataFrames
     """
-    predictions = []
+    valid_specs = []
+    valid_artifacts = []
     for spec, artifact in zip(models, artifacts):
-        if artifact is None:
-            continue
-        try:
-            pred = predict(spec, artifact, dataset, h)
-            predictions.append(pred)
-        except Exception:
-            pass
-    return predictions
+        if artifact is not None:
+            valid_specs.append(spec)
+            valid_artifacts.append(artifact)
+    return protocol_predict_all(valid_specs, valid_artifacts, dataset, h)
 
 
 # =============================================================================

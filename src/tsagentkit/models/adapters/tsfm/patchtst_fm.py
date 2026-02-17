@@ -28,24 +28,6 @@ _loaded_model: Any | None = None
 _default_model_name: str = "ibm-research/patchtst-fm-r1"
 
 
-def _is_mps_available() -> bool:
-    """Check MPS availability across torch variants."""
-    if torch is None:
-        return False
-
-    torch_mps = getattr(torch, "mps", None)
-    if torch_mps is not None and hasattr(torch_mps, "is_available"):
-        return bool(torch_mps.is_available())
-
-    backends = getattr(torch, "backends", None)
-    if backends is not None:
-        backend_mps = getattr(backends, "mps", None)
-        if backend_mps is not None and hasattr(backend_mps, "is_available"):
-            return bool(backend_mps.is_available())
-
-    return False
-
-
 def _resolve_device_map() -> str:
     """Select inference device for model loading.
 
@@ -413,5 +395,4 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
         forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)
-
 
