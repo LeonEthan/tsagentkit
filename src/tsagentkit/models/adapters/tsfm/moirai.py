@@ -11,13 +11,10 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from tsagentkit.core.dataset import _normalize_freq_alias
+
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
-
-
-# Module-level cache for the loaded model
-_loaded_model: Any | None = None
-_default_model_name: str = "Salesforce/moirai-2.0-R-small"
 
 
 def load(model_name: str = "Salesforce/moirai-2.0-R-small") -> Any:
@@ -34,25 +31,18 @@ def load(model_name: str = "Salesforce/moirai-2.0-R-small") -> Any:
     Returns:
         Loaded Moirai model module
     """
-    global _loaded_model, _default_model_name
+    # Import from tsagentkit-uni2ts package (Moirai 2.0 uses moirai2 module)
+    from uni2ts.model.moirai2 import Moirai2Module
 
-    if _loaded_model is None or _default_model_name != model_name:
-        # Import from tsagentkit-uni2ts package (Moirai 2.0 uses moirai2 module)
-        from uni2ts.model.moirai2 import Moirai2Module
+    # Load the pretrained module
+    module = Moirai2Module.from_pretrained(model_name)
 
-        # Load the pretrained module
-        module = Moirai2Module.from_pretrained(model_name)
-
-        _loaded_model = {"model_name": model_name, "module": module}
-        _default_model_name = model_name
-
-    return _loaded_model
+    return {"model_name": model_name, "module": module}
 
 
-def unload() -> None:
-    """Unload model to free memory."""
-    global _loaded_model
-    _loaded_model = None
+def unload(model: Any | None = None) -> None:
+    """Unload model resources (best-effort)."""
+    del model
 
 
 def fit(dataset: TSDataset) -> Any:
@@ -83,18 +73,15 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
     import numpy as np
     from uni2ts.model.moirai2 import Moirai2Forecast
 
-    model_name = model["model_name"]
     module = model["module"]
     forecasts = []
-    id_col = dataset.config.id_col
-    time_col = dataset.config.time_col
-    target_col = dataset.config.target_col
+    freq = _normalize_freq_alias(dataset.config.freq)
 
     # Process each series
-    for unique_id in dataset.df[id_col].unique():
-        mask = dataset.df[id_col] == unique_id
-        series_df = dataset.df[mask].sort_values(time_col)
-        context = series_df[target_col].values.astype(np.float32)
+    for unique_id in dataset.df["unique_id"].unique():
+        mask = dataset.df["unique_id"] == unique_id
+        series_df = dataset.df[mask].sort_values("ds")
+        context = series_df["y"].values.astype(np.float32)
         ctx_len = len(context)
 
         # Create forecast model with Moirai 2.0
@@ -115,7 +102,7 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
         from gluonts.dataset.pandas import PandasDataset
 
         # Prepare data for GluonTS format - PandasDataset expects a DataFrame or Series
-        ts_index = pd.date_range(start=series_df[time_col].iloc[0], periods=ctx_len, freq=dataset.config.freq)
+        ts_index = pd.date_range(start=series_df["ds"].iloc[0], periods=ctx_len, freq=freq)
         ts_series = pd.Series(context, index=ts_index)
 
         gts_dataset = PandasDataset(ts_series)
@@ -128,18 +115,15 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
         forecast_values = forecast.quantile(0.5)
 
         # Generate future timestamps
-        last_date = series_df[time_col].iloc[-1]
-        freq = dataset.config.freq
+        last_date = series_df["ds"].iloc[-1]
         future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
         # Create forecast DataFrame
         forecast_df = pd.DataFrame({
-            id_col: unique_id,
-            time_col: future_dates[:len(forecast_values)],
+            "unique_id": unique_id,
+            "ds": future_dates[:len(forecast_values)],
             "yhat": forecast_values,
         })
         forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)
-
-

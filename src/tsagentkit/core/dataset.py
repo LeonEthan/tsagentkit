@@ -59,19 +59,19 @@ class TSDataset:
 
     @property
     def n_series(self) -> int:
-        return self.df[self.config.id_col].nunique()
+        return self.df["unique_id"].nunique()
 
     @property
     def min_length(self) -> int:
-        return self.df.groupby(self.config.id_col).size().min()
+        return self.df.groupby("unique_id").size().min()
 
     @property
     def max_length(self) -> int:
-        return self.df.groupby(self.config.id_col).size().max()
+        return self.df.groupby("unique_id").size().max()
 
     def get_series(self, unique_id: str) -> pd.DataFrame:
         """Extract single series by ID."""
-        mask = self.df[self.config.id_col] == unique_id
+        mask = self.df["unique_id"] == unique_id
         return self.df[mask].copy()
 
     @classmethod
@@ -83,7 +83,7 @@ class TSDataset:
     ) -> TSDataset:
         """Create TSDataset from DataFrame with validation."""
         # Basic validation
-        required = [config.id_col, config.time_col, config.target_col]
+        required = ["unique_id", "ds", "y"]
         missing = [c for c in required if c not in df.columns]
         if missing:
             from tsagentkit.core.errors import EContract
@@ -94,7 +94,7 @@ class TSDataset:
             )
 
         # Ensure sorted
-        df = df.sort_values([config.id_col, config.time_col]).reset_index(drop=True)
+        df = df.sort_values(["unique_id", "ds"]).reset_index(drop=True)
 
         return cls(df=df, config=config, covariates=covariates)
 
@@ -104,10 +104,10 @@ class TSDataset:
         Returns DataFrame with [unique_id, ds] for the forecast horizon.
         """
         h = n_periods or self.config.h
-        ids = self.df[self.config.id_col].unique()
+        ids = self.df["unique_id"].unique()
 
         # Get last timestamp per series
-        last_ds = self.df.groupby(self.config.id_col)[self.config.time_col].max()
+        last_ds = self.df.groupby("unique_id")["ds"].max()
 
         # Generate future dates
         future_rows = []
@@ -117,6 +117,6 @@ class TSDataset:
             last = last_ds[uid]
             future_dates = pd.date_range(start=last, periods=h + 1, freq=freq)[1:]
             for d in future_dates:
-                future_rows.append({self.config.id_col: uid, self.config.time_col: d})
+                future_rows.append({"unique_id": uid, "ds": d})
 
         return pd.DataFrame(future_rows)

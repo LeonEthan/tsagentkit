@@ -21,9 +21,6 @@ class ForecastConfig:
         h: Forecast horizon (number of periods to forecast)
         freq: Time-series frequency (pandas offset alias: 'D', 'H', 'M', etc.)
         quantiles: Quantile levels for probabilistic forecasts
-        id_col: Column name for series identifier
-        time_col: Column name for timestamp
-        target_col: Column name for target variable
         ensemble_method: How to aggregate ensemble forecasts ('median' or 'mean')
         min_tsfm: Minimum TSFMs required for ensemble
         fail_on_missing_tsfm: If True, abort if TSFM unavailable
@@ -39,11 +36,6 @@ class ForecastConfig:
 
     # Output
     quantiles: tuple[float, ...] = (0.1, 0.5, 0.9)
-
-    # Column names (panel contract simplified)
-    id_col: str = "unique_id"
-    time_col: str = "ds"
-    target_col: str = "y"
 
     def __post_init__(self) -> None:
         # Validation

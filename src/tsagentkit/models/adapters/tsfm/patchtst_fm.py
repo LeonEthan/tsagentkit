@@ -1,7 +1,7 @@
 """PatchTST-FM TSFM adapter for tsagentkit.
 
 Wraps IBM's PatchTST-FM zero-shot model (`ibm-research/patchtst-fm-r1`).
-Uses `tsfm_public.PatchTSTFMForPrediction` and keeps module-level caching.
+Uses `tsfm_public.PatchTSTFMForPrediction`.
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 
+from tsagentkit.core.dataset import _normalize_freq_alias
+
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
 
@@ -21,11 +23,6 @@ try:
     import torch
 except ImportError:
     torch = None  # type: ignore
-
-
-# Module-level cache for loaded model (ModelCache manages lifecycle).
-_loaded_model: Any | None = None
-_default_model_name: str = "ibm-research/patchtst-fm-r1"
 
 
 def _resolve_device_map() -> str:
@@ -232,33 +229,28 @@ def load(model_name: str = "ibm-research/patchtst-fm-r1") -> Any:
     Returns:
         Loaded PatchTST-FM model
     """
-    global _loaded_model, _default_model_name
+    device_map = _resolve_device_map()
+    model_cls = _get_patchtst_fm_class()
 
-    if _loaded_model is None or _default_model_name != model_name:
-        device_map = _resolve_device_map()
-        model_cls = _get_patchtst_fm_class()
+    try:
+        model = model_cls.from_pretrained(
+            model_name,
+            device_map=device_map,
+        )
+    except TypeError:
+        model = model_cls.from_pretrained(model_name)
+        if hasattr(model, "to"):
+            model = model.to(device_map)
 
-        try:
-            _loaded_model = model_cls.from_pretrained(
-                model_name,
-                device_map=device_map,
-            )
-        except TypeError:
-            _loaded_model = model_cls.from_pretrained(model_name)
-            if hasattr(_loaded_model, "to"):
-                _loaded_model = _loaded_model.to(device_map)
+    if hasattr(model, "eval"):
+        model.eval()
 
-        if hasattr(_loaded_model, "eval"):
-            _loaded_model.eval()
-        _default_model_name = model_name
-
-    return _loaded_model
+    return model
 
 
-def unload() -> None:
-    """Unload model to free memory."""
-    global _loaded_model
-    _loaded_model = None
+def unload(model: Any | None = None) -> None:
+    """Unload model resources (best-effort)."""
+    del model
 
 
 def fit(dataset: TSDataset) -> Any:
@@ -329,9 +321,6 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
         raise ImportError("PyTorch is required for PatchTST-FM inference.")
 
     forecasts = []
-    id_col = dataset.config.id_col
-    time_col = dataset.config.time_col
-    target_col = dataset.config.target_col
 
     model_quantiles = _model_quantile_levels(model)
     requested_quantiles = _inference_quantiles(model_quantiles)
@@ -339,10 +328,10 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
     context_length = _resolve_context_length(model)
 
     # Process each series
-    for unique_id in dataset.df[id_col].unique():
-        mask = dataset.df[id_col] == unique_id
-        series_df = dataset.df[mask].sort_values(time_col)
-        context = series_df[target_col].to_numpy(dtype=np.float32)
+    for unique_id in dataset.df["unique_id"].unique():
+        mask = dataset.df["unique_id"] == unique_id
+        series_df = dataset.df[mask].sort_values("ds")
+        context = series_df["y"].to_numpy(dtype=np.float32)
         context = _sanitize_context(context)
         context = _left_pad_context(context, context_length)
 
@@ -382,17 +371,16 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
             forecast_values = np.nan_to_num(forecast_values, nan=float(fill_value))
 
         # Generate future timestamps
-        last_date = series_df[time_col].iloc[-1]
-        freq = dataset.config.freq
+        last_date = series_df["ds"].iloc[-1]
+        freq = _normalize_freq_alias(dataset.config.freq)
         future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
         # Create forecast DataFrame
         forecast_df = pd.DataFrame({
-            id_col: unique_id,
-            time_col: future_dates[:len(forecast_values)],
+            "unique_id": unique_id,
+            "ds": future_dates[:len(forecast_values)],
             "yhat": forecast_values,
         })
         forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)
-

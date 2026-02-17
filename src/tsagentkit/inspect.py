@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tsagentkit.models.registry import REGISTRY, check_available, list_available
+from tsagentkit.models.registry import REGISTRY, check_available, list_models as registry_list_models
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ def list_models(tsfm_only: bool = False) -> list[str]:
     Returns:
         List of model names with available dependencies
     """
-    return list_available(tsfm_only=tsfm_only)
+    return registry_list_models(tsfm_only=tsfm_only, available_only=True)
 
 
 def check_health() -> HealthReport:

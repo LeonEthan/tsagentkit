@@ -10,12 +10,10 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from tsagentkit.core.dataset import _normalize_freq_alias
+
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
-
-
-# Module-level cache for the loaded model
-_loaded_model: Any | None = None
 
 
 def load() -> Any:
@@ -27,35 +25,29 @@ def load() -> Any:
     Returns:
         Loaded TimesFM model
     """
-    global _loaded_model
+    import timesfm
 
-    if _loaded_model is None:
-        import timesfm
+    # Load TimesFM 2.5 200M model using from_pretrained
+    model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
+        "google/timesfm-2.5-200m-pytorch"
+    )
 
-        # Load TimesFM 2.5 200M model using from_pretrained
-        model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
-            "google/timesfm-2.5-200m-pytorch"
+    # Configure the model for inference
+    model.compile(
+        timesfm.ForecastConfig(
+            max_context=1024,
+            max_horizon=256,
+            normalize_inputs=True,
+            use_continuous_quantile_head=True,
         )
+    )
 
-        # Configure the model for inference
-        model.compile(
-            timesfm.ForecastConfig(
-                max_context=1024,
-                max_horizon=256,
-                normalize_inputs=True,
-                use_continuous_quantile_head=True,
-            )
-        )
-
-        _loaded_model = model
-
-    return _loaded_model
+    return model
 
 
-def unload() -> None:
-    """Unload model to free memory."""
-    global _loaded_model
-    _loaded_model = None
+def unload(model: Any | None = None) -> None:
+    """Unload model resources (best-effort)."""
+    del model
 
 
 def fit(dataset: TSDataset) -> Any:
@@ -86,16 +78,13 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
     import numpy as np
 
     forecasts = []
-    id_col = dataset.config.id_col
-    time_col = dataset.config.time_col
-    target_col = dataset.config.target_col
-    freq = dataset.config.freq
+    freq = _normalize_freq_alias(dataset.config.freq)
 
     # Process each series
-    for unique_id in dataset.df[id_col].unique():
-        mask = dataset.df[id_col] == unique_id
-        series_df = dataset.df[mask].sort_values(time_col)
-        context = series_df[target_col].values.astype(np.float32)
+    for unique_id in dataset.df["unique_id"].unique():
+        mask = dataset.df["unique_id"] == unique_id
+        series_df = dataset.df[mask].sort_values("ds")
+        context = series_df["y"].values.astype(np.float32)
 
         # TimesFM 2.5 requires sequences > 992 tokens to avoid NaN output
         # See: https://github.com/google-research/timesfm/issues/321
@@ -115,17 +104,15 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
         forecast_values = point_forecast[0][:h]
 
         # Generate future timestamps
-        last_date = series_df[time_col].iloc[-1]
+        last_date = series_df["ds"].iloc[-1]
         future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
         # Create forecast DataFrame
         forecast_df = pd.DataFrame({
-            id_col: unique_id,
-            time_col: future_dates[:len(forecast_values)],
+            "unique_id": unique_id,
+            "ds": future_dates[:len(forecast_values)],
             "yhat": forecast_values,
         })
         forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)
-
-

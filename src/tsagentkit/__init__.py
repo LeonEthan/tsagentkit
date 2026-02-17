@@ -4,6 +4,10 @@ Ultra-lightweight execution engine for time-series forecasting with TSFM ensembl
 
 Version 2.0.0 - Nanobot-Inspired Architecture
 
+Input contract:
+    DataFrame columns must be exactly: unique_id, ds, y.
+    Custom column remapping is not supported.
+
 Basic usage:
     >>> from tsagentkit import forecast
     >>> result = forecast(data, h=7)
@@ -24,6 +28,11 @@ Agent Building (granular control):
     >>> for batch in batches:
     ...     result = forecast(batch, h=7)  # Uses cached models
     >>> ModelCache.unload()  # Free memory when done
+
+ModelCache unload semantics:
+    ModelCache.unload() releases tsagentkit-owned model references, invokes
+    adapter unload hooks, and performs best-effort backend cache cleanup.
+    If user code still holds model references, Python cannot reclaim that memory.
 """
 
 __version__ = "2.0.0"
@@ -60,7 +69,7 @@ from tsagentkit.models.cache import ModelCache
 from tsagentkit.models.registry import REGISTRY, ModelSpec, list_models
 
 # Inspection utilities
-from tsagentkit.inspect import check_health, list_models as inspect_list_models
+from tsagentkit.inspect import check_health
 
 __all__ = [
     "__version__",
@@ -86,7 +95,6 @@ __all__ = [
     "list_models",
     # Inspection
     "check_health",
-    "inspect_list_models",
     # Errors
     "TSAgentKitError",
     "EContract",

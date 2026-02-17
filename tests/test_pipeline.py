@@ -67,22 +67,15 @@ class TestValidate:
             with pytest.raises(EContract, match="null"):
                 validate(df_with_null, config)
 
-    def test_column_renaming(self, config):
-        """Custom columns are renamed to standard."""
+    def test_custom_columns_rejected(self, config):
+        """Custom column names are rejected by fixed contract."""
         df = pd.DataFrame({
             "series_id": ["A"] * 10,
             "timestamp": pd.date_range("2024-01-01", periods=10),
             "value": range(10),
         })
-        custom_config = ForecastConfig(
-            h=7, freq="D",
-            id_col="series_id", time_col="timestamp", target_col="value"
-        )
-        result = validate(df, custom_config)
-        # Should be renamed to standard column names
-        assert "unique_id" in result.columns
-        assert "ds" in result.columns
-        assert "y" in result.columns
+        with pytest.raises(EContract, match="Missing required columns"):
+            validate(df, config)
 
     def test_returns_copy(self, sample_df, config):
         """validate returns a copy of the DataFrame."""
@@ -122,20 +115,20 @@ class TestMakePlan:
         """make_plan with no available TSFMs raises ENoTSFM."""
         from tsagentkit.core.errors import ENoTSFM
 
-        # Mock empty registry by patching list_available
+        # Mock empty registry by patching list_models
         import tsagentkit.pipeline as pipeline_module
-        original_list_available = pipeline_module.list_available
+        original_list_models = pipeline_module.list_models
 
-        def mock_list_available(tsfm_only=True):
+        def mock_list_models(tsfm_only=True, available_only=False):
             return []
 
-        pipeline_module.list_available = mock_list_available
+        pipeline_module.list_models = mock_list_models
 
         try:
             with pytest.raises(ENoTSFM):
                 make_plan(tsfm_only=True)
         finally:
-            pipeline_module.list_available = original_list_available
+            pipeline_module.list_models = original_list_models
 
 
 class TestEnsemble:

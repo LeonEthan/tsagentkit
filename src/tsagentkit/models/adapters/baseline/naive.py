@@ -36,14 +36,14 @@ def predict(artifact: None, dataset: TSDataset, h: int) -> pd.DataFrame:
     """
     forecasts = []
 
-    for unique_id in dataset.df[dataset.config.id_col].unique():
+    for unique_id in dataset.df["unique_id"].unique():
         # Get series data
-        mask = dataset.df[dataset.config.id_col] == unique_id
-        series_df = dataset.df[mask].sort_values(dataset.config.time_col)
+        mask = dataset.df["unique_id"] == unique_id
+        series_df = dataset.df[mask].sort_values("ds")
 
         # Last value is the forecast
-        last_value = series_df[dataset.config.target_col].iloc[-1]
-        last_date = series_df[dataset.config.time_col].iloc[-1]
+        last_value = series_df["y"].iloc[-1]
+        last_date = series_df["ds"].iloc[-1]
 
         # Generate future dates
         future_dates = pd.date_range(
@@ -54,8 +54,8 @@ def predict(artifact: None, dataset: TSDataset, h: int) -> pd.DataFrame:
 
         # Create forecast
         forecast_df = pd.DataFrame({
-            dataset.config.id_col: unique_id,
-            dataset.config.time_col: future_dates,
+            "unique_id": unique_id,
+            "ds": future_dates,
             "yhat": [last_value] * h,
         })
         forecasts.append(forecast_df)

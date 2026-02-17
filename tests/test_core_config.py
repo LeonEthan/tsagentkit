@@ -48,13 +48,6 @@ class TestForecastConfigDefaults:
         config = ForecastConfig(h=7, freq="D")
         assert config.quantiles == (0.1, 0.5, 0.9)
 
-    def test_default_columns(self):
-        """Default column names."""
-        config = ForecastConfig(h=7, freq="D")
-        assert config.id_col == "unique_id"
-        assert config.time_col == "ds"
-        assert config.target_col == "y"
-
     def test_default_ensemble_method(self):
         """Default ensemble_method is 'median'."""
         config = ForecastConfig(h=7, freq="D")

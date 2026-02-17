@@ -45,11 +45,11 @@ def predict(artifact: dict, dataset: TSDataset, h: int) -> pd.DataFrame:
     season_length = artifact["season_length"]
     forecasts = []
 
-    for unique_id in dataset.df[dataset.config.id_col].unique():
+    for unique_id in dataset.df["unique_id"].unique():
         # Get series data
-        mask = dataset.df[dataset.config.id_col] == unique_id
-        series_df = dataset.df[mask].sort_values(dataset.config.time_col)
-        values = series_df[dataset.config.target_col].values
+        mask = dataset.df["unique_id"] == unique_id
+        series_df = dataset.df[mask].sort_values("ds")
+        values = series_df["y"].values
 
         # Generate forecasts by repeating historical seasonal values
         forecast_values = []
@@ -63,7 +63,7 @@ def predict(artifact: dict, dataset: TSDataset, h: int) -> pd.DataFrame:
                 forecast_values.append(values[-1])
 
         # Generate future dates
-        last_date = series_df[dataset.config.time_col].iloc[-1]
+        last_date = series_df["ds"].iloc[-1]
         future_dates = pd.date_range(
             start=last_date,
             periods=h + 1,
@@ -72,8 +72,8 @@ def predict(artifact: dict, dataset: TSDataset, h: int) -> pd.DataFrame:
 
         # Create forecast
         forecast_df = pd.DataFrame({
-            dataset.config.id_col: unique_id,
-            dataset.config.time_col: future_dates[:len(forecast_values)],
+            "unique_id": unique_id,
+            "ds": future_dates[:len(forecast_values)],
             "yhat": forecast_values,
         })
         forecasts.append(forecast_df)

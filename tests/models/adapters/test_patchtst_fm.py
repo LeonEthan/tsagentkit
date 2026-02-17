@@ -89,12 +89,11 @@ class TestPatchTSTFMAdapterFunctions:
     """Test module-level functions."""
 
     def test_unload_function(self):
-        """Test unload() clears the cache."""
+        """Test unload() accepts model reference and is best-effort."""
         from tsagentkit.models.adapters.tsfm import patchtst_fm
 
-        patchtst_fm._loaded_model = MagicMock()
-        patchtst_fm.unload()
-        assert patchtst_fm._loaded_model is None
+        model = MagicMock()
+        patchtst_fm.unload(model)
 
     def test_fit_calls_load(self, sample_dataset):
         """Test fit() function calls load()."""
@@ -111,9 +110,6 @@ class TestPatchTSTFMAdapterFunctions:
     def test_load_uses_patchtst_fm_model_name(self):
         """Test load() uses PatchTSTFMForPrediction class."""
         from tsagentkit.models.adapters.tsfm import patchtst_fm
-
-        patchtst_fm._loaded_model = None
-        patchtst_fm._default_model_name = "ibm-research/patchtst-fm-r1"
 
         mock_model = MagicMock()
         mock_model_cls = MagicMock()
@@ -207,5 +203,4 @@ class TestPatchTSTFMAdapterFunctions:
             quantile_levels=[0.1, 0.5, 0.9],
         )
         assert values.tolist() == [2, 12, 22, 32, 42, 52, 62]
-
 

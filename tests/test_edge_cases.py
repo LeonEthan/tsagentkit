@@ -170,22 +170,15 @@ class TestNonNumericValues:
 class TestCustomColumnNames:
     """Test with custom column names."""
 
-    def test_custom_columns(self):
-        """Custom column names work."""
+    def test_custom_columns_rejected(self):
+        """Custom column names are rejected by fixed contract."""
         df = pd.DataFrame({
             "series_id": ["A"] * 30,
             "timestamp": pd.date_range("2024-01-01", periods=30),
             "value": range(30),
         })
-        config = ForecastConfig(
-            h=7, freq="D",
-            id_col="series_id", time_col="timestamp", target_col="value"
-        )
-        result = validate(df, config)
-        # Should be renamed to standard names
-        assert "unique_id" in result.columns
-        assert "ds" in result.columns
-        assert "y" in result.columns
+        with pytest.raises(EContract, match="Missing required columns"):
+            validate(df)
 
 
 class TestFrequencyHandling:

@@ -15,8 +15,8 @@ from tsagentkit.core.dataset import CovariateSet, TSDataset
 from tsagentkit.core.errors import EContract, EInsufficient, ENoTSFM
 from tsagentkit.core.results import ForecastResult
 from tsagentkit.models.ensemble import ensemble_with_quantiles
-from tsagentkit.models.protocol import fit, predict_all as protocol_predict_all
-from tsagentkit.models.registry import REGISTRY, ModelSpec, list_available
+from tsagentkit.models.protocol import fit, predict as protocol_predict
+from tsagentkit.models.registry import REGISTRY, ModelSpec, list_models
 
 if TYPE_CHECKING:
     pass
@@ -28,19 +28,19 @@ if TYPE_CHECKING:
 
 
 def validate(df: pd.DataFrame, config: ForecastConfig | None = None) -> pd.DataFrame:
-    """Validate input data and normalize column names.
+    """Validate input data against the fixed panel contract.
 
     Args:
         df: Input DataFrame with time-series data
-        config: Optional config for column name mapping
+        config: Optional forecast config (unused, kept for API compatibility)
 
     Returns:
         Validated and normalized DataFrame
     """
-    config = config or ForecastConfig(h=1)  # Dummy config for column names
+    _ = config
 
     # Check required columns
-    required = [config.id_col, config.time_col, config.target_col]
+    required = ["unique_id", "ds", "y"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise EContract(
@@ -61,16 +61,7 @@ def validate(df: pd.DataFrame, config: ForecastConfig | None = None) -> pd.DataF
                 fix_hint="Remove or fill null values in key columns",
             )
 
-    # Normalize column names to standard
-    df = df.copy()
-    if config.id_col != "unique_id":
-        df = df.rename(columns={config.id_col: "unique_id"})
-    if config.time_col != "ds":
-        df = df.rename(columns={config.time_col: "ds"})
-    if config.target_col != "y":
-        df = df.rename(columns={config.target_col: "y"})
-
-    return df
+    return df.copy()
 
 
 # =============================================================================
@@ -112,7 +103,7 @@ def make_plan(
     Returns:
         List of model specifications to run
     """
-    available = list_available(tsfm_only=tsfm_only)
+    available = list_models(tsfm_only=tsfm_only, available_only=True)
 
     if not available:
         raise ENoTSFM("No TSFM models available")
@@ -162,13 +153,17 @@ def predict_all(
     Returns:
         List of forecast DataFrames
     """
-    valid_specs = []
-    valid_artifacts = []
-    for spec, artifact in zip(models, artifacts):
-        if artifact is not None:
-            valid_specs.append(spec)
-            valid_artifacts.append(artifact)
-    return protocol_predict_all(valid_specs, valid_artifacts, dataset, h)
+    predictions = []
+    for spec, artifact in zip(models, artifacts, strict=False):
+        if artifact is None:
+            continue
+        try:
+            pred = protocol_predict(spec, artifact, dataset, h)
+            predictions.append(pred)
+        except Exception:
+            # Skip failed predictions
+            pass
+    return predictions
 
 
 # =============================================================================

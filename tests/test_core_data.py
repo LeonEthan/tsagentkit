@@ -153,18 +153,15 @@ class TestTSDatasetCreation:
         assert list(dataset.df["unique_id"]) == ["A", "A", "B", "B"]
         assert list(dataset.df["y"]) == [1, 2, 3, 4]
 
-    def test_from_dataframe_custom_columns(self):
-        """Create TSDataset with custom column names."""
+    def test_from_dataframe_custom_columns_rejected(self, config):
+        """Custom column names are rejected by fixed contract."""
         df = pd.DataFrame({
             "series_id": ["A"] * 10,
             "timestamp": pd.date_range("2024-01-01", periods=10),
             "value": range(10),
         })
-        config = ForecastConfig(h=7, freq="D", id_col="series_id", time_col="timestamp", target_col="value")
-        dataset = TSDataset.from_dataframe(df, config)
-        assert dataset.config.id_col == "series_id"
-        assert dataset.config.time_col == "timestamp"
-        assert dataset.config.target_col == "value"
+        with pytest.raises(EContract, match="Missing required columns"):
+            TSDataset.from_dataframe(df, config)
 
 
 class TestTSDatasetProperties:

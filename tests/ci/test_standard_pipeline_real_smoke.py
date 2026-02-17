@@ -248,8 +248,8 @@ class TestPipelineFrequencies:
         """Verify pipeline works with hourly data."""
         from tsagentkit import forecast
 
-        df = create_test_dataset(n_series=1, n_points=100, freq="H")
-        result = forecast(df, h=24, freq="H")
+        df = create_test_dataset(n_series=1, n_points=100, freq="h")
+        result = forecast(df, h=24, freq="h")
 
         # Verify date spacing
         date_diff = result.df["ds"].iloc[1] - result.df["ds"].iloc[0]

@@ -77,18 +77,24 @@ REGISTRY: dict[str, ModelSpec] = {
 }
 
 
-def list_models(tsfm_only: bool = False) -> list[str]:
-    """List available models.
+def list_models(tsfm_only: bool = False, available_only: bool = False) -> list[str]:
+    """List models from the registry.
 
     Args:
         tsfm_only: If True, only return TSFM models
+        available_only: If True, only return models with satisfied dependencies
 
     Returns:
         List of model names
     """
-    if tsfm_only:
-        return [name for name, spec in REGISTRY.items() if spec.is_tsfm]
-    return list(REGISTRY.keys())
+    names: list[str] = []
+    for name, spec in REGISTRY.items():
+        if tsfm_only and not spec.is_tsfm:
+            continue
+        if available_only and not check_available(spec):
+            continue
+        names.append(name)
+    return names
 
 
 def get_spec(name: str) -> ModelSpec:
@@ -144,13 +150,7 @@ def list_available(tsfm_only: bool = False) -> list[str]:
     Returns:
         List of model names with available dependencies
     """
-    available = []
-    for name, spec in REGISTRY.items():
-        if tsfm_only and not spec.is_tsfm:
-            continue
-        if check_available(spec):
-            available.append(name)
-    return available
+    return list_models(tsfm_only=tsfm_only, available_only=True)
 
 
 __all__ = [

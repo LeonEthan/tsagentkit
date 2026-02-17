@@ -8,9 +8,11 @@ The ModelCache keeps loaded models in memory for reuse across calls.
 
 from __future__ import annotations
 
+import gc
+import importlib
 from typing import Any
 
-from tsagentkit.models.registry import ModelSpec
+from tsagentkit.models.registry import REGISTRY, ModelSpec
 
 
 class ModelCache:
@@ -63,11 +65,20 @@ class ModelCache:
 
         Args:
             model_name: Specific model to unload, or None to clear all
+
+        Notes:
+            This releases all tsagentkit-owned references and runs backend cache
+            cleanup. If external code keeps references to model objects, Python
+            cannot reclaim that memory until those references are dropped.
         """
-        if model_name is None:
-            cls._cache.clear()
-        elif model_name in cls._cache:
-            del cls._cache[model_name]
+        names = [model_name] if model_name is not None else list(cls._cache.keys())
+
+        for name in names:
+            model = cls._cache.pop(name, None)
+            if model is not None:
+                cls._unload_adapter(name, model)
+
+        cls._release_backend_memory()
 
     @classmethod
     def list_loaded(cls) -> list[str]:
@@ -100,12 +111,48 @@ class ModelCache:
         Returns:
             Loaded model instance
         """
-        # Import adapter module dynamically
-        import importlib
-
         module = importlib.import_module(spec.adapter_path)
         load_fn = getattr(module, "load")
         return load_fn(**spec.config_fields)
+
+    @classmethod
+    def _unload_adapter(cls, model_name: str, model: Any) -> None:
+        """Call adapter unload hook if available."""
+        spec = REGISTRY.get(model_name)
+        if spec is None:
+            return
+
+        module = importlib.import_module(spec.adapter_path)
+        unload_fn = getattr(module, "unload", None)
+        if unload_fn is None:
+            return
+
+        try:
+            unload_fn(model)
+        except TypeError:
+            unload_fn()
+
+    @classmethod
+    def _release_backend_memory(cls) -> None:
+        """Best-effort backend cache cleanup for released models."""
+        gc.collect()
+
+        try:
+            import torch
+        except ImportError:
+            return
+
+        cuda = getattr(torch, "cuda", None)
+        if cuda is not None and hasattr(cuda, "is_available") and cuda.is_available() and hasattr(cuda, "empty_cache"):
+            cuda.empty_cache()
+            if hasattr(cuda, "ipc_collect"):
+                cuda.ipc_collect()
+
+        backend_mps = getattr(getattr(torch, "backends", None), "mps", None)
+        mps_available = bool(backend_mps and hasattr(backend_mps, "is_available") and backend_mps.is_available())
+        torch_mps = getattr(torch, "mps", None)
+        if mps_available and torch_mps is not None and hasattr(torch_mps, "empty_cache"):
+            torch_mps.empty_cache()
 
 
 __all__ = ["ModelCache"]

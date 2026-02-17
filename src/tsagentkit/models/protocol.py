@@ -7,18 +7,16 @@ to understand.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from tsagentkit.core.types import ModelArtifact
 from tsagentkit.models.cache import ModelCache
 from tsagentkit.models.registry import ModelSpec
 
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
-
-
-ModelArtifact = Any  # Adapter decides what to store
 
 
 def fit(spec: ModelSpec, dataset: TSDataset) -> ModelArtifact:
@@ -87,15 +85,7 @@ def predict_all(
     Returns:
         List of forecast DataFrames
     """
-    predictions = []
-    for spec, artifact in zip(specs, artifacts):
-        try:
-            pred = predict(spec, artifact, dataset, h)
-            predictions.append(pred)
-        except Exception:
-            # Skip failed predictions
-            pass
-    return predictions
+    return [predict(spec, artifact, dataset, h) for spec, artifact in zip(specs, artifacts, strict=False)]
 
 
 __all__ = [
