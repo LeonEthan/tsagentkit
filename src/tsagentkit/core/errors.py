@@ -55,11 +55,11 @@ class EContract(TSAgentKitError):
 
 
 class ENoTSFM(TSAgentKitError):
-    """No TSFM adapters available."""
+    """No TSFM models registered (internal invariant violation)."""
 
     code = "E_NO_TSFM"
     error_code = "E_NO_TSFM"  # type: ignore[misc]
-    hint = "Install TSFM adapters (chronos, moirai, timesfm) or set tsfm_mode='preferred'"
+    hint = "TSFM registry invariant violated. Ensure default TSFM specs exist in models.registry.REGISTRY."
 
 
 class EInsufficient(TSAgentKitError):

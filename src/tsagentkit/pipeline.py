@@ -103,12 +103,14 @@ def make_plan(
     Returns:
         List of model specifications to run
     """
-    available = list_models(tsfm_only=tsfm_only, available_only=True)
+    names = list_models(tsfm_only=tsfm_only, available_only=False)
 
-    if not available:
-        raise ENoTSFM("No TSFM models available")
+    # TSFMs are required package dependencies. If this is empty, the registry
+    # itself is misconfigured rather than dependencies being optional/missing.
+    if tsfm_only and not names:
+        raise ENoTSFM("No TSFM models registered")
 
-    return [REGISTRY[name] for name in available if name in REGISTRY]
+    return [REGISTRY[name] for name in names if name in REGISTRY]
 
 
 # =============================================================================

@@ -128,7 +128,7 @@ Inspection API (`from tsagentkit.inspect import ...`):
 
 Core error types:
 - `EContract`: input contract violations
-- `ENoTSFM`: no TSFM adapters available
+- `ENoTSFM`: TSFM registry invariant violation (internal misconfiguration)
 - `EInsufficient`: not enough successful model outputs
 - `ETemporal`: temporal integrity violations
 

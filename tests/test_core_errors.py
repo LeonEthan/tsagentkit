@@ -81,7 +81,7 @@ class TestENoTSFM:
     def test_default_fix_hint(self):
         """Has default fix hint."""
         err = ENoTSFM("No TSFM available")
-        assert "chronos" in err.fix_hint or "TSFM" in err.fix_hint
+        assert "invariant" in err.fix_hint
 
 
 class TestEInsufficient:

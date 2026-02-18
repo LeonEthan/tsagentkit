@@ -173,7 +173,7 @@ ModelCache.unload()  # best-effort memory release
 Use these errors as the stable contract surface:
 
 - `EContract`: input schema/type/contract violations
-- `ENoTSFM`: no TSFM adapters available
+- `ENoTSFM`: TSFM registry invariant violation (internal misconfiguration)
 - `EInsufficient`: too few successful TSFM predictions
 - `ETemporal`: temporal integrity violations
 
@@ -220,14 +220,12 @@ For full reference implementation and examples, see `docs/DESIGN.md`.
 
 ```python
 from tsagentkit import list_models, check_health
-from tsagentkit.inspect import list_models as list_available_models
 
-print(list_models(tsfm_only=True, available_only=False))
-print(list_available_models(tsfm_only=True))
+print(list_models(tsfm_only=True))
 
 health = check_health()
 print(health.tsfm_available)
-print(health.tsfm_missing)
+print(health.tsfm_missing)  # expected to be [] under the TSFM-required contract
 ```
 
 ---

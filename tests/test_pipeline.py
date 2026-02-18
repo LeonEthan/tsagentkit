@@ -130,6 +130,26 @@ class TestMakePlan:
         finally:
             pipeline_module.list_models = original_list_models
 
+    def test_make_plan_uses_registry_not_availability_filter(self):
+        """make_plan should not use dependency availability filtering for TSFMs."""
+        import tsagentkit.pipeline as pipeline_module
+
+        captured = {"available_only": None}
+        original_list_models = pipeline_module.list_models
+
+        def mock_list_models(tsfm_only=True, available_only=False):
+            captured["available_only"] = available_only
+            return ["chronos"]
+
+        pipeline_module.list_models = mock_list_models
+        try:
+            models = make_plan(tsfm_only=True)
+            assert len(models) == 1
+            assert models[0].name == "chronos"
+            assert captured["available_only"] is False
+        finally:
+            pipeline_module.list_models = original_list_models
+
 
 class TestEnsemble:
     """Test ensemble function."""

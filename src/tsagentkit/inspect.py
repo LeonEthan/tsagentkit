@@ -30,15 +30,15 @@ class HealthReport:
 
 
 def list_models(tsfm_only: bool = False) -> list[str]:
-    """List available models.
+    """List registered models.
 
     Args:
         tsfm_only: If True, only return TSFM models
 
     Returns:
-        List of model names with available dependencies
+        List of model names from the registry
     """
-    return registry_list_models(tsfm_only=tsfm_only, available_only=True)
+    return registry_list_models(tsfm_only=tsfm_only, available_only=False)
 
 
 def check_health() -> HealthReport:
@@ -47,25 +47,17 @@ def check_health() -> HealthReport:
     Returns:
         HealthReport with available/missing models
     """
-    tsfm_available = []
-    tsfm_missing = []
-
-    for name, spec in REGISTRY.items():
-        if not spec.is_tsfm:
-            continue
-
-        if check_available(spec):
-            tsfm_available.append(name)
-        else:
-            missing = ", ".join(spec.requires)
-            tsfm_missing.append(f"{name} (needs: {missing})")
+    # TSFMs are mandatory dependencies in tsagentkit. Health checks expose
+    # registry state, not optional dependency probing for TSFMs.
+    tsfm_available = registry_list_models(tsfm_only=True, available_only=False)
+    tsfm_missing: list[str] = []
 
     # Check baselines
     baseline_spec = REGISTRY.get("naive")
     baselines_available = check_available(baseline_spec) if baseline_spec else False
 
-    # All OK if at least one TSFM or baselines are available
-    all_ok = len(tsfm_available) > 0 or baselines_available
+    # All OK when TSFM registry is populated (baselines are optional).
+    all_ok = len(tsfm_available) > 0
 
     return HealthReport(
         tsfm_available=tsfm_available,

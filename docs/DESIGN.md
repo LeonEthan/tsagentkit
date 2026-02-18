@@ -364,12 +364,8 @@ from tsagentkit import (
     # Registry and diagnostics
     REGISTRY,
     ModelSpec,
-    list_models,        # registry listing (supports available_only=...)
+    list_models,        # registry listing (TSFMs are required dependencies)
     check_health,
-)
-
-from tsagentkit.inspect import (
-    list_models as list_available_models,  # available models only
 )
 ```
 
@@ -417,9 +413,9 @@ class EContract(TSAgentKitError):
     hint = "Ensure df has columns: unique_id, ds, y"
 
 class ENoTSFM(TSAgentKitError):
-    """No TSFM adapters available."""
+    """No TSFM models registered (internal invariant violation)."""
     code = "E_NO_TSFM"
-    hint = "Install TSFMs: pip install chronos-forecasting tsagentkit-timesfm tsagentkit-uni2ts tsagentkit-patchtst-fm gluonts"
+    hint = "TSFM registry invariant violated. Ensure default TSFM specs exist in models.registry.REGISTRY."
 
 class EInsufficient(TSAgentKitError):
     """Not enough TSFMs succeeded."""
@@ -865,20 +861,15 @@ result = ensemble(preds, method=config.ensemble_method, quantiles=config.quantil
 
 ```python
 from tsagentkit import list_models, check_health
-from tsagentkit.inspect import list_models as list_available_models
 
 # Registry listing (all registered TSFMs)
-print(list_models(tsfm_only=True, available_only=False))
-# ['chronos', 'timesfm', 'moirai', 'patchtst_fm']
-
-# Dependency-available TSFMs only
-print(list_available_models(tsfm_only=True))
+print(list_models(tsfm_only=True))
 # ['chronos', 'timesfm', 'moirai', 'patchtst_fm']
 
 # Health check
 health = check_health()
 print(health.tsfm_available)
-print(health.tsfm_missing)    # [] when all dependencies are available
+print(health.tsfm_missing)    # [] under TSFM-required contract
 ```
 
 ### Model Cache (Batch Processing)
