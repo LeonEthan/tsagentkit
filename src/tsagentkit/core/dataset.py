@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 
@@ -59,20 +59,64 @@ class TSDataset:
 
     @property
     def n_series(self) -> int:
-        return self.df["unique_id"].nunique()
+        return int(self.df["unique_id"].nunique())
 
     @property
     def min_length(self) -> int:
-        return self.df.groupby("unique_id").size().min()
+        return int(self.df.groupby("unique_id").size().min())
 
     @property
     def max_length(self) -> int:
-        return self.df.groupby("unique_id").size().max()
+        return int(self.df.groupby("unique_id").size().max())
 
     def get_series(self, unique_id: str) -> pd.DataFrame:
         """Extract single series by ID."""
         mask = self.df["unique_id"] == unique_id
         return self.df[mask].copy()
+
+    def get_covariates_for_series(
+        self,
+        unique_id: str,
+        covariate_type: Literal["static", "past", "future"],
+    ) -> pd.DataFrame | None:
+        """Extract covariates for a specific series.
+
+        Args:
+            unique_id: Series identifier
+            covariate_type: Type of covariate to extract
+                - "static": Static covariates (one row per series)
+                - "past": Past-observed covariates (time-varying, historical only)
+                - "future": Future-known covariates (time-varying, includes forecast horizon)
+
+        Returns:
+            DataFrame with covariates for the series, or None if not available.
+            For static covariates: DataFrame with [unique_id, col1, col2, ...]
+            For past/future covariates: DataFrame with [unique_id, ds, col1, col2, ...]
+        """
+        if self.covariates is None or self.covariates.is_empty():
+            return None
+
+        cov_df = None
+        if covariate_type == "static":
+            cov_df = self.covariates.static
+        elif covariate_type == "past":
+            cov_df = self.covariates.past
+        elif covariate_type == "future":
+            cov_df = self.covariates.future
+        else:
+            raise ValueError(f"Unknown covariate type: {covariate_type}")
+
+        if cov_df is None:
+            return None
+
+        # Filter for the specific series
+        if "unique_id" not in cov_df.columns:
+            return None
+
+        mask = cov_df["unique_id"] == unique_id
+        result = cov_df[mask].copy()
+
+        return result if len(result) > 0 else None
 
     @classmethod
     def from_dataframe(

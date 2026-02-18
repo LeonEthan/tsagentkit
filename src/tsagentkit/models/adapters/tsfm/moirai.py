@@ -93,6 +93,27 @@ def predict(
     # Group data by unique_id (dataset is pre-sorted by TSDataset)
     grouped = dataset.df.groupby("unique_id", sort=False)
 
+    # Check what covariates are available
+    covariates_set = dataset.covariates
+    has_future_covariates = False
+    has_past_covariates = False
+
+    if covariates_set is not None and not covariates_set.is_empty():
+        has_future_covariates = covariates_set.future is not None
+        has_past_covariates = covariates_set.past is not None
+
+    # Get feature columns from covariates (excluding unique_id and ds)
+    future_feature_cols: list[str] = []
+    past_feature_cols: list[str] = []
+
+    if has_future_covariates and covariates_set is not None and covariates_set.future is not None:
+        cov_cols = covariates_set.future.columns.tolist()
+        future_feature_cols = [c for c in cov_cols if c not in ("unique_id", "ds")]
+
+    if has_past_covariates and covariates_set is not None and covariates_set.past is not None:
+        cov_cols = covariates_set.past.columns.tolist()
+        past_feature_cols = [c for c in cov_cols if c not in ("unique_id", "ds")]
+
     # Pre-extract all series data
     series_data = []
     for unique_id, group in grouped:
@@ -109,24 +130,93 @@ def predict(
         # Determine max context length for this batch
         max_ctx_len = max(len(ctx) for _, ctx, _, _ in batch)
 
+        # Calculate covariate dimensions
+        feat_dynamic_real_dim = len(future_feature_cols)
+        past_feat_dynamic_real_dim = len(past_feature_cols)
+
         # Create forecast model with batch-aware context length
         forecast_model = Moirai2Forecast(
             module=module,
             prediction_length=h,
             context_length=max_ctx_len,
             target_dim=1,
-            feat_dynamic_real_dim=0,
-            past_feat_dynamic_real_dim=0,
+            feat_dynamic_real_dim=feat_dynamic_real_dim,
+            past_feat_dynamic_real_dim=past_feat_dynamic_real_dim,
         )
 
         # Use batch_size > 1 for efficient inference
         predictor = forecast_model.create_predictor(batch_size=len(batch))
 
-        # Build multi-series PandasDataset
+        # Build multi-series PandasDataset with covariates
         ts_dict = {}
         for unique_id, context, _, start_date in batch:
             ts_index = pd.date_range(start=start_date, periods=len(context), freq=freq)
-            ts_dict[unique_id] = pd.Series(context, index=ts_index)
+
+            # Check if we have covariates for this series
+            has_series_future_cov = False
+            if len(future_feature_cols) > 0:
+                future_cov_df = dataset.get_covariates_for_series(unique_id, "future")
+                has_series_future_cov = future_cov_df is not None and len(future_cov_df) >= h
+
+            has_series_past_cov = False
+            if len(past_feature_cols) > 0:
+                past_cov_df = dataset.get_covariates_for_series(unique_id, "past")
+                has_series_past_cov = past_cov_df is not None and len(past_cov_df) > 0
+
+            # Build covariate DataFrame if we have any covariates
+            if has_series_future_cov or has_series_past_cov:
+                # Extend index to include forecast horizon for feat_dynamic_real
+                if has_series_future_cov:
+                    future_dates = pd.date_range(
+                        start=ts_index[-1], periods=h + 1, freq=freq
+                    )[1:]
+                    full_index = ts_index.union(future_dates)
+                else:
+                    full_index = ts_index
+
+                # Build covariate columns
+                cov_data = {}
+
+                # Add future covariates
+                if has_series_future_cov and future_cov_df is not None:
+                    for col_idx, col_name in enumerate(future_feature_cols):
+                        cov_values = np.full(len(full_index), np.nan, dtype=np.float32)
+                        future_values = future_cov_df[col_name].values[:h]
+                        cov_values[len(context) : len(context) + len(future_values)] = future_values
+                        cov_data[f"feat_dynamic_real_{col_idx}"] = cov_values
+
+                # Add past covariates
+                if has_series_past_cov and past_cov_df is not None:
+                    for col_idx, col_name in enumerate(past_feature_cols):
+                        cov_values = np.full(len(full_index), np.nan, dtype=np.float32)
+                        series_past_cov = past_cov_df[past_cov_df["ds"].isin(ts_index)]
+                        if len(series_past_cov) > 0:
+                            aligned_values = series_past_cov.set_index("ds").reindex(ts_index)[
+                                col_name
+                            ].values
+                            cov_values[:len(context)] = aligned_values
+                        cov_data[f"past_feat_dynamic_real_{col_idx}"] = cov_values
+
+                # Create target series and covariate DataFrame as separate entries
+                ts_dict[unique_id] = pd.Series(context, index=ts_index)
+
+                # Add covariates with extended index
+                if cov_data:
+                    cov_df = pd.DataFrame(cov_data, index=full_index)
+                    # Merge covariates into ts_dict entry by converting Series to DataFrame
+                    target_df = pd.DataFrame({"target": context}, index=ts_index)
+                    if len(full_index) > len(ts_index):
+                        # Need to extend target with NaN for forecast horizon
+                        target_extended = np.full(len(full_index), np.nan, dtype=np.float32)
+                        target_extended[:len(context)] = context
+                        target_df = pd.DataFrame({"target": target_extended}, index=full_index)
+                    # Merge covariates
+                    for col in cov_df.columns:
+                        target_df[col] = cov_df[col]
+                    ts_dict[unique_id] = target_df
+            else:
+                # No covariates - just use Series
+                ts_dict[unique_id] = pd.Series(context, index=ts_index)
 
         # PandasDataset with multiple series
         gts_dataset = PandasDataset(ts_dict)

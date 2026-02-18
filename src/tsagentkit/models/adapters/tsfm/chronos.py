@@ -84,6 +84,19 @@ def predict(
     # Group data by unique_id (dataset is pre-sorted by TSDataset)
     grouped = dataset.df.groupby("unique_id", sort=False)
 
+    # Check if future covariates are available
+    has_future_covariates = (
+        dataset.covariates is not None
+        and not dataset.covariates.is_empty()
+        and dataset.covariates.future is not None
+    )
+
+    # Get feature columns from future covariates (excluding unique_id and ds)
+    feature_cols: list[str] = []
+    if has_future_covariates and dataset.covariates is not None and dataset.covariates.future is not None:
+        cov_cols = dataset.covariates.future.columns.tolist()
+        feature_cols = [c for c in cov_cols if c not in ("unique_id", "ds")]
+
     # Pre-extract all series data
     series_data = []
     for unique_id, group in grouped:
@@ -114,9 +127,53 @@ def predict(
             np.stack(padded_contexts), dtype=torch.float32
         ).unsqueeze(1)
 
+        # Prepare covariates if available
+        feat_dynamic_real = None
+        if has_future_covariates and len(feature_cols) > 0:
+            batch_covariates = []
+            for unique_id, context, _ in batch:
+                context_len = len(context)
+                # Get future covariates for this series
+                future_cov_df = dataset.get_covariates_for_series(unique_id, "future")
+
+                if future_cov_df is not None and len(future_cov_df) >= h:
+                    # Extract historical covariates aligned with context
+                    # For Chronos, we need covariates for the full context + prediction window
+                    # Since we only have future covariates, we use the last context_len values
+                    # from the history (or zeros if not available)
+                    hist_cov_df = dataset.df[dataset.df["unique_id"] == unique_id]
+
+                    # Build covariate tensor: (n_features, context_length + h)
+                    cov_values = np.zeros((len(feature_cols), context_len + h), dtype=np.float32)
+
+                    # For historical part, use covariates from history if they exist in main df
+                    # For future part, use the future covariates
+                    future_cov_values = future_cov_df[feature_cols].values[:h].T  # (n_features, h)
+                    cov_values[:, context_len:] = future_cov_values
+
+                    # Pad or trim to match max_len context
+                    if cov_values.shape[1] < max_len + h:
+                        # Pad on the left
+                        pad_width = max_len + h - cov_values.shape[1]
+                        cov_values = np.pad(cov_values, ((0, 0), (pad_width, 0)), mode="constant")
+                    elif cov_values.shape[1] > max_len + h:
+                        # Trim from the left to keep the most recent values
+                        cov_values = cov_values[:, -(max_len + h) :]
+
+                    batch_covariates.append(cov_values)
+                else:
+                    # No covariates for this series, use zeros
+                    batch_covariates.append(np.zeros((len(feature_cols), max_len + h), dtype=np.float32))
+
+            # Stack into batch tensor: (batch_size, n_features, max_len + h)
+            feat_dynamic_real = torch.tensor(np.stack(batch_covariates), dtype=torch.float32)
+
         # Batch inference
         with torch.no_grad():
-            predictions = model.predict(context_tensor, h)
+            if feat_dynamic_real is not None:
+                predictions = model.predict(context_tensor, h, feat_dynamic_real=feat_dynamic_real)
+            else:
+                predictions = model.predict(context_tensor, h)
 
         # Extract forecasts for each series
         for j, (unique_id, _, last_date) in enumerate(batch):
