@@ -201,27 +201,32 @@ def forecast(
     Zero-config TSFM ensemble forecast.
     Core logic: validate → build dataset → fit TSFMs → ensemble → return
     """
-    cfg = ForecastConfig(h=h, freq=freq, **kwargs)
+    config = ForecastConfig(h=h, freq=freq, **kwargs)
 
     # 1. Validate (2 lines)
-    df = _validate(data)
+    df = validate(data, config)
 
     # 2. Build dataset (3 lines)
-    dataset = TSDataset.from_dataframe(df, cfg)
+    dataset = build_dataset(df, config)
 
-    # 3. Get TSFM models only (1 line)
-    models = [m for m in REGISTRY.values() if m.is_tsfm]
+    # 3. Plan TSFM models only (1 line)
+    models = make_plan(tsfm_only=True)
 
-    # 4. Fit all in parallel (5 lines)
-    artifacts = _fit_all(models, dataset)
+    # 4. Fit all serially (5 lines, each fit may use ModelCache)
+    artifacts = fit_all(models, dataset, device=config.device)
 
     # 5. Predict all (3 lines)
-    predictions = _predict_all(models, artifacts, dataset, cfg.h)
+    predictions = predict_all(models, artifacts, dataset, config.h, quantiles=config.quantiles)
 
     # 6. Ensemble (2 lines)
-    result = ensemble(predictions, method=cfg.ensemble_method)
+    result = ensemble(
+        predictions,
+        method=config.ensemble_method,
+        quantiles=config.quantiles,
+        quantile_mode=config.quantile_mode,
+    )
 
-    return ForecastResult(df=result, models_used=[m.name for m in models])
+    return ForecastResult(df=result, model_name=f"ensemble_{config.ensemble_method}", config=config)
 ```
 
 **Benefit**: Entire standard pipeline in ~50 lines. Readable. Hackable.
