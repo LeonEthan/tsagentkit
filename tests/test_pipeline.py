@@ -16,6 +16,7 @@ from tsagentkit.pipeline import (
     build_dataset,
     forecast,
     make_plan,
+    predict_all,
     run_forecast,
     validate,
 )
@@ -220,6 +221,44 @@ class TestEnsemble:
         # Need multiple predictions to reach the method validation
         with pytest.raises(ValueError, match="Unknown ensemble method"):
             ensemble([pred1, pred2], "unknown")
+
+
+class TestPredictAllQuantilePlumbing:
+    """Test quantile forwarding from pipeline to protocol layer."""
+
+    def test_predict_all_passes_quantiles_to_protocol(self, sample_df, config):
+        """predict_all forwards quantiles to protocol_predict."""
+        import tsagentkit.pipeline as pipeline_module
+
+        dataset = build_dataset(sample_df, config)
+
+        model = object()
+        artifact = object()
+        captured: dict[str, object] = {}
+
+        def mock_protocol_predict(spec, artifact, dataset, h, quantiles=None):
+            del spec, artifact, dataset, h
+            captured["quantiles"] = quantiles
+            return pd.DataFrame({
+                "unique_id": ["A"] * 7,
+                "ds": pd.date_range("2024-02-01", periods=7),
+                "yhat": [1.0] * 7,
+            })
+
+        original_protocol_predict = pipeline_module.protocol_predict
+        pipeline_module.protocol_predict = mock_protocol_predict
+        try:
+            preds = predict_all(
+                [model],
+                [artifact],
+                dataset,
+                h=7,
+                quantiles=(0.1, 0.5, 0.9),
+            )
+            assert len(preds) == 1
+            assert captured["quantiles"] == (0.1, 0.5, 0.9)
+        finally:
+            pipeline_module.protocol_predict = original_protocol_predict
 
 
 class TestForecast:

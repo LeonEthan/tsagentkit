@@ -134,8 +134,8 @@ class TestEnsembleWithQuantiles:
         assert "q0.1" in result.columns
         assert "q0.9" in result.columns
 
-    def test_ensemble_quantile_fallback_to_yhat(self, sample_df):
-        """When quantile column is missing, use yhat as fallback."""
+    def test_ensemble_quantile_uses_available_models_only(self, sample_df):
+        """When some models miss quantiles, aggregate from available quantile columns only."""
         config = ForecastConfig(h=7, freq="D")
         dataset = TSDataset.from_dataframe(sample_df, config)
 
@@ -149,12 +149,38 @@ class TestEnsembleWithQuantiles:
 
         pred2 = pred.copy()  # No quantile column
 
-        result = ensemble_with_quantiles([pred1, pred2], quantiles=[0.5])
+        result = ensemble_with_quantiles([pred1, pred2], quantiles=[0.5], quantile_mode="best_effort")
 
         assert "q0.5" in result.columns
-        # Result should be median of [pred1["q0.5"], pred2["yhat"]]
-        expected = np.median([pred1["q0.5"].values, pred2["yhat"].values], axis=0)
+        # Only pred1 contributes q0.5
+        expected = pred1["q0.5"].values
         np.testing.assert_array_equal(result["q0.5"].values, expected)
+
+    def test_ensemble_quantile_missing_best_effort_skips_column(self, sample_df):
+        """best_effort mode skips requested quantiles if no model provides them."""
+        config = ForecastConfig(h=7, freq="D")
+        dataset = TSDataset.from_dataframe(sample_df, config)
+
+        spec = get_spec("naive")
+        artifact = fit(spec, dataset)
+        pred = predict(spec, artifact, dataset, h=7)
+
+        result = ensemble_with_quantiles([pred, pred.copy()], quantiles=[0.5], quantile_mode="best_effort")
+        assert "q0.5" not in result.columns
+
+    def test_ensemble_quantile_missing_strict_raises(self, sample_df):
+        """strict mode raises if requested quantiles are unavailable."""
+        from tsagentkit.core.errors import EInsufficient
+
+        config = ForecastConfig(h=7, freq="D")
+        dataset = TSDataset.from_dataframe(sample_df, config)
+
+        spec = get_spec("naive")
+        artifact = fit(spec, dataset)
+        pred = predict(spec, artifact, dataset, h=7)
+
+        with pytest.raises(EInsufficient, match="Requested quantile 'q0.5'"):
+            ensemble_with_quantiles([pred, pred.copy()], quantiles=[0.5], quantile_mode="strict")
 
 
 class TestEnsembleMultiSeries:

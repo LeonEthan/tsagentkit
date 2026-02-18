@@ -70,7 +70,11 @@ def fit(dataset: TSDataset) -> Any:
 
 
 def predict(
-    model: Any, dataset: TSDataset, h: int, batch_size: int = 32
+    model: Any,
+    dataset: TSDataset,
+    h: int,
+    batch_size: int = 32,
+    quantiles: tuple[float, ...] | list[float] | None = None,
 ) -> pd.DataFrame:
     """Generate forecasts using Moirai 2.0.
 
@@ -79,6 +83,7 @@ def predict(
         dataset: Time-series dataset
         h: Forecast horizon
         batch_size: Number of series to process in parallel
+        quantiles: Optional quantile levels to include as q{level} columns
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
@@ -89,6 +94,7 @@ def predict(
 
     module = model["module"]
     freq = _normalize_freq_alias(dataset.config.freq)
+    requested_quantiles = [float(q) for q in quantiles] if quantiles else []
 
     # Group data by unique_id (dataset is pre-sorted by TSDataset)
     grouped = dataset.df.groupby("unique_id", sort=False)
@@ -235,7 +241,7 @@ def predict(
         forecast_it = predictor.predict(gts_dataset)
 
         # Extract forecasts for each series
-        for (unique_id, _, last_date, _), forecast in zip(batch, forecast_it):
+        for (unique_id, _, last_date, _), forecast in zip(batch, forecast_it, strict=False):
             forecast_values = forecast.quantile(0.5)
             future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
@@ -244,6 +250,9 @@ def predict(
                 "ds": future_dates[: len(forecast_values)],
                 "yhat": forecast_values,
             })
+            for q in requested_quantiles:
+                q_values = forecast.quantile(q)
+                forecast_df[f"q{q}"] = q_values[: len(forecast_values)]
             forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)

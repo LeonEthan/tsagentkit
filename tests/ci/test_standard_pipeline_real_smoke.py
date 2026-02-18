@@ -149,7 +149,7 @@ class TestForecastZeroConfig:
         print("✓ forecast() horizon test passed")
 
     def test_forecast_quantiles_config(self, single_series_df):
-        """Verify forecast() stores quantile config (quantiles in output TBD)."""
+        """Verify forecast() stores quantile config and returns quantile columns."""
         from tsagentkit import forecast
 
         print("\nRunning forecast() quantiles config test...")
@@ -159,9 +159,11 @@ class TestForecastZeroConfig:
         # Verify quantile config is stored
         assert result.config.quantiles == (0.1, 0.5, 0.9)
 
-        # Note: TSFM adapters currently return only yhat column
-        # Full quantile support would require adapter updates
+        # Adapters should return requested quantiles as first-class outputs.
         assert "yhat" in result.df.columns
+        assert "q0.1" in result.df.columns
+        assert "q0.5" in result.df.columns
+        assert "q0.9" in result.df.columns
         assert len(result.df) == 7
 
         print("✓ forecast() quantiles config test passed")

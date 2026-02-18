@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -162,6 +160,18 @@ class TestChronosPredictWithoutCovariates:
         assert isinstance(forecast, pd.DataFrame)
         assert len(forecast) == 14  # 2 series * 7 horizon
         assert set(forecast["unique_id"].unique()) == {"A", "B"}
+
+    def test_predict_outputs_requested_quantiles(self, sample_dataset):
+        """Requested quantiles are exposed as q* columns."""
+        from tsagentkit.models.adapters.tsfm import chronos
+
+        model = DummyChronosModel(return_constant=42.0)
+        forecast = chronos.predict(model, sample_dataset, h=7, quantiles=(0.1, 0.5, 0.9))
+
+        assert {"q0.1", "q0.5", "q0.9"}.issubset(forecast.columns)
+        assert np.allclose(forecast["q0.1"].values, 42.0)
+        assert np.allclose(forecast["q0.5"].values, 42.0)
+        assert np.allclose(forecast["q0.9"].values, 42.0)
 
 
 class TestChronosPredictWithFutureCovariates:

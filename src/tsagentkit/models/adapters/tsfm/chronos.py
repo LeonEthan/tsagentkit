@@ -64,7 +64,11 @@ def fit(dataset: TSDataset) -> Any:
 
 
 def predict(
-    model: Any, dataset: TSDataset, h: int, batch_size: int = 32
+    model: Any,
+    dataset: TSDataset,
+    h: int,
+    batch_size: int = 32,
+    quantiles: tuple[float, ...] | list[float] | None = None,
 ) -> pd.DataFrame:
     """Generate forecasts using Chronos.
 
@@ -73,6 +77,7 @@ def predict(
         dataset: Time-series dataset
         h: Forecast horizon
         batch_size: Number of series to process in parallel
+        quantiles: Optional quantile levels to include as q{level} columns
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
@@ -80,6 +85,7 @@ def predict(
     import torch
 
     freq = _normalize_freq_alias(dataset.config.freq)
+    requested_quantiles = [float(q) for q in quantiles] if quantiles else []
 
     # Group data by unique_id (dataset is pre-sorted by TSDataset)
     grouped = dataset.df.groupby("unique_id", sort=False)
@@ -139,10 +145,6 @@ def predict(
                 if future_cov_df is not None and len(future_cov_df) >= h:
                     # Extract historical covariates aligned with context
                     # For Chronos, we need covariates for the full context + prediction window
-                    # Since we only have future covariates, we use the last context_len values
-                    # from the history (or zeros if not available)
-                    hist_cov_df = dataset.df[dataset.df["unique_id"] == unique_id]
-
                     # Build covariate tensor: (n_features, context_length + h)
                     cov_values = np.zeros((len(feature_cols), context_len + h), dtype=np.float32)
 
@@ -179,7 +181,8 @@ def predict(
         for j, (unique_id, _, last_date) in enumerate(batch):
             # predictions[j] has shape (n_samples, n_variates, prediction_length)
             pred_tensor = predictions[j]
-            forecast_values = pred_tensor.median(dim=0).values[0].numpy()
+            sample_forecasts = pred_tensor[:, 0, :]
+            forecast_values = torch.quantile(sample_forecasts, q=0.5, dim=0).detach().cpu().numpy()
 
             future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
@@ -188,6 +191,9 @@ def predict(
                 "ds": future_dates,
                 "yhat": forecast_values,
             })
+            for q in requested_quantiles:
+                q_values = torch.quantile(sample_forecasts, q=q, dim=0).detach().cpu().numpy()
+                forecast_df[f"q{q}"] = q_values
             forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)

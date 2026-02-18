@@ -21,6 +21,9 @@ class ForecastConfig:
         h: Forecast horizon (number of periods to forecast)
         freq: Time-series frequency (pandas offset alias: 'D', 'H', 'M', etc.)
         quantiles: Quantile levels for probabilistic forecasts
+        quantile_mode: Quantile handling policy. "best_effort" skips missing
+            quantile columns; "strict" raises when requested quantiles are
+            unavailable from all models.
         ensemble_method: How to aggregate ensemble forecasts ('median' or 'mean')
         min_tsfm: Minimum TSFMs required for ensemble
         fail_on_missing_tsfm: If True, abort if TSFM unavailable
@@ -37,6 +40,7 @@ class ForecastConfig:
 
     # Output
     quantiles: tuple[float, ...] = (0.1, 0.5, 0.9)
+    quantile_mode: Literal["best_effort", "strict"] = "best_effort"
 
     # Hardware
     device: Literal["auto", "cuda", "mps", "cpu"] = "auto"
@@ -47,6 +51,10 @@ class ForecastConfig:
             raise ValueError(f"h must be positive, got {self.h}")
         if self.min_tsfm < 1:
             raise ValueError("min_tsfm must be at least 1")
+        if self.quantile_mode not in {"best_effort", "strict"}:
+            raise ValueError(
+                "quantile_mode must be one of: 'best_effort', 'strict'"
+            )
 
     @staticmethod
     def quick(h: int, freq: str = "D") -> ForecastConfig:

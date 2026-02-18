@@ -145,6 +145,21 @@ class TestPatchTSTFMAdapterFunctions:
         assert isinstance(context_tensor, torch.Tensor)
         assert context_tensor.shape[0] == 64
 
+    def test_predict_outputs_requested_quantiles(self, sample_dataset):
+        """predict() returns q* columns when quantiles are requested."""
+        from tsagentkit.models.adapters.tsfm import patchtst_fm
+
+        model = DummyPatchTSTFMModel(context_length=64, quantile_levels=[0.1, 0.5, 0.9])
+        forecast = patchtst_fm.predict(model, sample_dataset, h=7, quantiles=(0.1, 0.5, 0.9))
+
+        assert {"q0.1", "q0.5", "q0.9"}.issubset(forecast.columns)
+        assert forecast["q0.1"].tolist() == [1, 2, 3, 4, 5, 6, 7]
+        assert forecast["q0.5"].tolist() == [11, 12, 13, 14, 15, 16, 17]
+        assert forecast["q0.9"].tolist() == [21, 22, 23, 24, 25, 26, 27]
+
+        call = model.calls[0]
+        assert call["quantile_levels"] == [0.1, 0.5, 0.9]
+
     def test_predict_multi_series(self, sample_config):
         """Test predict() with multiple series."""
         from tsagentkit.models.adapters.tsfm import patchtst_fm
@@ -203,4 +218,3 @@ class TestPatchTSTFMAdapterFunctions:
             quantile_levels=[0.1, 0.5, 0.9],
         )
         assert values.tolist() == [2, 12, 22, 32, 42, 52, 62]
-

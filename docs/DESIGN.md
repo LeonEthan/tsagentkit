@@ -159,6 +159,7 @@ class ForecastConfig:
 
     # Output
     quantiles: tuple[float, ...] = (0.1, 0.5, 0.9)
+    quantile_mode: Literal["best_effort", "strict"] = "best_effort"
 
     @staticmethod
     def quick(h: int, freq: str = "D") -> "ForecastConfig":
@@ -168,6 +169,10 @@ class ForecastConfig:
     def strict(h: int, freq: str = "D") -> "ForecastConfig":
         return ForecastConfig(h=h, freq=freq, min_tsfm=1)
 ```
+
+`quantile_mode` behavior:
+- `"best_effort"`: include `q*` columns when adapters provide them; otherwise continue with point forecast.
+- `"strict"`: fail if requested quantiles are unavailable from all model predictions.
 
 **Benefit**: One frozen dataclass. No Pydantic, no validation overhead.
 
@@ -593,7 +598,7 @@ model = load(model_name="ibm-research/patchtst-fm-r1")
 config = ForecastConfig(h=7, freq="D")
 dataset = TSDataset.from_dataframe(df, config)
 
-# Predict (returns median forecast)
+# Predict (returns yhat and requested quantiles when available)
 forecast_df = predict(model, dataset, h=7)
 ```
 
@@ -851,10 +856,15 @@ models = make_plan(tsfm_only=True)
 
 # Fit & predict
 artifacts = fit_all(models, dataset)
-preds = predict_all(models, artifacts, dataset, h=config.h)
+preds = predict_all(models, artifacts, dataset, h=config.h, quantiles=config.quantiles)
 
 # Ensemble
-result = ensemble(preds, method=config.ensemble_method, quantiles=config.quantiles)
+result = ensemble(
+    preds,
+    method=config.ensemble_method,
+    quantiles=config.quantiles,
+    quantile_mode=config.quantile_mode,
+)
 ```
 
 ### Inspection

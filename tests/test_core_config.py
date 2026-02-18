@@ -58,6 +58,21 @@ class TestForecastConfigDefaults:
         config = ForecastConfig(h=7, freq="D")
         assert config.min_tsfm == 1
 
+    def test_default_quantile_mode(self):
+        """Default quantile_mode is best_effort."""
+        config = ForecastConfig(h=7, freq="D")
+        assert config.quantile_mode == "best_effort"
+
+    def test_custom_quantile_mode(self):
+        """Can set strict quantile mode."""
+        config = ForecastConfig(h=7, freq="D", quantile_mode="strict")
+        assert config.quantile_mode == "strict"
+
+    def test_invalid_quantile_mode_raises(self):
+        """Invalid quantile mode raises ValueError."""
+        with pytest.raises(ValueError, match="quantile_mode must be one of"):
+            ForecastConfig(h=7, freq="D", quantile_mode="invalid")
+
 
 class TestForecastConfigPresets:
     """Test config presets."""

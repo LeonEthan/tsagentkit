@@ -200,6 +200,16 @@ class TestMoiraiPredictWithoutCovariates:
         assert isinstance(series, pd.Series)
         assert np.isfinite(series.to_numpy(dtype=np.float32)).all()
 
+    def test_predict_outputs_requested_quantiles(self, sample_dataset):
+        """Requested quantiles are exposed as q* columns."""
+        from tsagentkit.models.adapters.tsfm import moirai
+
+        model = {"module": MagicMock(), "model_name": "test-model"}
+        with patch(MOIRAI_PATCH_PATH, DummyMoirai2Forecast):
+            forecast = moirai.predict(model, sample_dataset, h=7, quantiles=(0.1, 0.5, 0.9))
+
+        assert {"q0.1", "q0.5", "q0.9"}.issubset(forecast.columns)
+
 
 class TestMoiraiPredictWithFutureCovariates:
     """Test predict() with future covariates (feat_dynamic_real)."""

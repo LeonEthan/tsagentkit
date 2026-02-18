@@ -7,6 +7,7 @@ to understand.
 
 from __future__ import annotations
 
+import inspect
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -50,6 +51,7 @@ def predict(
     artifact: ModelArtifact,
     dataset: TSDataset,
     h: int,
+    quantiles: tuple[float, ...] | list[float] | None = None,
 ) -> pd.DataFrame:
     """Generate predictions from a fitted model.
 
@@ -58,6 +60,7 @@ def predict(
         artifact: Model artifact from fit()
         dataset: Time-series dataset
         h: Forecast horizon
+        quantiles: Optional quantile levels requested by the pipeline
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
@@ -66,6 +69,24 @@ def predict(
 
     module = importlib.import_module(spec.adapter_path)
     predict_fn = getattr(module, "predict")
+
+    # Adapter compatibility:
+    # - legacy adapters: predict(model, dataset, h)
+    # - quantile-aware adapters: predict(model, dataset, h, quantiles=...)
+    try:
+        signature = inspect.signature(predict_fn)
+    except (TypeError, ValueError):
+        signature = None
+
+    supports_quantiles = signature is not None and (
+        "quantiles" in signature.parameters or any(
+            param.kind == inspect.Parameter.VAR_KEYWORD
+            for param in signature.parameters.values()
+        )
+    )
+
+    if supports_quantiles:
+        return predict_fn(artifact, dataset, h, quantiles=quantiles)
     return predict_fn(artifact, dataset, h)
 
 
@@ -74,6 +95,7 @@ def predict_all(
     artifacts: list[ModelArtifact],
     dataset: TSDataset,
     h: int,
+    quantiles: tuple[float, ...] | list[float] | None = None,
 ) -> list[pd.DataFrame]:
     """Generate predictions from multiple models.
 
@@ -82,11 +104,15 @@ def predict_all(
         artifacts: List of model artifacts (parallel to specs)
         dataset: Time-series dataset
         h: Forecast horizon
+        quantiles: Optional quantile levels requested by the pipeline
 
     Returns:
         List of forecast DataFrames
     """
-    return [predict(spec, artifact, dataset, h) for spec, artifact in zip(specs, artifacts, strict=False)]
+    return [
+        predict(spec, artifact, dataset, h, quantiles=quantiles)
+        for spec, artifact in zip(specs, artifacts, strict=False)
+    ]
 
 
 __all__ = [

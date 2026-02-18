@@ -144,6 +144,7 @@ def predict_all(
     artifacts: list[Any],
     dataset: TSDataset,
     h: int,
+    quantiles: tuple[float, ...] | list[float] | None = None,
 ) -> list[pd.DataFrame]:
     """Generate predictions from all fitted models.
 
@@ -152,6 +153,7 @@ def predict_all(
         artifacts: List of model artifacts (parallel to models)
         dataset: Time-series dataset
         h: Forecast horizon
+        quantiles: Optional quantile levels requested by the pipeline
 
     Returns:
         List of forecast DataFrames
@@ -161,7 +163,7 @@ def predict_all(
         if artifact is None:
             continue
         try:
-            pred = protocol_predict(spec, artifact, dataset, h)
+            pred = protocol_predict(spec, artifact, dataset, h, quantiles=quantiles)
             predictions.append(pred)
         except Exception:
             # Skip failed predictions
@@ -202,7 +204,7 @@ def run_forecast(
     artifacts = fit_all(models, dataset, device=config.device)
 
     # Phase 4: Predict all
-    predictions = predict_all(models, artifacts, dataset, config.h)
+    predictions = predict_all(models, artifacts, dataset, config.h, quantiles=config.quantiles)
 
     # Check minimum models
     successful = len(predictions)
@@ -212,7 +214,12 @@ def run_forecast(
         )
 
     # Phase 5: Ensemble
-    ensemble_df = ensemble_with_quantiles(predictions, method=config.ensemble_method, quantiles=config.quantiles)
+    ensemble_df = ensemble_with_quantiles(
+        predictions,
+        method=config.ensemble_method,
+        quantiles=config.quantiles,
+        quantile_mode=config.quantile_mode,
+    )
 
     # Build result
     result = ForecastResult(
