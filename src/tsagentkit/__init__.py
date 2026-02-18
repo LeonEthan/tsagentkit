@@ -40,6 +40,7 @@ __version__ = "2.0.0"
 # Core API
 from tsagentkit.core.config import ForecastConfig
 from tsagentkit.core.dataset import CovariateSet, TSDataset
+from tsagentkit.core.device import resolve_device
 from tsagentkit.core.errors import (
     EContract,
     EInsufficient,
@@ -93,6 +94,8 @@ __all__ = [
     "REGISTRY",
     "ModelSpec",
     "list_models",
+    # Device
+    "resolve_device",
     # Inspection
     "check_health",
     # Errors

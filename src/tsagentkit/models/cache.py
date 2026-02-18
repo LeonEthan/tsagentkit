@@ -35,29 +35,31 @@ class ModelCache:
     _cache: dict[str, Any] = {}
 
     @classmethod
-    def get(cls, spec: ModelSpec) -> Any:
+    def get(cls, spec: ModelSpec, device: str | None = None) -> Any:
         """Get cached model or load if not exists.
 
         Args:
             spec: Model specification
+            device: Device to load model on ('cuda', 'mps', 'cpu', or None for auto)
 
         Returns:
             Loaded model instance
         """
         if spec.name not in cls._cache:
-            cls._cache[spec.name] = cls._load(spec)
+            cls._cache[spec.name] = cls._load(spec, device=device)
         return cls._cache[spec.name]
 
     @classmethod
-    def preload(cls, models: list[ModelSpec]) -> None:
+    def preload(cls, models: list[ModelSpec], device: str | None = None) -> None:
         """Pre-load multiple models (useful for batch processing).
 
         Args:
             models: List of model specifications to load
+            device: Device to load models on ('cuda', 'mps', 'cpu', or None for auto)
         """
         for spec in models:
             if spec.name not in cls._cache:
-                cls._cache[spec.name] = cls._load(spec)
+                cls._cache[spec.name] = cls._load(spec, device=device)
 
     @classmethod
     def unload(cls, model_name: str | None = None) -> None:
@@ -102,18 +104,22 @@ class ModelCache:
         return model_name in cls._cache
 
     @classmethod
-    def _load(cls, spec: ModelSpec) -> Any:
+    def _load(cls, spec: ModelSpec, device: str | None = None) -> Any:
         """Load model from adapter.
 
         Args:
             spec: Model specification
+            device: Device to load model on ('cuda', 'mps', 'cpu', or None for auto)
 
         Returns:
             Loaded model instance
         """
         module = importlib.import_module(spec.adapter_path)
         load_fn = getattr(module, "load")
-        return load_fn(**spec.config_fields)
+        config = dict(spec.config_fields)
+        if device is not None:
+            config["device"] = device
+        return load_fn(**config)
 
     @classmethod
     def _unload_adapter(cls, model_name: str, model: Any) -> None:

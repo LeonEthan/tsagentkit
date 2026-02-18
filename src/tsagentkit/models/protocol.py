@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
 
 
-def fit(spec: ModelSpec, dataset: TSDataset) -> ModelArtifact:
+def fit(spec: ModelSpec, dataset: TSDataset, device: str | None = None) -> ModelArtifact:
     """Fit a model to the dataset.
 
     For TSFMs, this returns the loaded model (pre-trained, no fitting needed).
@@ -28,13 +28,14 @@ def fit(spec: ModelSpec, dataset: TSDataset) -> ModelArtifact:
     Args:
         spec: Model specification
         dataset: Time-series dataset
+        device: Device to load TSFM on ('cuda', 'mps', 'cpu', or None for auto)
 
     Returns:
         Model artifact for prediction
     """
     if spec.is_tsfm:
         # TSFMs are pre-trained, just load from cache
-        return ModelCache.get(spec)
+        return ModelCache.get(spec, device=device)
     else:
         # Statistical models need fitting
         import importlib

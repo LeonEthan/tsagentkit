@@ -34,7 +34,8 @@ def test_get_reuses_cached_model(monkeypatch):
     sentinel = object()
     calls = {"count": 0}
 
-    def fake_load(cls, _spec_obj):
+    def fake_load(cls, _spec_obj, device=None):
+        _ = device  # Unused in test
         calls["count"] += 1
         return sentinel
 

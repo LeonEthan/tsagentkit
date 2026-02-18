@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
 
 
-def load(model_name: str = "Salesforce/moirai-2.0-R-small") -> Any:
+def load(model_name: str = "Salesforce/moirai-2.0-R-small", device: str | None = None) -> Any:
     """Load pretrained Moirai 2.0 model.
 
     Uses tsagentkit-uni2ts library with Salesforce/moirai-2.0-R-small model.
@@ -27,15 +27,25 @@ def load(model_name: str = "Salesforce/moirai-2.0-R-small") -> Any:
 
     Args:
         model_name: Moirai model variant (Salesforce/moirai-2.0-R-small, etc.)
+        device: Device to load model on ('cuda', 'mps', 'cpu', or None for auto)
 
     Returns:
         Loaded Moirai model module
     """
-    # Import from tsagentkit-uni2ts package (Moirai 2.0 uses moirai2 module)
     from uni2ts.model.moirai2 import Moirai2Module
+
+    from tsagentkit.core.device import resolve_device
+
+    resolved = resolve_device(device or "auto", allow_mps=True)
 
     # Load the pretrained module
     module = Moirai2Module.from_pretrained(model_name)
+
+    # Move module to device if supported
+    if hasattr(module, "to") and resolved in ("cuda", "mps", "cpu"):
+        import torch
+
+        module = module.to(torch.device(resolved))
 
     return {"model_name": model_name, "module": module}
 

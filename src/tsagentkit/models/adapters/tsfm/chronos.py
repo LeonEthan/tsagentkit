@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
 
 
-def load(model_name: str = "amazon/chronos-2") -> Any:
+def load(model_name: str = "amazon/chronos-2", device: str | None = None) -> Any:
     """Load pretrained Chronos2 model.
 
     Uses chronos library (https://github.com/amazon-science/chronos-forecasting)
@@ -25,16 +25,22 @@ def load(model_name: str = "amazon/chronos-2") -> Any:
 
     Args:
         model_name: Chronos model version (amazon/chronos-2, amazon/chronos-2-small, etc.)
+        device: Device to load model on ('cuda', 'mps', 'cpu', or None for auto)
 
     Returns:
         Loaded Chronos2 pipeline
     """
-    # chronos package import (from chronos-forecasting)
     from chronos import Chronos2Pipeline
+
+    from tsagentkit.core.device import resolve_device
+
+    resolved = resolve_device(device or "auto", allow_mps=True)
+    # Chronos uses HF device_map format
+    device_map = resolved if resolved in ("cuda", "cpu") else "auto"
 
     return Chronos2Pipeline.from_pretrained(
         model_name,
-        device_map="auto",
+        device_map=device_map,
     )
 
 

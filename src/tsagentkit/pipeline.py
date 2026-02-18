@@ -116,12 +116,13 @@ def make_plan(
 # =============================================================================
 
 
-def fit_all(models: list[ModelSpec], dataset: TSDataset) -> list[Any]:
+def fit_all(models: list[ModelSpec], dataset: TSDataset, device: str | None = None) -> list[Any]:
     """Fit all models in the plan.
 
     Args:
         models: List of model specifications
         dataset: Time-series dataset
+        device: Device to load TSFMs on ('cuda', 'mps', 'cpu', or None for auto)
 
     Returns:
         List of model artifacts (parallel to models)
@@ -129,7 +130,7 @@ def fit_all(models: list[ModelSpec], dataset: TSDataset) -> list[Any]:
     artifacts = []
     for spec in models:
         try:
-            artifact = fit(spec, dataset)
+            artifact = fit(spec, dataset, device=device)
             artifacts.append(artifact)
         except Exception:
             artifacts.append(None)
@@ -196,7 +197,7 @@ def run_forecast(
     models = make_plan(tsfm_only=True)
 
     # Phase 3: Fit all models (uses ModelCache for TSFMs)
-    artifacts = fit_all(models, dataset)
+    artifacts = fit_all(models, dataset, device=config.device)
 
     # Phase 4: Predict all
     predictions = predict_all(models, artifacts, dataset, config.h)

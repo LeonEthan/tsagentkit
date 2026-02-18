@@ -24,6 +24,7 @@ class ForecastConfig:
         ensemble_method: How to aggregate ensemble forecasts ('median' or 'mean')
         min_tsfm: Minimum TSFMs required for ensemble
         fail_on_missing_tsfm: If True, abort if TSFM unavailable
+        device: Device for TSFM inference ('auto', 'cuda', 'mps', 'cpu')
     """
 
     # Required
@@ -36,6 +37,9 @@ class ForecastConfig:
 
     # Output
     quantiles: tuple[float, ...] = (0.1, 0.5, 0.9)
+
+    # Hardware
+    device: Literal["auto", "cuda", "mps", "cpu"] = "auto"
 
     def __post_init__(self) -> None:
         # Validation

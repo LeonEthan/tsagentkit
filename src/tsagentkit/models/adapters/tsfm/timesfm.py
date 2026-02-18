@@ -16,21 +16,34 @@ if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
 
 
-def load() -> Any:
+def load(device: str | None = None) -> Any:
     """Load pretrained TimesFM 2.5 200M model.
 
     Uses tsagentkit-timesfm library with google/timesfm-2.5-200m-pytorch model.
     Install: pip install tsagentkit-timesfm
+
+    Args:
+        device: Device to load model on ('cuda', 'mps', 'cpu', or None for auto)
 
     Returns:
         Loaded TimesFM model
     """
     import timesfm
 
+    from tsagentkit.core.device import resolve_device
+
+    resolved = resolve_device(device or "auto", allow_mps=True)
+
     # Load TimesFM 2.5 200M model using from_pretrained
     model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
         "google/timesfm-2.5-200m-pytorch"
     )
+
+    # Move model to device if supported
+    if hasattr(model, "to") and resolved in ("cuda", "mps", "cpu"):
+        import torch
+
+        model = model.to(torch.device(resolved))
 
     # Configure the model for inference
     model.compile(

@@ -25,12 +25,28 @@ except ImportError:
     torch = None  # type: ignore
 
 
-def _resolve_device_map() -> str:
+def _resolve_device_map(preference: str | None = None) -> str:
     """Select inference device for model loading.
 
     PatchTST-FM's internal autocast path can be unstable on MPS in some torch
-    builds, so this adapter defaults to CPU when CUDA is unavailable.
+    builds, so this adapter defaults to CPU when CUDA is unavailable and no
+    explicit device is requested.
+
+    Args:
+        preference: Explicit device preference, or None for auto
     """
+    if preference is not None:
+        # Honor explicit user request
+        if preference == "cuda" and torch is not None and torch.cuda.is_available():
+            return "cuda"
+        if preference == "mps" and torch is not None:
+            # Allow MPS if explicitly requested (user knows what they're doing)
+            backend_mps = getattr(getattr(torch, "backends", None), "mps", None)
+            if backend_mps is not None and hasattr(backend_mps, "is_available") and backend_mps.is_available():
+                return "mps"
+        return "cpu"
+
+    # Auto-detect: CUDA only (avoid MPS due to instability)
     if torch is None:
         return "cpu"
     if torch.cuda.is_available():
@@ -309,18 +325,19 @@ def _extract_batched_forecast_values(
     return results
 
 
-def load(model_name: str = "ibm-research/patchtst-fm-r1") -> Any:
+def load(model_name: str = "ibm-research/patchtst-fm-r1", device: str | None = None) -> Any:
     """Load pretrained PatchTST-FM model.
 
     Uses `tsfm_public.PatchTSTFMForPrediction`.
 
     Args:
         model_name: Model name (ibm-research/patchtst-fm-r1)
+        device: Device to load model on ('cuda', 'mps', 'cpu', or None for auto)
 
     Returns:
         Loaded PatchTST-FM model
     """
-    device_map = _resolve_device_map()
+    device_map = _resolve_device_map(device)
     model_cls = _get_patchtst_fm_class()
 
     try:
