@@ -5,15 +5,17 @@ following a minimalist design philosophy.
 """
 
 from tsagentkit.core.config import ForecastConfig
-from tsagentkit.core.data import CovariateSet, TSDataset
+from tsagentkit.core.dataset import CovariateSet, TSDataset
+from tsagentkit.core.device import resolve_device
 from tsagentkit.core.errors import (
+    EContract,
+    EInsufficient,
+    ENoTSFM,
+    ETemporal,
     TSAgentKitError,
-    EContractViolation,
-    EDataQuality,
-    EModelFailed,
-    ETSFMRequired,
 )
 from tsagentkit.core.results import ForecastResult, RunResult
+from tsagentkit.core.types import ModelArtifact
 
 __all__ = [
     # Config
@@ -21,13 +23,17 @@ __all__ = [
     # Data
     "TSDataset",
     "CovariateSet",
+    # Device
+    "resolve_device",
     # Results
     "ForecastResult",
     "RunResult",
     # Errors
     "TSAgentKitError",
-    "EContractViolation",
-    "EDataQuality",
-    "EModelFailed",
-    "ETSFMRequired",
+    "EContract",
+    "ENoTSFM",
+    "EInsufficient",
+    "ETemporal",
+    # Types
+    "ModelArtifact",
 ]

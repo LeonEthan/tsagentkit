@@ -1,7 +1,7 @@
-"""Core error types with rich context.
+"""Core error types for tsagentkit.
 
-Consolidates 30+ specific error classes into 5 core error types
-with rich context for debugging.
+Minimal error hierarchy with 4 core types covering 99% of cases.
+Each error includes a fix hint for rapid resolution.
 """
 
 from __future__ import annotations
@@ -10,14 +10,10 @@ from typing import Any
 
 
 class TSAgentKitError(Exception):
-    """Base exception with rich context.
+    """Base exception with rich context."""
 
-    All errors in tsagentkit use this class with specific error_code
-    values instead of creating many subclasses.
-    """
-
-    error_code: str = "E_UNKNOWN"
-    fix_hint: str = ""
+    code: str = "E_UNKNOWN"
+    hint: str = ""
 
     def __init__(
         self,
@@ -29,92 +25,63 @@ class TSAgentKitError(Exception):
         self.message = message
         self.context = context or {}
         if fix_hint:
-            self.fix_hint = fix_hint
+            self.hint = fix_hint
 
     def __str__(self) -> str:
-        parts = [f"[{self.error_code}] {self.message}"]
+        parts = [f"[{self.code}] {self.message}"]
         if self.context:
             parts.append(f"(context: {self.context})")
-        if self.fix_hint:
-            parts.append(f"[hint: {self.fix_hint}]")
+        if self.hint:
+            parts.append(f"[hint: {self.hint}]")
         return " ".join(parts)
 
+    @property
+    def error_code(self) -> str:
+        """Backward compatibility alias for code."""
+        return self.code
 
-class EContractViolation(TSAgentKitError):
-    """Input data violates contract requirements."""
-
-    error_code = "E_CONTRACT_VIOLATION"
-    fix_hint = "Check data format: DataFrame must have [unique_id, ds, y] columns"
-
-
-class EDataQuality(TSAgentKitError):
-    """Data quality issue detected."""
-
-    error_code = "E_DATA_QUALITY"
-    fix_hint = "Run diagnose() to identify specific quality issues"
+    @property
+    def fix_hint(self) -> str:
+        """Backward compatibility alias for hint."""
+        return self.hint
 
 
-class EModelFailed(TSAgentKitError):
-    """Model fitting or prediction failed."""
+class EContract(TSAgentKitError):
+    """Input data invalid (wrong columns, types, etc.)"""
 
-    error_code = "E_MODEL_FAILED"
-    fix_hint = "Check model compatibility with data frequency and length"
-
-
-class ETSFMRequired(TSAgentKitError):
-    """TSFM required but unavailable."""
-
-    error_code = "E_TSFM_REQUIRED"
-    fix_hint = "Install TSFM adapters (chronos, moirai, timesfm) or set tsfm_mode='preferred'"
+    code = "E_CONTRACT"
+    error_code = "E_CONTRACT"  # type: ignore[misc]
+    hint = "Check data format: DataFrame must have [unique_id, ds, y] columns"
 
 
-# Legacy aliases for backward compatibility during transition
-EContractMissingColumn = EContractViolation
-EContractInvalidType = EContractViolation
-EContractDuplicateKey = EContractViolation
-EFreqInferFail = EContractViolation
-EDSNotMonotonic = EContractViolation
-ESplitRandomForbidden = EContractViolation
-EContractUnsorted = EContractViolation
+class ENoTSFM(TSAgentKitError):
+    """No TSFM models registered (internal invariant violation)."""
 
-EQAMinHistory = EDataQuality
-EQACriticalIssue = EDataQuality
-ECovariateLeakage = EDataQuality
-EQARepairPeeksFuture = EDataQuality
-EQALeakageDetected = EDataQuality
-
-EModelFitFailed = EModelFailed
-EModelPredictFailed = EModelFailed
-EFallbackExhausted = EModelFailed
-EAdapterNotAvailable = EModelFailed
-EModelNotLoaded = EModelFailed
-EModelLoadFailed = EModelFailed
-
-ETSFMRequiredUnavailable = ETSFMRequired
-
-# Additional legacy error aliases
-ETaskSpecInvalid = EContractViolation
-ETaskSpecIncompatible = EContractViolation
-EArtifactSchemaIncompatible = EContractViolation
-EArtifactLoadFailed = EContractViolation
-EBacktestFail = EModelFailed
-EBacktestInsufficientData = EDataQuality
-EBacktestInvalidWindow = EContractViolation
-ECalibrationFail = EModelFailed
-EAnomalyFail = EModelFailed
-EOOM = EModelFailed
-ECovariateIncompleteKnown = EDataQuality
-ECovariateStaticInvalid = EDataQuality
-
-# Error registry for lookup
-ERROR_REGISTRY: dict[str, type[TSAgentKitError]] = {
-    "E_CONTRACT_VIOLATION": EContractViolation,
-    "E_DATA_QUALITY": EDataQuality,
-    "E_MODEL_FAILED": EModelFailed,
-    "E_TSFM_REQUIRED": ETSFMRequired,
-}
+    code = "E_NO_TSFM"
+    error_code = "E_NO_TSFM"  # type: ignore[misc]
+    hint = "TSFM registry invariant violated. Ensure default TSFM specs exist in models.registry.REGISTRY."
 
 
-def get_error_class(error_code: str) -> type[TSAgentKitError]:
-    """Get error class by code."""
-    return ERROR_REGISTRY.get(error_code, TSAgentKitError)
+class EInsufficient(TSAgentKitError):
+    """Not enough TSFMs succeeded."""
+
+    code = "E_INSUFFICIENT"
+    error_code = "E_INSUFFICIENT"  # type: ignore[misc]
+    hint = "Check model compatibility with data frequency and length"
+
+
+class ETemporal(TSAgentKitError):
+    """Temporal integrity violation."""
+
+    code = "E_TEMPORAL"
+    error_code = "E_TEMPORAL"  # type: ignore[misc]
+    hint = "Data must be sorted by ds. No future dates in covariates."
+
+
+__all__ = [
+    "TSAgentKitError",
+    "EContract",
+    "ENoTSFM",
+    "EInsufficient",
+    "ETemporal",
+]

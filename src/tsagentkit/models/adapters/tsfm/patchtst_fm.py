@@ -1,0 +1,611 @@
+"""PatchTST-FM TSFM adapter for tsagentkit.
+
+Wraps IBM's PatchTST-FM zero-shot model (`ibm-research/patchtst-fm-r1`).
+Uses `tsfm_public.PatchTSTFMForPrediction`.
+"""
+
+from __future__ import annotations
+
+import importlib
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+import pandas as pd
+
+from tsagentkit.core.dataset import _normalize_freq_alias
+
+if TYPE_CHECKING:
+    from tsagentkit.core.dataset import TSDataset
+
+# Import torch for inference/device handling.
+try:
+    import torch
+except ImportError:
+    torch = None  # type: ignore
+
+
+def _resolve_device_map(preference: str | None = None) -> str:
+    """Select inference device for model loading.
+
+    PatchTST-FM's internal autocast path can be unstable on MPS in some torch
+    builds, so this adapter defaults to CPU when CUDA is unavailable and no
+    explicit device is requested.
+
+    Args:
+        preference: Explicit device preference, or None for auto
+    """
+    if preference is not None:
+        # Honor explicit user request
+        if preference == "cuda" and torch is not None and torch.cuda.is_available():
+            return "cuda"
+        if preference == "mps" and torch is not None:
+            # Allow MPS if explicitly requested (user knows what they're doing)
+            backend_mps = getattr(getattr(torch, "backends", None), "mps", None)
+            if backend_mps is not None and hasattr(backend_mps, "is_available") and backend_mps.is_available():
+                return "mps"
+        return "cpu"
+
+    # Auto-detect: CUDA only (avoid MPS due to instability)
+    if torch is None:
+        return "cpu"
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
+def _ensure_tsfm_public_import() -> None:
+    """Ensure `tsfm_public` is importable from installed dependencies."""
+    try:
+        importlib.import_module("tsfm_public")
+        return
+    except ImportError:
+        raise ImportError(
+            "PatchTST-FM requires `tsfm_public`. Install `tsagentkit-patchtst-fm>=1.0.2`."
+        ) from None
+
+
+def _get_patchtst_fm_class() -> Any:
+    """Return PatchTST-FM model class from tsfm_public."""
+    _ensure_tsfm_public_import()
+    module = importlib.import_module("tsfm_public")
+    return module.PatchTSTFMForPrediction
+
+
+def _resolve_model_device(model: Any) -> Any | None:
+    """Best-effort lookup of model device for tensor placement."""
+    if torch is None:
+        return None
+
+    try:
+        if hasattr(model, "device"):
+            return model.device
+
+        if hasattr(model, "parameters"):
+            return next(model.parameters()).device
+    except Exception:
+        return None
+
+    return None
+
+
+def _resolve_context_length(model: Any) -> int | None:
+    """Resolve expected context length from model config."""
+    config = getattr(model, "config", None)
+    context_length = getattr(config, "context_length", None)
+    if isinstance(context_length, int) and context_length > 0:
+        return context_length
+    return None
+
+
+def _sanitize_context(values: np.ndarray) -> np.ndarray:
+    """Fill NaNs using mean-imputation (or zeros if all values are NaN)."""
+    context = np.asarray(values, dtype=np.float32)
+    if context.size == 0:
+        return np.zeros(1, dtype=np.float32)
+
+    if np.isnan(context).any():
+        if np.isnan(context).all():
+            context = np.zeros_like(context, dtype=np.float32)
+        else:
+            context = np.nan_to_num(context, nan=float(np.nanmean(context)))
+    return context
+
+
+def _left_pad_context(context: np.ndarray, context_length: int | None) -> np.ndarray:
+    """Left-pad context to the model context length."""
+    if context_length is None or len(context) >= context_length:
+        return context
+
+    fill_value = float(np.mean(context)) if context.size else 0.0
+    pad = context_length - len(context)
+    return np.pad(context, (pad, 0), mode="constant", constant_values=fill_value)
+
+
+def _model_quantile_levels(model: Any) -> list[float] | None:
+    """Return model quantile levels when available."""
+    quantiles = getattr(getattr(model, "config", None), "quantile_levels", None)
+    if quantiles is None:
+        quantiles = getattr(getattr(model, "backbone", None), "quantile_levels", None)
+    if quantiles is None:
+        return None
+    return [float(q) for q in quantiles]
+
+
+def _inference_quantiles(
+    model_quantiles: list[float] | None,
+    requested_quantiles: tuple[float, ...] | list[float] | None = None,
+) -> list[float] | None:
+    """Resolve quantile levels to request at inference time."""
+    if requested_quantiles:
+        requested = [float(q) for q in requested_quantiles]
+        if not model_quantiles:
+            return requested
+        matched: list[float] = []
+        for q in requested:
+            model_match = next((mq for mq in model_quantiles if np.isclose(mq, q)), None)
+            if model_match is not None:
+                matched.append(float(model_match))
+        return matched or None
+
+    if not model_quantiles:
+        return None
+    closest = min(model_quantiles, key=lambda q: abs(q - 0.5))
+    if np.isclose(closest, 0.5):
+        return [closest]
+    return model_quantiles
+
+
+def _median_index(quantile_levels: list[float] | None, size: int) -> int:
+    """Pick median quantile index based on available levels."""
+    if not quantile_levels:
+        return size // 2
+    return min(range(size), key=lambda i: abs(float(quantile_levels[i]) - 0.5))
+
+
+def _to_numpy(values: Any) -> np.ndarray:
+    """Convert tensor-like outputs into numpy arrays."""
+    if hasattr(values, "detach"):
+        values = values.detach()
+    if hasattr(values, "cpu"):
+        values = values.cpu()
+    if hasattr(values, "numpy"):
+        return np.asarray(values.numpy(), dtype=np.float32)
+    return np.asarray(values, dtype=np.float32)
+
+
+def _extract_predictions_array(outputs: Any) -> np.ndarray:
+    """Normalize PatchTST outputs into a numpy prediction array."""
+    predictions = None
+
+    if isinstance(outputs, tuple) and outputs:
+        outputs = outputs[0]
+
+    if hasattr(outputs, "quantile_predictions"):
+        predictions = outputs.quantile_predictions
+    elif hasattr(outputs, "prediction_outputs"):
+        predictions = outputs.prediction_outputs
+    elif isinstance(outputs, dict):
+        if "quantile_predictions" in outputs:
+            predictions = outputs["quantile_predictions"]
+        else:
+            predictions = outputs.get("prediction_outputs")
+    else:
+        predictions = outputs
+
+    if predictions is None:
+        raise ValueError("PatchTST output did not include forecast predictions.")
+
+    return _to_numpy(predictions)
+
+
+def _extract_forecast_values(
+    outputs: Any,
+    h: int,
+    quantile_levels: list[float] | None = None,
+) -> np.ndarray:
+    """Extract point forecasts from model outputs."""
+    arr = _extract_predictions_array(outputs)
+    quantile_count = len(quantile_levels) if quantile_levels is not None else None
+
+    if arr.ndim == 1:
+        values = arr[:h]
+    elif arr.ndim == 2:
+        if quantile_count is not None and arr.shape[0] == quantile_count:
+            q_idx = _median_index(quantile_levels, arr.shape[0])
+            values = arr[q_idx, :h]
+        elif quantile_count is not None and arr.shape[1] == quantile_count:
+            q_idx = _median_index(quantile_levels, arr.shape[1])
+            values = arr[:h, q_idx]
+        else:
+            if arr.shape[0] == 1:
+                values = arr[0, :h]
+            elif arr.shape[1] == 1:
+                values = arr[:h, 0]
+            else:
+                values = arr[0, :h]
+    elif arr.ndim == 3:
+        # Expected PatchTST-FM shape is (batch, quantile, horizon), but we keep
+        # compatibility for horizon-first tensors.
+        sample = arr[0]
+        if quantile_count is not None and sample.shape[0] == quantile_count:
+            q_idx = _median_index(quantile_levels, sample.shape[0])
+            values = sample[q_idx, :h]
+        elif quantile_count is not None and sample.shape[1] == quantile_count:
+            q_idx = _median_index(quantile_levels, sample.shape[1])
+            values = sample[:h, q_idx]
+        else:
+            # Fallback heuristic if quantile metadata is unavailable.
+            if sample.shape[0] <= sample.shape[1]:
+                q_idx = sample.shape[0] // 2
+                values = sample[q_idx, :h]
+            else:
+                q_idx = sample.shape[1] // 2
+                values = sample[:h, q_idx]
+    else:
+        raise ValueError(f"Unexpected PatchTST output rank: {arr.ndim}")
+
+    values = np.asarray(values, dtype=np.float32)
+    if values.size == 0:
+        return np.zeros(h, dtype=np.float32)
+    if len(values) < h:
+        return np.pad(values, (0, h - len(values)), mode="edge")
+    return values[:h]
+
+
+def _extract_batched_forecast_values(
+    outputs: Any,
+    h: int,
+    batch_size: int,
+    quantile_levels: list[float] | None = None,
+) -> list[np.ndarray]:
+    """Extract forecast values for each series in a batch from model outputs.
+
+    Handles various output formats from PatchTST-FM batched inference.
+    """
+    arr = _extract_predictions_array(outputs)
+    quantile_count = len(quantile_levels) if quantile_levels is not None else None
+
+    # Handle edge case: model returns single output for entire batch (e.g., test mocks)
+    if arr.ndim >= 3 and arr.shape[0] == 1 and batch_size > 1:
+        # Broadcast single output to all batch items
+        arr = np.repeat(arr, batch_size, axis=0)
+
+    results = []
+    for b in range(batch_size):
+        if arr.ndim == 1:
+            # 1D array - split equally among batch
+            chunk_size = len(arr) // batch_size
+            values = arr[b * chunk_size : b * chunk_size + h]
+        elif arr.ndim == 2:
+            # Expected: (batch, horizon) or (batch, quantile)
+            if arr.shape[0] == batch_size:
+                values = arr[b, :h]
+            else:
+                # Try to interpret as batched quantiles
+                if quantile_count is not None and arr.shape[1] == quantile_count:
+                    # (batch, quantile) - single horizon point
+                    q_idx = _median_index(quantile_levels, arr.shape[1])
+                    values = np.full(h, arr[b, q_idx], dtype=np.float32)
+                else:
+                    values = arr[b, :h]
+        elif arr.ndim == 3:
+            # Expected: (batch, quantile, horizon) or (batch, horizon, quantile)
+            sample = arr[b]
+            if quantile_count is not None and sample.shape[0] == quantile_count:
+                # (quantile, horizon)
+                q_idx = _median_index(quantile_levels, sample.shape[0])
+                values = sample[q_idx, :h]
+            elif quantile_count is not None and sample.shape[1] == quantile_count:
+                # (horizon, quantile)
+                q_idx = _median_index(quantile_levels, sample.shape[1])
+                values = sample[:h, q_idx]
+            else:
+                # Fallback: assume (something, horizon) and take middle
+                if sample.shape[0] <= sample.shape[1]:
+                    q_idx = sample.shape[0] // 2
+                    values = sample[q_idx, :h]
+                else:
+                    q_idx = sample.shape[1] // 2
+                    values = sample[:h, q_idx]
+        else:
+            raise ValueError(f"Unexpected PatchTST batch output rank: {arr.ndim}")
+
+        values = np.asarray(values, dtype=np.float32)
+        if values.size == 0:
+            values = np.zeros(h, dtype=np.float32)
+        elif len(values) < h:
+            values = np.pad(values, (0, h - len(values)), mode="edge")
+        else:
+            values = values[:h]
+
+        results.append(values)
+
+    return results
+
+
+def _extract_single_quantile_values(
+    sample: np.ndarray,
+    h: int,
+    q_idx: int,
+    quantile_count: int,
+) -> np.ndarray | None:
+    """Extract one quantile trajectory from a single-sample tensor."""
+    if sample.ndim == 1:
+        if quantile_count == 1 and q_idx == 0:
+            return sample[:h]
+        return None
+
+    if sample.ndim != 2:
+        return None
+
+    # (quantile, horizon)
+    if sample.shape[0] == quantile_count and q_idx < sample.shape[0]:
+        return sample[q_idx, :h]
+    # (horizon, quantile)
+    if sample.shape[1] == quantile_count and q_idx < sample.shape[1]:
+        return sample[:h, q_idx]
+    return None
+
+
+def _extract_batched_requested_quantiles(
+    outputs: Any,
+    h: int,
+    batch_size: int,
+    quantile_levels: list[float] | None = None,
+) -> dict[float, list[np.ndarray]]:
+    """Extract requested quantile trajectories for each series in a batch."""
+    if not quantile_levels:
+        return {}
+
+    arr = _extract_predictions_array(outputs)
+    quantile_count = len(quantile_levels)
+
+    # Handle edge case: model returns single output for entire batch (e.g., test mocks)
+    if arr.ndim >= 3 and arr.shape[0] == 1 and batch_size > 1:
+        arr = np.repeat(arr, batch_size, axis=0)
+
+    results: dict[float, list[np.ndarray]] = {q: [] for q in quantile_levels}
+
+    for b in range(batch_size):
+        if arr.ndim == 1:
+            sample = arr
+        elif arr.ndim == 2 and arr.shape[0] == batch_size:
+            sample = arr[b]
+        elif arr.ndim == 2 and batch_size == 1:
+            sample = arr
+        elif arr.ndim == 3:
+            sample = arr[b]
+        else:
+            sample = arr
+
+        for q_idx, q in enumerate(quantile_levels):
+            values = _extract_single_quantile_values(
+                sample=np.asarray(sample, dtype=np.float32),
+                h=h,
+                q_idx=q_idx,
+                quantile_count=quantile_count,
+            )
+            if values is None:
+                continue
+            values = np.asarray(values, dtype=np.float32)
+            if values.size == 0:
+                values = np.zeros(h, dtype=np.float32)
+            elif len(values) < h:
+                values = np.pad(values, (0, h - len(values)), mode="edge")
+            else:
+                values = values[:h]
+            results[q].append(values)
+
+    # Keep only quantiles with full batch coverage.
+    return {q: vals for q, vals in results.items() if len(vals) == batch_size}
+
+
+def load(model_name: str = "ibm-research/patchtst-fm-r1", device: str | None = None) -> Any:
+    """Load pretrained PatchTST-FM model.
+
+    Uses `tsfm_public.PatchTSTFMForPrediction`.
+
+    Args:
+        model_name: Model name (ibm-research/patchtst-fm-r1)
+        device: Device to load model on ('cuda', 'mps', 'cpu', or None for auto)
+
+    Returns:
+        Loaded PatchTST-FM model
+    """
+    device_map = _resolve_device_map(device)
+    model_cls = _get_patchtst_fm_class()
+
+    try:
+        model = model_cls.from_pretrained(
+            model_name,
+            device_map=device_map,
+        )
+    except TypeError:
+        model = model_cls.from_pretrained(model_name)
+        if hasattr(model, "to"):
+            model = model.to(device_map)
+
+    if hasattr(model, "eval"):
+        model.eval()
+
+    return model
+
+
+def unload(model: Any | None = None) -> None:
+    """Unload model resources (best-effort)."""
+    del model
+
+
+def fit(dataset: TSDataset) -> Any:
+    """Fit PatchTST-FM model (loads pretrained).
+
+    PatchTST-FM is a zero-shot model, so fit() just loads the model.
+
+    Args:
+        dataset: Time-series dataset (used for validation only)
+
+    Returns:
+        Loaded model
+    """
+    del dataset
+    return load()
+
+
+@contextmanager
+def _mps_guard(model_device: Any | None):
+    """Guard against unstable MPS checks inside PatchTST-FM internals."""
+    if torch is None:
+        yield
+        return
+
+    device_type = getattr(model_device, "type", str(model_device)) if model_device is not None else "cpu"
+    if device_type == "mps":
+        yield
+        return
+
+    torch_mps = getattr(torch, "mps", None)
+    backend_mps = getattr(getattr(torch, "backends", None), "mps", None)
+
+    if (
+        torch_mps is not None
+        and not hasattr(torch_mps, "is_available")
+        and backend_mps is not None
+        and hasattr(backend_mps, "is_available")
+    ):
+        torch_mps.is_available = backend_mps.is_available
+
+    originals: list[tuple[Any, Any]] = []
+    if torch_mps is not None and hasattr(torch_mps, "is_available"):
+        originals.append((torch_mps, torch_mps.is_available))
+        torch_mps.is_available = lambda: False
+    if backend_mps is not None and hasattr(backend_mps, "is_available"):
+        originals.append((backend_mps, backend_mps.is_available))
+        backend_mps.is_available = lambda: False
+
+    try:
+        yield
+    finally:
+        for module_obj, original in originals:
+            module_obj.is_available = original
+
+
+def predict(
+    model: Any,
+    dataset: TSDataset,
+    h: int,
+    batch_size: int = 32,
+    quantiles: tuple[float, ...] | list[float] | None = None,
+) -> pd.DataFrame:
+    """Generate forecasts using PatchTST-FM.
+
+    Args:
+        model: Loaded PatchTST-FM model
+        dataset: Time-series dataset
+        h: Forecast horizon
+        batch_size: Number of series to process in parallel
+        quantiles: Optional quantile levels to include as q{level} columns
+
+    Returns:
+        Forecast DataFrame with columns [unique_id, ds, yhat]
+    """
+    if torch is None:
+        raise ImportError("PyTorch is required for PatchTST-FM inference.")
+
+    model_quantiles = _model_quantile_levels(model)
+    requested_quantiles = _inference_quantiles(model_quantiles, quantiles)
+    model_device = _resolve_model_device(model)
+    context_length = _resolve_context_length(model)
+    freq = _normalize_freq_alias(dataset.config.freq)
+
+    # Group data by unique_id (dataset is pre-sorted by TSDataset)
+    grouped = dataset.df.groupby("unique_id", sort=False)
+
+    # Pre-extract and sanitize all series data
+    series_data = []
+    for unique_id, group in grouped:
+        context = group["y"].to_numpy(dtype=np.float32)
+        context = _sanitize_context(context)
+        context = _left_pad_context(context, context_length)
+        last_date = group["ds"].iloc[-1]
+        series_data.append((unique_id, context, last_date))
+
+    forecasts = []
+    # Process in batches
+    for i in range(0, len(series_data), batch_size):
+        batch = series_data[i : i + batch_size]
+
+        # Prepare batched tensors
+        batch_tensors = []
+        for _, context, _ in batch:
+            if model_device is None:
+                tensor = torch.tensor(context, dtype=torch.float32)
+            else:
+                tensor = torch.tensor(context, dtype=torch.float32, device=model_device)
+            batch_tensors.append(tensor)
+
+        # Batch inference: PatchTST-FM accepts list of tensors
+        with torch.no_grad(), _mps_guard(model_device):
+            try:
+                outputs = model(
+                    inputs=batch_tensors,
+                    prediction_length=h,
+                    quantile_levels=requested_quantiles,
+                    return_loss=False,
+                )
+            except TypeError:
+                outputs = model(
+                    inputs=batch_tensors,
+                    prediction_length=h,
+                    quantile_levels=requested_quantiles,
+                )
+
+        # Handle batched outputs - may be list or batched tensor
+        batch_forecasts = _extract_batched_forecast_values(
+            outputs=outputs,
+            h=h,
+            batch_size=len(batch),
+            quantile_levels=requested_quantiles or model_quantiles,
+        )
+        batch_quantiles = _extract_batched_requested_quantiles(
+            outputs=outputs,
+            h=h,
+            batch_size=len(batch),
+            quantile_levels=requested_quantiles,
+        )
+
+        # Apply fallback and NaN handling for each series
+        for j, (unique_id, context, last_date) in enumerate(batch):
+            forecast_values = batch_forecasts[j]
+
+            if np.isnan(forecast_values).all():
+                fallback = float(context[-1]) if context.size else 0.0
+                forecast_values = np.full(h, fallback, dtype=np.float32)
+            elif np.isnan(forecast_values).any():
+                fill_value = np.nanmean(forecast_values)
+                if np.isnan(fill_value):
+                    fill_value = float(context[-1]) if context.size else 0.0
+                forecast_values = np.nan_to_num(forecast_values, nan=float(fill_value))
+
+            # Generate future timestamps
+            future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
+
+            forecast_df = pd.DataFrame({
+                "unique_id": unique_id,
+                "ds": future_dates[:len(forecast_values)],
+                "yhat": forecast_values,
+            })
+
+            for q, values_per_series in batch_quantiles.items():
+                q_values = values_per_series[j]
+                if np.isnan(q_values).all():
+                    continue
+                if np.isnan(q_values).any():
+                    fill_value = np.nanmean(q_values)
+                    if np.isnan(fill_value):
+                        fill_value = float(context[-1]) if context.size else 0.0
+                    q_values = np.nan_to_num(q_values, nan=float(fill_value))
+                forecast_df[f"q{q}"] = q_values[:len(forecast_values)]
+            forecasts.append(forecast_df)
+
+    return pd.concat(forecasts, ignore_index=True)

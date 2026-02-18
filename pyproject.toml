@@ -1,7 +1,7 @@
 [project]
 name = "tsagentkit"
-version = "1.1.3"
-description = "Robust execution engine for time-series forecasting agents"
+version = "2.0.0"
+description = "Minimalist time-series forecasting toolkit for coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -15,6 +15,8 @@ dependencies = [
     # TSFM dependencies (formerly optional)
     "torch",
     "huggingface-hub",
+    "transformers>=4.56.0",
+    "tsagentkit-patchtst-fm>=1.0.2",
     "chronos-forecasting>=2.0.0",
     "tsagentkit-timesfm",
     "tsagentkit-uni2ts",
@@ -37,9 +39,6 @@ dependencies = [
     "ruff>=0.1.0",
     "import-linter>=2.0.0",
 ]
-
-[project.scripts]
-tsagentkit = "tsagentkit.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -69,9 +68,11 @@ python_functions = ["test_*"]
 addopts = "-v --cov=src/tsagentkit --cov-report=term-missing"
 markers = [
     "tsfm: real TSFM smoke tests (requires TSFM_RUN_REAL=1 and model dependencies)",
+    "timeout: per-test timeout marker",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
+    "ignore:No data was collected\\.:coverage.exceptions.CoverageWarning",
 ]
 
 [tool.mypy]

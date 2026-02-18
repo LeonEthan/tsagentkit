@@ -1,69 +1,107 @@
 """tsagentkit - Minimalist time-series forecasting for AI agents.
 
-This library provides a strict, production-grade execution engine for
-time-series forecasting with TSFM-first strategy and automatic fallback.
+Ultra-lightweight execution engine for time-series forecasting with TSFM ensemble.
 
-Version 2.0.0 - Minimalist Refactoring
+Version 2.0.0 - Nanobot-Inspired Architecture
+
+Input contract:
+    DataFrame columns must be exactly: unique_id, ds, y.
+    Custom column remapping is not supported.
 
 Basic usage:
     >>> from tsagentkit import forecast
     >>> result = forecast(data, h=7)
-    >>> print(result.forecast.df)
+    >>> print(result.df)
 
 Advanced usage:
-    >>> from tsagentkit import ForecastConfig, run_pipeline
+    >>> from tsagentkit import ForecastConfig, run_forecast
     >>> config = ForecastConfig.quick(h=14, freq='H')
-    >>> result = run_pipeline(data, config)
+    >>> result = run_forecast(data, config)
+
+Agent Building (granular control):
+    >>> from tsagentkit import validate, TSDataset, ModelCache
+    >>> from tsagentkit.models.registry import REGISTRY, list_models
+    >>> df = validate(data)
+    >>> dataset = TSDataset.from_dataframe(df, config)
+    >>> models = [REGISTRY[m] for m in list_models(tsfm_only=True)]
+    >>> ModelCache.preload(models)  # Load all TSFMs once
+    >>> for batch in batches:
+    ...     result = forecast(batch, h=7)  # Uses cached models
+    >>> ModelCache.unload()  # Free memory when done
+
+ModelCache unload semantics:
+    ModelCache.unload() releases tsagentkit-owned model references, invokes
+    adapter unload hooks, and performs best-effort backend cache cleanup.
+    If user code still holds model references, Python cannot reclaim that memory.
 """
 
 __version__ = "2.0.0"
 
 # Core API
 from tsagentkit.core.config import ForecastConfig
-from tsagentkit.core.data import CovariateSet, TSDataset
-from tsagentkit.core.results import ForecastResult, RunResult
+from tsagentkit.core.dataset import CovariateSet, TSDataset
+from tsagentkit.core.device import resolve_device
 from tsagentkit.core.errors import (
+    EContract,
+    EInsufficient,
+    ENoTSFM,
+    ETemporal,
     TSAgentKitError,
-    EContractViolation,
-    EDataQuality,
-    EModelFailed,
-    ETSFMRequired,
 )
+from tsagentkit.core.results import ForecastResult, RunResult
 
-# Main entry point
-from tsagentkit.pipeline.runner import forecast, run_pipeline
+# Main entry points (Standard Pipeline)
+from tsagentkit.pipeline import forecast, run_forecast
 
-# Pipeline stages
-from tsagentkit.pipeline.stages import STAGES, PipelineStage
-
-# Router
-from tsagentkit.router import (
-    ModelCandidate,
-    Plan,
-    build_plan,
-    inspect_tsfm_adapters,
+# Agent Building (granular control)
+from tsagentkit.pipeline import (
+    build_dataset,
+    fit_all,
+    make_plan,
+    predict_all,
+    validate,
 )
+from tsagentkit.models.ensemble import ensemble_with_quantiles as ensemble
+
+# Model Cache (for explicit lifecycle management)
+from tsagentkit.models.cache import ModelCache
+
+# Registry (for agent building)
+from tsagentkit.models.registry import REGISTRY, ModelSpec, list_models
+
+# Inspection utilities
+from tsagentkit.inspect import check_health
 
 __all__ = [
     "__version__",
-    # Core
+    # Standard Pipeline
     "forecast",
-    "run_pipeline",
+    "run_forecast",
     "ForecastConfig",
+    "ForecastResult",
     "TSDataset",
     "CovariateSet",
-    "RunResult",
-    "ForecastResult",
-    "Plan",
-    "ModelCandidate",
-    "build_plan",
-    "inspect_tsfm_adapters",
-    "STAGES",
-    "PipelineStage",
+    # Agent Building
+    "validate",
+    "build_dataset",
+    "make_plan",
+    "fit_all",
+    "predict_all",
+    "ensemble",
+    # Model Cache
+    "ModelCache",
+    # Registry
+    "REGISTRY",
+    "ModelSpec",
+    "list_models",
+    # Device
+    "resolve_device",
+    # Inspection
+    "check_health",
     # Errors
     "TSAgentKitError",
-    "EContractViolation",
-    "EDataQuality",
-    "EModelFailed",
-    "ETSFMRequired",
+    "EContract",
+    "ENoTSFM",
+    "EInsufficient",
+    "ETemporal",
 ]
