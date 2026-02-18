@@ -93,6 +93,16 @@ def predict(
     # Group data by unique_id (dataset is pre-sorted by TSDataset)
     grouped = dataset.df.groupby("unique_id", sort=False)
 
+    def _sanitize_context(values: np.ndarray) -> np.ndarray:
+        """Ensure target context is finite for GluonTS transforms."""
+        if np.isfinite(values).all():
+            return values
+
+        cleaned = pd.Series(values, copy=True)
+        cleaned = cleaned.replace([np.inf, -np.inf], np.nan)
+        cleaned = cleaned.ffill().bfill().fillna(0.0)
+        return cleaned.to_numpy(dtype=np.float32)
+
     # Check what covariates are available
     covariates_set = dataset.covariates
     has_future_covariates = False
@@ -117,7 +127,7 @@ def predict(
     # Pre-extract all series data
     series_data = []
     for unique_id, group in grouped:
-        context = group["y"].values.astype(np.float32)
+        context = _sanitize_context(group["y"].to_numpy(dtype=np.float32))
         last_date = group["ds"].iloc[-1]
         start_date = group["ds"].iloc[0]
         series_data.append((unique_id, context, last_date, start_date))

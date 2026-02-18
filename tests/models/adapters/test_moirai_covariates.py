@@ -166,6 +166,40 @@ class TestMoiraiPredictWithoutCovariates:
         assert len(forecast) == 14  # 2 series * 7 horizon
         assert set(forecast["unique_id"].unique()) == {"A", "B"}
 
+    def test_predict_sanitizes_non_finite_context(self, sample_df, sample_config):
+        """Test that NaN/Inf targets are cleaned before creating PandasDataset."""
+        from tsagentkit.models.adapters.tsfm import moirai
+
+        df = sample_df.copy()
+        df.loc[[0, 5, 10], "y"] = [np.nan, np.inf, -np.inf]
+        dataset = TSDataset.from_dataframe(df, sample_config)
+        model = {"module": MagicMock(), "model_name": "test-model"}
+
+        captured_ts_dict: dict[str, pd.Series | pd.DataFrame] = {}
+
+        class CapturedPandasDataset:
+            def __init__(self, ts_dict, **kwargs):
+                del kwargs
+                captured_ts_dict.update(ts_dict)
+                self._n = len(ts_dict)
+
+            def __len__(self):
+                return self._n
+
+        with (
+            patch(MOIRAI_PATCH_PATH, DummyMoirai2Forecast),
+            patch("gluonts.dataset.pandas.PandasDataset", CapturedPandasDataset),
+        ):
+            forecast = moirai.predict(model, dataset, h=7)
+
+        assert isinstance(forecast, pd.DataFrame)
+        assert len(forecast) == 7
+        assert "A" in captured_ts_dict
+
+        series = captured_ts_dict["A"]
+        assert isinstance(series, pd.Series)
+        assert np.isfinite(series.to_numpy(dtype=np.float32)).all()
+
 
 class TestMoiraiPredictWithFutureCovariates:
     """Test predict() with future covariates (feat_dynamic_real)."""
