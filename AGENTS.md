@@ -42,6 +42,8 @@ src/tsagentkit/
 ├── core/
 │   ├── config.py
 │   ├── dataset.py
+│   ├── device.py
+│   ├── results.py
 │   ├── types.py
 │   └── errors.py
 ├── models/
@@ -112,6 +114,7 @@ from tsagentkit import (
     run_forecast,
     ForecastConfig,
     ForecastResult,
+    RunResult,
 
     # Building blocks
     validate,
@@ -125,6 +128,9 @@ from tsagentkit import (
 
     # Model lifecycle control
     ModelCache,
+
+    # Device resolution
+    resolve_device,
 
     # Registry and diagnostics
     REGISTRY,
@@ -197,6 +203,14 @@ uv run mypy src/tsagentkit
 uv run ruff format src/
 ```
 
+### Real TSFM smoke (live adapters)
+
+Run this when you need to validate real backend loading/inference instead of mock-mode behavior:
+
+```bash
+TSFM_RUN_REAL=1 uv run pytest tests/ci/test_real_tsfm_smoke_gate.py tests/ci/test_standard_pipeline_real_smoke.py
+```
+
 ### Testing philosophy
 
 - Unit tests for individual functions
@@ -225,7 +239,8 @@ print(list_models(tsfm_only=True))
 
 health = check_health()
 print(health.tsfm_available)
-print(health.tsfm_missing)  # expected to be [] under the TSFM-required contract
+print(health.tsfm_missing)
+print(health.baselines_available)  # optional baseline adapters only
 ```
 
 ---

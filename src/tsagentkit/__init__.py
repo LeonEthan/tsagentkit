@@ -20,10 +20,10 @@ Advanced usage:
 
 Agent Building (granular control):
     >>> from tsagentkit import validate, TSDataset, ModelCache
-    >>> from tsagentkit.models.registry import REGISTRY, list_available
+    >>> from tsagentkit.models.registry import REGISTRY, list_models
     >>> df = validate(data)
     >>> dataset = TSDataset.from_dataframe(df, config)
-    >>> models = [REGISTRY[m] for m in list_available(tsfm_only=True)]
+    >>> models = [REGISTRY[m] for m in list_models(tsfm_only=True)]
     >>> ModelCache.preload(models)  # Load all TSFMs once
     >>> for batch in batches:
     ...     result = forecast(batch, h=7)  # Uses cached models

@@ -10,7 +10,6 @@ from tsagentkit.models.registry import (
     REGISTRY,
     ModelSpec,
     get_spec,
-    list_available,
     list_models,
 )
 
@@ -20,7 +19,6 @@ __all__ = [
     "ModelSpec",
     "list_models",
     "get_spec",
-    "list_available",
     # Cache
     "ModelCache",
     # Protocol

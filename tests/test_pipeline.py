@@ -120,7 +120,7 @@ class TestMakePlan:
         import tsagentkit.pipeline as pipeline_module
         original_list_models = pipeline_module.list_models
 
-        def mock_list_models(tsfm_only=True, available_only=False):
+        def mock_list_models(tsfm_only=True):
             return []
 
         pipeline_module.list_models = mock_list_models
@@ -131,15 +131,15 @@ class TestMakePlan:
         finally:
             pipeline_module.list_models = original_list_models
 
-    def test_make_plan_uses_registry_not_availability_filter(self):
-        """make_plan should not use dependency availability filtering for TSFMs."""
+    def test_make_plan_calls_list_models_with_tsfm_only(self):
+        """make_plan should call list_models with tsfm_only only."""
         import tsagentkit.pipeline as pipeline_module
 
-        captured = {"available_only": None}
+        captured = {"tsfm_only": None}
         original_list_models = pipeline_module.list_models
 
-        def mock_list_models(tsfm_only=True, available_only=False):
-            captured["available_only"] = available_only
+        def mock_list_models(tsfm_only=True):
+            captured["tsfm_only"] = tsfm_only
             return ["chronos"]
 
         pipeline_module.list_models = mock_list_models
@@ -147,7 +147,7 @@ class TestMakePlan:
             models = make_plan(tsfm_only=True)
             assert len(models) == 1
             assert models[0].name == "chronos"
-            assert captured["available_only"] is False
+            assert captured["tsfm_only"] is True
         finally:
             pipeline_module.list_models = original_list_models
 

@@ -179,7 +179,7 @@ ModelCache.unload()  # best-effort memory release
 Use these errors as the stable contract surface:
 
 - `EContract`: input schema/type/contract violations
-- `ENoTSFM`: no TSFM adapters available
+- `ENoTSFM`: TSFM registry invariant violation (internal misconfiguration)
 - `EInsufficient`: too few successful TSFM predictions
 - `ETemporal`: temporal integrity violations
 
@@ -201,6 +201,14 @@ uv sync --all-extras
 uv run pytest
 uv run mypy src/tsagentkit
 uv run ruff format src/
+```
+
+### Real TSFM smoke (live adapters)
+
+Run this when you need to validate real backend loading/inference instead of mock-mode behavior:
+
+```bash
+TSFM_RUN_REAL=1 uv run pytest tests/ci/test_real_tsfm_smoke_gate.py tests/ci/test_standard_pipeline_real_smoke.py
 ```
 
 ### Testing philosophy
@@ -226,14 +234,13 @@ For full reference implementation and examples, see `docs/DESIGN.md`.
 
 ```python
 from tsagentkit import list_models, check_health
-from tsagentkit.inspect import list_models as list_available_models
 
-print(list_models(tsfm_only=True, available_only=False))
-print(list_available_models(tsfm_only=True))
+print(list_models(tsfm_only=True))
 
 health = check_health()
 print(health.tsfm_available)
 print(health.tsfm_missing)
+print(health.baselines_available)  # optional baseline adapters only
 ```
 
 ---

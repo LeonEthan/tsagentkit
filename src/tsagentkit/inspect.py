@@ -5,9 +5,10 @@ Provides functions to list models, check health, and diagnose issues.
 
 from __future__ import annotations
 
+import importlib.util
 from dataclasses import dataclass
 
-from tsagentkit.models.registry import REGISTRY, check_available, list_models as registry_list_models
+from tsagentkit.models.registry import REGISTRY, list_models as registry_list_models
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,12 @@ def list_models(tsfm_only: bool = False) -> list[str]:
     Returns:
         List of model names from the registry
     """
-    return registry_list_models(tsfm_only=tsfm_only, available_only=False)
+    return registry_list_models(tsfm_only=tsfm_only)
+
+
+def _packages_available(packages: list[str]) -> bool:
+    """Return True when all package specs can be resolved."""
+    return all(importlib.util.find_spec(package) is not None for package in packages)
 
 
 def check_health() -> HealthReport:
@@ -49,12 +55,12 @@ def check_health() -> HealthReport:
     """
     # TSFMs are mandatory dependencies in tsagentkit. Health checks expose
     # registry state, not optional dependency probing for TSFMs.
-    tsfm_available = registry_list_models(tsfm_only=True, available_only=False)
+    tsfm_available = registry_list_models(tsfm_only=True)
     tsfm_missing: list[str] = []
 
-    # Check baselines
+    # Baselines are optional.
     baseline_spec = REGISTRY.get("naive")
-    baselines_available = check_available(baseline_spec) if baseline_spec else False
+    baselines_available = _packages_available(baseline_spec.requires) if baseline_spec else False
 
     # All OK when TSFM registry is populated (baselines are optional).
     all_ok = len(tsfm_available) > 0

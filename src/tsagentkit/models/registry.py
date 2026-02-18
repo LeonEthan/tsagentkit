@@ -77,12 +77,11 @@ REGISTRY: dict[str, ModelSpec] = {
 }
 
 
-def list_models(tsfm_only: bool = False, available_only: bool = False) -> list[str]:
+def list_models(tsfm_only: bool = False) -> list[str]:
     """List models from the registry.
 
     Args:
         tsfm_only: If True, only return TSFM models
-        available_only: If True, only return models with satisfied dependencies
 
     Returns:
         List of model names
@@ -90,8 +89,6 @@ def list_models(tsfm_only: bool = False, available_only: bool = False) -> list[s
     names: list[str] = []
     for name, spec in REGISTRY.items():
         if tsfm_only and not spec.is_tsfm:
-            continue
-        if available_only and not check_available(spec):
             continue
         names.append(name)
     return names
@@ -115,49 +112,9 @@ def get_spec(name: str) -> ModelSpec:
     return REGISTRY[name]
 
 
-def check_available(spec: ModelSpec) -> bool:
-    """Check if a model's dependencies are available.
-
-    TSFM dependencies are now default, so they should always be available.
-    This function is kept for backward compatibility and for checking
-    optional dependencies in the future.
-
-    Args:
-        spec: Model specification to check
-
-    Returns:
-        True if all required packages can be imported
-    """
-    # TSFMs are now default dependencies - always return True
-    if spec.is_tsfm:
-        return True
-
-    # Check non-TSFM models (baselines, etc.)
-    for package in spec.requires:
-        try:
-            __import__(package)
-        except ImportError:
-            return False
-    return True
-
-
-def list_available(tsfm_only: bool = False) -> list[str]:
-    """List models that have all dependencies available.
-
-    Args:
-        tsfm_only: If True, only check TSFM models
-
-    Returns:
-        List of model names with available dependencies
-    """
-    return list_models(tsfm_only=tsfm_only, available_only=True)
-
-
 __all__ = [
     "ModelSpec",
     "REGISTRY",
     "list_models",
     "get_spec",
-    "check_available",
-    "list_available",
 ]

@@ -103,7 +103,7 @@ def make_plan(
     Returns:
         List of model specifications to run
     """
-    names = list_models(tsfm_only=tsfm_only, available_only=False)
+    names = list_models(tsfm_only=tsfm_only)
 
     # TSFMs are required package dependencies. If this is empty, the registry
     # itself is misconfigured rather than dependencies being optional/missing.

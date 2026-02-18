@@ -118,7 +118,7 @@ Top-level (`from tsagentkit import ...`):
 Model protocol API (`from tsagentkit.models import ...`):
 - `fit`, `predict`
 - `ensemble`, `ensemble_with_quantiles`
-- `get_spec`, `list_available`, `list_models`
+- `get_spec`, `list_models`
 
 Inspection API (`from tsagentkit.inspect import ...`):
 - `list_models`
