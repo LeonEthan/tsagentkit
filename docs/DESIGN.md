@@ -124,20 +124,28 @@ def list_models(tsfm_only: bool = False) -> list[str]:
 
 ModelArtifact = Any  # Adapter decides what to store
 
-def fit(spec: ModelSpec, dataset: TSDataset) -> ModelArtifact:
-    """Load adapter dynamically, fit model."""
-    adapter = _load_adapter(spec.adapter_path)
-    return adapter.fit(dataset, **spec.config_fields)
+def fit(spec: ModelSpec, dataset: TSDataset, device: str | None = None) -> ModelArtifact:
+    """Load adapter dynamically, fit model.
+
+    TSFMs: Loaded via ModelCache (config_fields go to load()).
+    Non-TSFMs: Fitted on dataset (config_fields not passed to fit).
+    """
+    if spec.is_tsfm:
+        return ModelCache.get(spec, device=device)
+    else:
+        adapter = _load_adapter(spec.adapter_path)
+        return adapter.fit(dataset)
 
 def predict(
     spec: ModelSpec,
     artifact: ModelArtifact,
     dataset: TSDataset,
-    h: int
+    h: int,
+    quantiles: tuple[float, ...] | list[float] | None = None,
 ) -> pd.DataFrame:
     """Generate predictions."""
     adapter = _load_adapter(spec.adapter_path)
-    return adapter.predict(artifact, dataset, h)
+    return adapter.predict(artifact, dataset, h, quantiles=quantiles)
 ```
 
 **Benefit**: No complex inheritance trees. Pure functions.
