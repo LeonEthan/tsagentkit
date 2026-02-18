@@ -54,6 +54,8 @@ src/tsagentkit/
 ├── core/
 │   ├── config.py          # Single ForecastConfig (frozen dataclass)
 │   ├── dataset.py         # TSDataset (lightweight wrapper)
+│   ├── device.py          # Device resolution (CUDA → MPS → CPU)
+│   ├── results.py         # ForecastResult, RunResult containers
 │   ├── types.py           # Shared type definitions
 │   └── errors.py          # 4 error types only
 │
@@ -360,6 +362,7 @@ from tsagentkit import (
     run_forecast,
     ForecastConfig,
     ForecastResult,
+    RunResult,
 
     # Agent Building (granular control)
     validate,
@@ -373,6 +376,9 @@ from tsagentkit import (
 
     # Model Cache Control (explicit lifecycle management)
     ModelCache,
+
+    # Device resolution (CUDA → MPS → CPU auto-detection)
+    resolve_device,
 
     # Registry and diagnostics
     REGISTRY,

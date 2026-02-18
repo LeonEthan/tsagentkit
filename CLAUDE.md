@@ -42,6 +42,8 @@ src/tsagentkit/
 ├── core/
 │   ├── config.py
 │   ├── dataset.py
+│   ├── device.py
+│   ├── results.py
 │   ├── types.py
 │   └── errors.py
 ├── models/
@@ -112,6 +114,7 @@ from tsagentkit import (
     run_forecast,
     ForecastConfig,
     ForecastResult,
+    RunResult,
 
     # Building blocks
     validate,
@@ -125,6 +128,9 @@ from tsagentkit import (
 
     # Model lifecycle control
     ModelCache,
+
+    # Device resolution
+    resolve_device,
 
     # Registry and diagnostics
     REGISTRY,
