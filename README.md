@@ -56,18 +56,18 @@ result = run_forecast(raw_df, config)
 print(result.df.head())
 ```
 
-## Assembly-First Pipeline
+## Building-Block Pipeline
 
 ```python
 from tsagentkit import (
     ForecastConfig,
-    build_dataset,
-    fit_all,
-    make_plan,
-    predict_all,
     validate,
+    build_dataset,
+    make_plan,
+    fit_all,
+    predict_all,
+    ensemble,
 )
-from tsagentkit.models.ensemble import ensemble_with_quantiles
 
 config = ForecastConfig(h=7, freq="D")
 df = validate(raw_df)
@@ -75,7 +75,8 @@ dataset = build_dataset(df, config)
 models = make_plan(tsfm_only=True)
 artifacts = fit_all(models, dataset)
 predictions = predict_all(models, artifacts, dataset, h=config.h)
-ensemble_df = ensemble_with_quantiles(predictions, method=config.ensemble_method, quantiles=config.quantiles)
+result = ensemble(predictions, method=config.ensemble_method, quantiles=config.quantiles)
+print(result.df.head())
 ```
 
 ## Model Cache Lifecycle
@@ -108,21 +109,18 @@ ModelCache.unload()           # all models
 
 Top-level (`from tsagentkit import ...`):
 - `forecast`, `run_forecast`
-- `ForecastConfig`, `ForecastResult`, `TSDataset`, `CovariateSet`
+- `ForecastConfig`, `ForecastResult`, `RunResult`
+- `TSDataset`, `CovariateSet`
 - `validate`, `build_dataset`, `make_plan`, `fit_all`, `predict_all`, `ensemble`
 - `ModelCache`
 - `REGISTRY`, `ModelSpec`, `list_models`
+- `resolve_device`
 - `check_health`
 - `TSAgentKitError`, `EContract`, `ENoTSFM`, `EInsufficient`, `ETemporal`
 
-Model protocol API (`from tsagentkit.models import ...`):
-- `fit`, `predict`
-- `ensemble`, `ensemble_with_quantiles`
-- `get_spec`, `list_models`
-
 Inspection API (`from tsagentkit.inspect import ...`):
 - `list_models`
-- `check_health`
+- `check_health`, `HealthReport`
 
 ## Errors
 
@@ -133,12 +131,12 @@ Core error types:
 - `ETemporal`: temporal integrity violations
 
 ```python
-from tsagentkit import TSAgentKitError, forecast
+from tsagentkit import EContract, forecast
 
 try:
     result = forecast(raw_df, h=7)
-except TSAgentKitError as e:
-    print(e.error_code, e.fix_hint)
+except EContract as e:
+    print(e.code, e.hint)
     raise
 ```
 
