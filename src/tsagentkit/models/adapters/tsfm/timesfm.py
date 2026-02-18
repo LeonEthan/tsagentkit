@@ -64,55 +64,66 @@ def fit(dataset: TSDataset) -> Any:
     return load()
 
 
-def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
+def predict(
+    model: Any, dataset: TSDataset, h: int, batch_size: int = 32
+) -> pd.DataFrame:
     """Generate forecasts using TimesFM.
 
     Args:
         model: Loaded TimesFM model
         dataset: Time-series dataset
         h: Forecast horizon
+        batch_size: Number of series to process in parallel
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
     """
     import numpy as np
 
-    forecasts = []
     freq = _normalize_freq_alias(dataset.config.freq)
 
-    # Process each series
-    for unique_id in dataset.df["unique_id"].unique():
-        mask = dataset.df["unique_id"] == unique_id
-        series_df = dataset.df[mask].sort_values("ds")
-        context = series_df["y"].values.astype(np.float32)
+    # Group data by unique_id (dataset is pre-sorted by TSDataset)
+    grouped = dataset.df.groupby("unique_id", sort=False)
 
-        # TimesFM 2.5 requires sequences > 992 tokens to avoid NaN output
-        # See: https://github.com/google-research/timesfm/issues/321
-        min_context_length = 993
-        if len(context) < min_context_length:
-            # Pad with zeros at the beginning
-            padding_needed = min_context_length - len(context)
-            context = np.pad(context, (padding_needed, 0), mode='constant', constant_values=0)
+    # Pre-extract all series data to avoid repeated groupby operations
+    series_data = []
+    for unique_id, group in grouped:
+        context = group["y"].values.astype(np.float32)
+        last_date = group["ds"].iloc[-1]
+        series_data.append((unique_id, context, last_date))
 
-        # Generate forecast (freq parameter not supported in this TimesFM version)
-        point_forecast, _ = model.forecast(
-            horizon=h,
-            inputs=[context],
-        )
+    # TimesFM 2.5 requires sequences > 992 tokens to avoid NaN output
+    # See: https://github.com/google-research/timesfm/issues/321
+    min_context_length = 993
 
-        # Extract forecast for requested horizon
-        forecast_values = point_forecast[0][:h]
+    forecasts = []
+    # Process in batches
+    for i in range(0, len(series_data), batch_size):
+        batch = series_data[i : i + batch_size]
 
-        # Generate future timestamps
-        last_date = series_df["ds"].iloc[-1]
-        future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
+        # Prepare batched contexts with padding
+        batch_contexts = []
+        for _, context, _ in batch:
+            if len(context) < min_context_length:
+                padding_needed = min_context_length - len(context)
+                context = np.pad(
+                    context, (padding_needed, 0), mode="constant", constant_values=0
+                )
+            batch_contexts.append(context)
 
-        # Create forecast DataFrame
-        forecast_df = pd.DataFrame({
-            "unique_id": unique_id,
-            "ds": future_dates[:len(forecast_values)],
-            "yhat": forecast_values,
-        })
-        forecasts.append(forecast_df)
+        # Batch inference: TimesFM accepts list of contexts
+        point_forecasts, _ = model.forecast(horizon=h, inputs=batch_contexts)
+
+        # Extract forecasts for each series in batch
+        for j, (unique_id, _, last_date) in enumerate(batch):
+            forecast_values = point_forecasts[j][:h]
+            future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
+
+            forecast_df = pd.DataFrame({
+                "unique_id": unique_id,
+                "ds": future_dates[: len(forecast_values)],
+                "yhat": forecast_values,
+            })
+            forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)

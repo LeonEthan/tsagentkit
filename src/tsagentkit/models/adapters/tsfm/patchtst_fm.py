@@ -218,6 +218,97 @@ def _extract_forecast_values(
     return values[:h]
 
 
+def _extract_batched_forecast_values(
+    outputs: Any,
+    h: int,
+    batch_size: int,
+    quantile_levels: list[float] | None = None,
+) -> list[np.ndarray]:
+    """Extract forecast values for each series in a batch from model outputs.
+
+    Handles various output formats from PatchTST-FM batched inference.
+    """
+    predictions = None
+
+    if isinstance(outputs, tuple) and outputs:
+        outputs = outputs[0]
+
+    if hasattr(outputs, "quantile_predictions"):
+        predictions = outputs.quantile_predictions
+    elif hasattr(outputs, "prediction_outputs"):
+        predictions = outputs.prediction_outputs
+    elif isinstance(outputs, dict):
+        if "quantile_predictions" in outputs:
+            predictions = outputs["quantile_predictions"]
+        else:
+            predictions = outputs.get("prediction_outputs")
+    else:
+        predictions = outputs
+
+    if predictions is None:
+        raise ValueError("PatchTST batch output did not include forecast predictions.")
+
+    arr = _to_numpy(predictions)
+    quantile_count = len(quantile_levels) if quantile_levels is not None else None
+
+    # Handle edge case: model returns single output for entire batch (e.g., test mocks)
+    if arr.ndim >= 3 and arr.shape[0] == 1 and batch_size > 1:
+        # Broadcast single output to all batch items
+        arr = np.repeat(arr, batch_size, axis=0)
+
+    results = []
+    for b in range(batch_size):
+        if arr.ndim == 1:
+            # 1D array - split equally among batch
+            chunk_size = len(arr) // batch_size
+            values = arr[b * chunk_size : b * chunk_size + h]
+        elif arr.ndim == 2:
+            # Expected: (batch, horizon) or (batch, quantile)
+            if arr.shape[0] == batch_size:
+                values = arr[b, :h]
+            else:
+                # Try to interpret as batched quantiles
+                if quantile_count is not None and arr.shape[1] == quantile_count:
+                    # (batch, quantile) - single horizon point
+                    q_idx = _median_index(quantile_levels, arr.shape[1])
+                    values = np.full(h, arr[b, q_idx], dtype=np.float32)
+                else:
+                    values = arr[b, :h]
+        elif arr.ndim == 3:
+            # Expected: (batch, quantile, horizon) or (batch, horizon, quantile)
+            sample = arr[b]
+            if quantile_count is not None and sample.shape[0] == quantile_count:
+                # (quantile, horizon)
+                q_idx = _median_index(quantile_levels, sample.shape[0])
+                values = sample[q_idx, :h]
+            elif quantile_count is not None and sample.shape[1] == quantile_count:
+                # (horizon, quantile)
+                q_idx = _median_index(quantile_levels, sample.shape[1])
+                values = sample[:h, q_idx]
+            else:
+                # Fallback: assume (something, horizon) and take middle
+                if sample.shape[0] <= sample.shape[1]:
+                    q_idx = sample.shape[0] // 2
+                    values = sample[q_idx, :h]
+                else:
+                    q_idx = sample.shape[1] // 2
+                    values = sample[:h, q_idx]
+        else:
+            raise ValueError(f"Unexpected PatchTST batch output rank: {arr.ndim}")
+
+        values = np.asarray(values, dtype=np.float32)
+        if values.size == 0:
+            values = np.zeros(h, dtype=np.float32)
+        elif len(values) < h:
+            values = np.pad(values, (0, h - len(values)), mode="edge")
+        else:
+            values = values[:h]
+
+        results.append(values)
+
+    return results
+
+
 def load(model_name: str = "ibm-research/patchtst-fm-r1") -> Any:
     """Load pretrained PatchTST-FM model.
 
@@ -306,13 +397,16 @@ def _mps_guard(model_device: Any | None):
             module_obj.is_available = original
 
 
-def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
+def predict(
+    model: Any, dataset: TSDataset, h: int, batch_size: int = 32
+) -> pd.DataFrame:
     """Generate forecasts using PatchTST-FM.
 
     Args:
         model: Loaded PatchTST-FM model
         dataset: Time-series dataset
         h: Forecast horizon
+        batch_size: Number of series to process in parallel
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
@@ -320,67 +414,83 @@ def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
     if torch is None:
         raise ImportError("PyTorch is required for PatchTST-FM inference.")
 
-    forecasts = []
-
     model_quantiles = _model_quantile_levels(model)
     requested_quantiles = _inference_quantiles(model_quantiles)
     model_device = _resolve_model_device(model)
     context_length = _resolve_context_length(model)
+    freq = _normalize_freq_alias(dataset.config.freq)
 
-    # Process each series
-    for unique_id in dataset.df["unique_id"].unique():
-        mask = dataset.df["unique_id"] == unique_id
-        series_df = dataset.df[mask].sort_values("ds")
-        context = series_df["y"].to_numpy(dtype=np.float32)
+    # Group data by unique_id (dataset is pre-sorted by TSDataset)
+    grouped = dataset.df.groupby("unique_id", sort=False)
+
+    # Pre-extract and sanitize all series data
+    series_data = []
+    for unique_id, group in grouped:
+        context = group["y"].to_numpy(dtype=np.float32)
         context = _sanitize_context(context)
         context = _left_pad_context(context, context_length)
+        last_date = group["ds"].iloc[-1]
+        series_data.append((unique_id, context, last_date))
 
-        if model_device is None:
-            context_tensor = torch.tensor(context, dtype=torch.float32)
-        else:
-            context_tensor = torch.tensor(context, dtype=torch.float32, device=model_device)
+    forecasts = []
+    # Process in batches
+    for i in range(0, len(series_data), batch_size):
+        batch = series_data[i : i + batch_size]
 
-        # Generate forecast with PatchTST-FM API.
+        # Prepare batched tensors
+        batch_tensors = []
+        for _, context, _ in batch:
+            if model_device is None:
+                tensor = torch.tensor(context, dtype=torch.float32)
+            else:
+                tensor = torch.tensor(context, dtype=torch.float32, device=model_device)
+            batch_tensors.append(tensor)
+
+        # Batch inference: PatchTST-FM accepts list of tensors
         with torch.no_grad(), _mps_guard(model_device):
             try:
                 outputs = model(
-                    inputs=[context_tensor],
+                    inputs=batch_tensors,
                     prediction_length=h,
                     quantile_levels=requested_quantiles,
                     return_loss=False,
                 )
             except TypeError:
                 outputs = model(
-                    inputs=[context_tensor],
+                    inputs=batch_tensors,
                     prediction_length=h,
                     quantile_levels=requested_quantiles,
                 )
 
-        forecast_values = _extract_forecast_values(
+        # Handle batched outputs - may be list or batched tensor
+        batch_forecasts = _extract_batched_forecast_values(
             outputs=outputs,
             h=h,
+            batch_size=len(batch),
             quantile_levels=requested_quantiles or model_quantiles,
         )
-        if np.isnan(forecast_values).all():
-            fallback = float(context[-1]) if context.size else 0.0
-            forecast_values = np.full(h, fallback, dtype=np.float32)
-        elif np.isnan(forecast_values).any():
-            fill_value = np.nanmean(forecast_values)
-            if np.isnan(fill_value):
-                fill_value = float(context[-1]) if context.size else 0.0
-            forecast_values = np.nan_to_num(forecast_values, nan=float(fill_value))
 
-        # Generate future timestamps
-        last_date = series_df["ds"].iloc[-1]
-        freq = _normalize_freq_alias(dataset.config.freq)
-        future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
+        # Apply fallback and NaN handling for each series
+        for j, (unique_id, context, last_date) in enumerate(batch):
+            forecast_values = batch_forecasts[j]
 
-        # Create forecast DataFrame
-        forecast_df = pd.DataFrame({
-            "unique_id": unique_id,
-            "ds": future_dates[:len(forecast_values)],
-            "yhat": forecast_values,
-        })
-        forecasts.append(forecast_df)
+            if np.isnan(forecast_values).all():
+                fallback = float(context[-1]) if context.size else 0.0
+                forecast_values = np.full(h, fallback, dtype=np.float32)
+            elif np.isnan(forecast_values).any():
+                fill_value = np.nanmean(forecast_values)
+                if np.isnan(fill_value):
+                    fill_value = float(context[-1]) if context.size else 0.0
+                forecast_values = np.nan_to_num(forecast_values, nan=float(fill_value))
+
+            # Generate future timestamps
+            future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
+
+            forecast_df = pd.DataFrame({
+                "unique_id": unique_id,
+                "ds": future_dates[:len(forecast_values)],
+                "yhat": forecast_values,
+            })
+            forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)

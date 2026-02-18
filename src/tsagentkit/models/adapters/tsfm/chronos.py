@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pandas as pd
 
 from tsagentkit.core.dataset import _normalize_freq_alias
@@ -56,52 +57,74 @@ def fit(dataset: TSDataset) -> Any:
     return load()
 
 
-def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
+def predict(
+    model: Any, dataset: TSDataset, h: int, batch_size: int = 32
+) -> pd.DataFrame:
     """Generate forecasts using Chronos.
 
     Args:
         model: Loaded Chronos2 pipeline
         dataset: Time-series dataset
         h: Forecast horizon
+        batch_size: Number of series to process in parallel
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
     """
     import torch
 
+    freq = _normalize_freq_alias(dataset.config.freq)
+
+    # Group data by unique_id (dataset is pre-sorted by TSDataset)
+    grouped = dataset.df.groupby("unique_id", sort=False)
+
+    # Pre-extract all series data
+    series_data = []
+    for unique_id, group in grouped:
+        context = group["y"].values.astype(np.float32)
+        last_date = group["ds"].iloc[-1]
+        series_data.append((unique_id, context, last_date))
+
     forecasts = []
+    # Process in batches
+    for i in range(0, len(series_data), batch_size):
+        batch = series_data[i : i + batch_size]
 
-    # Process each series
-    for unique_id in dataset.df["unique_id"].unique():
-        mask = dataset.df["unique_id"] == unique_id
-        series_df = dataset.df[mask].sort_values("ds")
-        context = series_df["y"].values
+        # Pad contexts to same length for batching
+        max_len = max(len(ctx) for _, ctx, _ in batch)
+        padded_contexts = []
+        for _, context, _ in batch:
+            if len(context) < max_len:
+                # Left-pad with zeros to maintain recency
+                padded = np.pad(
+                    context, (max_len - len(context), 0), mode="constant", constant_values=0
+                )
+            else:
+                padded = context
+            padded_contexts.append(padded)
 
-        # Convert to tensor - Chronos 2 expects 3-d shape (n_series, n_variates, history_length)
-        context_tensor = torch.tensor(context, dtype=torch.float32)
-        # Reshape from (history_length,) to (1, 1, history_length) for univariate single series
-        context_tensor = context_tensor.unsqueeze(0).unsqueeze(0)
+        # Stack into batch tensor: (batch_size, 1, history_length)
+        context_tensor = torch.tensor(
+            np.stack(padded_contexts), dtype=torch.float32
+        ).unsqueeze(1)
 
-        # Generate forecast
+        # Batch inference
         with torch.no_grad():
-            prediction = model.predict(context_tensor, h)
+            predictions = model.predict(context_tensor, h)
 
-        # prediction is a list of tensors, each with shape (n_samples, n_variates, prediction_length)
-        # For univariate: extract first element, take median across samples (dim=0), get first variate
-        pred_tensor = prediction[0]  # Shape: (n_samples, n_variates, prediction_length)
-        forecast_values = pred_tensor.median(dim=0).values[0].numpy()  # Take median across samples, first variate
+        # Extract forecasts for each series
+        for j, (unique_id, _, last_date) in enumerate(batch):
+            # predictions[j] has shape (n_samples, n_variates, prediction_length)
+            pred_tensor = predictions[j]
+            forecast_values = pred_tensor.median(dim=0).values[0].numpy()
 
-        # Generate future timestamps
-        last_date = series_df["ds"].iloc[-1]
-        freq = _normalize_freq_alias(dataset.config.freq)
-        future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
+            future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
-        # Create forecast DataFrame
-        forecast_df = pd.DataFrame({
-            "unique_id": unique_id,
-            "ds": future_dates,
-            "yhat": forecast_values,
-        })
-        forecasts.append(forecast_df)
+            forecast_df = pd.DataFrame({
+                "unique_id": unique_id,
+                "ds": future_dates,
+                "yhat": forecast_values,
+            })
+            forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)

@@ -59,71 +59,81 @@ def fit(dataset: TSDataset) -> Any:
     return load()
 
 
-def predict(model: Any, dataset: TSDataset, h: int) -> pd.DataFrame:
+def predict(
+    model: Any, dataset: TSDataset, h: int, batch_size: int = 32
+) -> pd.DataFrame:
     """Generate forecasts using Moirai 2.0.
 
     Args:
         model: Loaded Moirai model (dict with model_name and module)
         dataset: Time-series dataset
         h: Forecast horizon
+        batch_size: Number of series to process in parallel
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
     """
     import numpy as np
+    from gluonts.dataset.pandas import PandasDataset
     from uni2ts.model.moirai2 import Moirai2Forecast
 
     module = model["module"]
-    forecasts = []
     freq = _normalize_freq_alias(dataset.config.freq)
 
-    # Process each series
-    for unique_id in dataset.df["unique_id"].unique():
-        mask = dataset.df["unique_id"] == unique_id
-        series_df = dataset.df[mask].sort_values("ds")
-        context = series_df["y"].values.astype(np.float32)
-        ctx_len = len(context)
+    # Group data by unique_id (dataset is pre-sorted by TSDataset)
+    grouped = dataset.df.groupby("unique_id", sort=False)
 
-        # Create forecast model with Moirai 2.0
+    # Pre-extract all series data
+    series_data = []
+    for unique_id, group in grouped:
+        context = group["y"].values.astype(np.float32)
+        last_date = group["ds"].iloc[-1]
+        start_date = group["ds"].iloc[0]
+        series_data.append((unique_id, context, last_date, start_date))
+
+    forecasts = []
+    # Process in batches
+    for i in range(0, len(series_data), batch_size):
+        batch = series_data[i : i + batch_size]
+
+        # Determine max context length for this batch
+        max_ctx_len = max(len(ctx) for _, ctx, _, _ in batch)
+
+        # Create forecast model with batch-aware context length
         forecast_model = Moirai2Forecast(
             module=module,
             prediction_length=h,
-            context_length=ctx_len,
-            target_dim=1,  # Univariate forecasting
+            context_length=max_ctx_len,
+            target_dim=1,
             feat_dynamic_real_dim=0,
             past_feat_dynamic_real_dim=0,
         )
 
-        # Generate forecast - Moirai 2.0 returns distribution
-        # Use create_predictor for batch inference
-        predictor = forecast_model.create_predictor(batch_size=1)
+        # Use batch_size > 1 for efficient inference
+        predictor = forecast_model.create_predictor(batch_size=len(batch))
 
-        # Create a simple GluonTS-compatible dataset for prediction
-        from gluonts.dataset.pandas import PandasDataset
+        # Build multi-series PandasDataset
+        ts_dict = {}
+        for unique_id, context, _, start_date in batch:
+            ts_index = pd.date_range(start=start_date, periods=len(context), freq=freq)
+            ts_dict[unique_id] = pd.Series(context, index=ts_index)
 
-        # Prepare data for GluonTS format - PandasDataset expects a DataFrame or Series
-        ts_index = pd.date_range(start=series_df["ds"].iloc[0], periods=ctx_len, freq=freq)
-        ts_series = pd.Series(context, index=ts_index)
+        # PandasDataset with multiple series
+        gts_dataset = PandasDataset(ts_dict)
 
-        gts_dataset = PandasDataset(ts_series)
-
-        # Generate predictions
+        # Batch inference
         forecast_it = predictor.predict(gts_dataset)
-        forecast = next(forecast_it)
 
-        # Extract median forecast (quantile 0.5)
-        forecast_values = forecast.quantile(0.5)
+        # Extract forecasts for each series
+        for (unique_id, _, last_date, _), forecast in zip(batch, forecast_it):
+            forecast_values = forecast.quantile(0.5)
+            future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
-        # Generate future timestamps
-        last_date = series_df["ds"].iloc[-1]
-        future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
-
-        # Create forecast DataFrame
-        forecast_df = pd.DataFrame({
-            "unique_id": unique_id,
-            "ds": future_dates[:len(forecast_values)],
-            "yhat": forecast_values,
-        })
-        forecasts.append(forecast_df)
+            forecast_df = pd.DataFrame({
+                "unique_id": unique_id,
+                "ds": future_dates[: len(forecast_values)],
+                "yhat": forecast_values,
+            })
+            forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)
