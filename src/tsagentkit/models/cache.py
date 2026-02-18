@@ -115,7 +115,7 @@ class ModelCache:
             Loaded model instance
         """
         module = importlib.import_module(spec.adapter_path)
-        load_fn = getattr(module, "load")
+        load_fn = module.load
         config = dict(spec.config_fields)
         if device is not None:
             config["device"] = device

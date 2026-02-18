@@ -42,7 +42,7 @@ def fit(spec: ModelSpec, dataset: TSDataset, device: str | None = None) -> Model
         import importlib
 
         module = importlib.import_module(spec.adapter_path)
-        fit_fn = getattr(module, "fit")
+        fit_fn = module.fit
         return fit_fn(dataset)
 
 
@@ -68,7 +68,7 @@ def predict(
     import importlib
 
     module = importlib.import_module(spec.adapter_path)
-    predict_fn = getattr(module, "predict")
+    predict_fn = module.predict
 
     # Adapter compatibility:
     # - legacy adapters: predict(model, dataset, h)

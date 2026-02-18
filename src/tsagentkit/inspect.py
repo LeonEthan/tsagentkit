@@ -8,7 +8,8 @@ from __future__ import annotations
 import importlib.util
 from dataclasses import dataclass
 
-from tsagentkit.models.registry import REGISTRY, list_models as registry_list_models
+from tsagentkit.models.registry import REGISTRY
+from tsagentkit.models.registry import list_models as registry_list_models
 
 
 @dataclass(frozen=True)

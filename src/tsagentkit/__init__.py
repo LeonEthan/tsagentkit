@@ -50,27 +50,27 @@ from tsagentkit.core.errors import (
 )
 from tsagentkit.core.results import ForecastResult, RunResult
 
-# Main entry points (Standard Pipeline)
-from tsagentkit.pipeline import forecast, run_forecast
-
-# Agent Building (granular control)
-from tsagentkit.pipeline import (
-    build_dataset,
-    fit_all,
-    make_plan,
-    predict_all,
-    validate,
-)
-from tsagentkit.models.ensemble import ensemble_with_quantiles as ensemble
+# Inspection utilities
+from tsagentkit.inspect import check_health
 
 # Model Cache (for explicit lifecycle management)
 from tsagentkit.models.cache import ModelCache
+from tsagentkit.models.ensemble import ensemble_with_quantiles as ensemble
 
 # Registry (for agent building)
 from tsagentkit.models.registry import REGISTRY, ModelSpec, list_models
 
-# Inspection utilities
-from tsagentkit.inspect import check_health
+# Main entry points (Standard Pipeline)
+# Agent Building (granular control)
+from tsagentkit.pipeline import (
+    build_dataset,
+    fit_all,
+    forecast,
+    make_plan,
+    predict_all,
+    run_forecast,
+    validate,
+)
 
 __all__ = [
     "__version__",
@@ -79,6 +79,7 @@ __all__ = [
     "run_forecast",
     "ForecastConfig",
     "ForecastResult",
+    "RunResult",
     "TSDataset",
     "CovariateSet",
     # Agent Building

@@ -15,7 +15,8 @@ from tsagentkit.core.dataset import CovariateSet, TSDataset
 from tsagentkit.core.errors import EContract, EInsufficient, ENoTSFM
 from tsagentkit.core.results import ForecastResult
 from tsagentkit.models.ensemble import ensemble_with_quantiles
-from tsagentkit.models.protocol import fit, predict as protocol_predict
+from tsagentkit.models.protocol import fit
+from tsagentkit.models.protocol import predict as protocol_predict
 from tsagentkit.models.registry import REGISTRY, ModelSpec, list_models
 
 if TYPE_CHECKING:

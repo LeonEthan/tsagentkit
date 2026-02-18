@@ -46,7 +46,7 @@ class TSAgentKitError(Exception):
         return self.hint
 
 
-class EContract(TSAgentKitError):
+class EContract(TSAgentKitError):  # noqa: N818
     """Input data invalid (wrong columns, types, etc.)"""
 
     code = "E_CONTRACT"
@@ -54,7 +54,7 @@ class EContract(TSAgentKitError):
     hint = "Check data format: DataFrame must have [unique_id, ds, y] columns"
 
 
-class ENoTSFM(TSAgentKitError):
+class ENoTSFM(TSAgentKitError):  # noqa: N818
     """No TSFM models registered (internal invariant violation)."""
 
     code = "E_NO_TSFM"
@@ -62,7 +62,7 @@ class ENoTSFM(TSAgentKitError):
     hint = "TSFM registry invariant violated. Ensure default TSFM specs exist in models.registry.REGISTRY."
 
 
-class EInsufficient(TSAgentKitError):
+class EInsufficient(TSAgentKitError):  # noqa: N818
     """Not enough TSFMs succeeded."""
 
     code = "E_INSUFFICIENT"
@@ -70,7 +70,7 @@ class EInsufficient(TSAgentKitError):
     hint = "Check model compatibility with data frequency and length"
 
 
-class ETemporal(TSAgentKitError):
+class ETemporal(TSAgentKitError):  # noqa: N818
     """Temporal integrity violation."""
 
     code = "E_TEMPORAL"
