@@ -547,7 +547,7 @@ forecast_df = predict(model, dataset, h=7)
 
 **Direct API** (without tsagentkit):
 ```python
-from tsagentkit_uni2ts.model.moirai2 import Moirai2Forecast, Moirai2Module
+from uni2ts.model.moirai2 import Moirai2Forecast, Moirai2Module
 from gluonts.dataset.pandas import PandasDataset
 import pandas as pd
 
