@@ -203,6 +203,14 @@ def run_forecast(
     # Phase 3: Fit all models (uses ModelCache for TSFMs)
     artifacts = fit_all(models, dataset, device=config.device)
 
+    # Check if all TSFMs failed to load (import/runtime errors)
+    successful_fits = sum(1 for a in artifacts if a is not None)
+    if successful_fits == 0:
+        raise ENoTSFM(
+            "No TSFM models could be loaded. All registered TSFMs failed due to import "
+            "errors, missing dependencies, or runtime failures."
+        )
+
     # Phase 4: Predict all
     predictions = predict_all(models, artifacts, dataset, config.h, quantiles=config.quantiles)
 

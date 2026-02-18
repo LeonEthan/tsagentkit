@@ -426,9 +426,9 @@ class EContract(TSAgentKitError):
     hint = "Ensure df has columns: unique_id, ds, y"
 
 class ENoTSFM(TSAgentKitError):
-    """No TSFM models registered (internal invariant violation)."""
+    """No TSFM models available to run. Either none are registered, or all failed to load."""
     code = "E_NO_TSFM"
-    hint = "TSFM registry invariant violated. Ensure default TSFM specs exist in models.registry.REGISTRY."
+    hint = "Check that TSFM dependencies are installed (chronos, tsagentkit_timesfm, etc.) and models can be imported."
 
 class EInsufficient(TSAgentKitError):
     """Not enough TSFMs succeeded."""
