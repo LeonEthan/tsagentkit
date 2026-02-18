@@ -10,7 +10,7 @@ from typing import Literal
 DeviceLiteral = Literal["auto", "cuda", "mps", "cpu"]
 
 
-def resolve_device(preference: DeviceLiteral = "auto", allow_mps: bool = True) -> str:
+def resolve_device(preference: str = "auto", allow_mps: bool = True) -> str:
     """Resolve device for model inference.
 
     Priority order when preference="auto":
@@ -31,6 +31,11 @@ def resolve_device(preference: DeviceLiteral = "auto", allow_mps: bool = True) -
         >>> resolve_device("cuda")  # Returns 'cuda' or 'cpu' if unavailable
         >>> resolve_device("auto", allow_mps=False)  # Skips MPS
     """
+    # Validate input
+    valid_prefs = ("auto", "cuda", "mps", "cpu")
+    if preference not in valid_prefs:
+        preference = "auto"
+
     # Handle explicit device requests
     if preference == "cuda":
         return "cuda" if _cuda_available() else "cpu"

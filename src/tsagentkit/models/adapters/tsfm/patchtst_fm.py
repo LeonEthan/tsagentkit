@@ -7,6 +7,7 @@ Uses `tsfm_public.PatchTSTFMForPrediction`.
 from __future__ import annotations
 
 import importlib
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -453,7 +454,7 @@ def fit(dataset: TSDataset) -> Any:
 
 
 @contextmanager
-def _mps_guard(model_device: Any | None):
+def _mps_guard(model_device: Any | None) -> Iterator[None]:
     """Guard against unstable MPS checks inside PatchTST-FM internals."""
     if torch is None:
         yield

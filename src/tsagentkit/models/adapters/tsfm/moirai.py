@@ -7,7 +7,7 @@ Moirai 2.0 uses a decoder-only architecture (different from Moirai 1.x).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 
@@ -107,7 +107,7 @@ def predict(
         cleaned = pd.Series(values, copy=True)
         cleaned = cleaned.replace([np.inf, -np.inf], np.nan)
         cleaned = cleaned.ffill().bfill().fillna(0.0)
-        return cleaned.to_numpy(dtype=np.float32)
+        return cast(np.ndarray, cleaned.to_numpy(dtype=np.float32))
 
     # Check what covariates are available
     covariates_set = dataset.covariates
