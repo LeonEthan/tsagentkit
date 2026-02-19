@@ -196,41 +196,38 @@ def check_data_compatibility(
     compatible = True
 
     # Check prediction length
-    if spec.max_prediction_length is not None:
-        if prediction_length > spec.max_prediction_length:
-            issues.append(
-                f"Prediction length {prediction_length} exceeds max {spec.max_prediction_length}"
-            )
+    if spec.max_prediction_length is not None and prediction_length > spec.max_prediction_length:
+        issues.append(
+            f"Prediction length {prediction_length} exceeds max {spec.max_prediction_length}"
+        )
+        recommendations.append(
+            f"Reduce horizon to {spec.max_prediction_length} or use AR generation"
+        )
+        compatible = False
+
+    # Check minimum context
+    if spec.min_context_length is not None and context_length < spec.min_context_length:
+        if spec.pad_to_min_context:
             recommendations.append(
-                f"Reduce horizon to {spec.max_prediction_length} or use AR generation"
+                f"Will pad context from {context_length} to {spec.min_context_length}"
+            )
+        else:
+            issues.append(
+                f"Context length {context_length} below minimum {spec.min_context_length}"
             )
             compatible = False
 
-    # Check minimum context
-    if spec.min_context_length is not None:
-        if context_length < spec.min_context_length:
-            if spec.pad_to_min_context:
-                recommendations.append(
-                    f"Will pad context from {context_length} to {spec.min_context_length}"
-                )
-            else:
-                issues.append(
-                    f"Context length {context_length} below minimum {spec.min_context_length}"
-                )
-                compatible = False
-
     # Check maximum context
-    if spec.max_context_length is not None:
-        if context_length > spec.max_context_length:
-            if spec.truncate_to_max_context:
-                recommendations.append(
-                    f"Will truncate context from {context_length} to {spec.max_context_length}"
-                )
-            else:
-                issues.append(
-                    f"Context length {context_length} exceeds max {spec.max_context_length}"
-                )
-                compatible = False
+    if spec.max_context_length is not None and context_length > spec.max_context_length:
+        if spec.truncate_to_max_context:
+            recommendations.append(
+                f"Will truncate context from {context_length} to {spec.max_context_length}"
+            )
+        else:
+            issues.append(
+                f"Context length {context_length} exceeds max {spec.max_context_length}"
+            )
+            compatible = False
 
     return {
         "compatible": compatible,

@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from tsagentkit.core.dataset import _normalize_freq_alias
-from tsagentkit.models.length_utils import adjust_context_length, validate_prediction_length
+from tsagentkit.models.length_utils import validate_prediction_length
 
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset

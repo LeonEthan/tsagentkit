@@ -16,7 +16,6 @@ import numpy as np
 import pandas as pd
 
 from tsagentkit.core.dataset import _normalize_freq_alias
-from tsagentkit.models.length_utils import get_effective_limits
 
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
