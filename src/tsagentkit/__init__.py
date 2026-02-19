@@ -56,6 +56,13 @@ from tsagentkit.inspect import check_health
 # Model Cache (for explicit lifecycle management)
 from tsagentkit.models.cache import ModelCache
 from tsagentkit.models.ensemble import ensemble_with_quantiles as ensemble
+from tsagentkit.models.length_utils import (
+    LengthAdjustment,
+    adjust_context_length,
+    check_data_compatibility,
+    get_effective_limits,
+    validate_prediction_length,
+)
 
 # Registry (for agent building)
 from tsagentkit.models.registry import REGISTRY, ModelSpec, list_models
@@ -95,6 +102,12 @@ __all__ = [
     "REGISTRY",
     "ModelSpec",
     "list_models",
+    # Length utilities
+    "LengthAdjustment",
+    "adjust_context_length",
+    "validate_prediction_length",
+    "get_effective_limits",
+    "check_data_compatibility",
     # Device
     "resolve_device",
     # Inspection

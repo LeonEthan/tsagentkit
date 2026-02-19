@@ -3718,7 +3718,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.65.0" },
     { name = "transformers", specifier = ">=4.56.0" },
     { name = "tsagentkit-patchtst-fm", specifier = ">=1.0.2" },
-    { name = "tsagentkit-timesfm" },
+    { name = "tsagentkit-timesfm", git = "https://github.com/LeonEthan/timesfm.git?rev=v1.0.1" },
     { name = "tsagentkit-uni2ts" },
     { name = "tsfeatures", specifier = ">=0.4.5" },
     { name = "tsfresh", specifier = ">=0.20.0" },
@@ -3749,16 +3749,12 @@ wheels = [
 
 [[package]]
 name = "tsagentkit-timesfm"
-version = "1.0.0"
-source = { registry = "https://pypi.org/simple" }
+version = "1.0.1"
+source = { git = "https://github.com/LeonEthan/timesfm.git?rev=v1.0.1#c4e38f381ed4e3249c11082196885e0df28e48e1" }
 dependencies = [
     { name = "huggingface-hub", extra = ["cli"] },
     { name = "numpy" },
     { name = "safetensors" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a7/fb/c6f4c50492b6b8d5dda36edec4cfcc5c0565b5ddf5ba66409df3c081a4bf/tsagentkit_timesfm-1.0.0.tar.gz", hash = "sha256:6b2d4a8f9fb99a22734eec6ef77720481cd1caaa6e26798783ee31aa08a055a1", size = 33827, upload-time = "2026-02-05T14:44:11.333Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ea/37/fd8a12dae295cbeabb12dcde8fd87c886c815204a74d0c18ff2620767508/tsagentkit_timesfm-1.0.0-py3-none-any.whl", hash = "sha256:19569e5b56773363acd99f0c807c131faf8062815d2a49fb18f0edeb55f145f8", size = 44097, upload-time = "2026-02-05T14:44:10.243Z" },
 ]
 
 [[package]]

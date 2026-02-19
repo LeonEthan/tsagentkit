@@ -28,6 +28,9 @@ class ForecastConfig:
         min_tsfm: Minimum TSFMs required for ensemble
         fail_on_missing_tsfm: If True, abort if TSFM unavailable
         device: Device for TSFM inference ('auto', 'cuda', 'mps', 'cpu')
+        context_length: Optional override for max context length (None = use model defaults)
+        prediction_length_limit: Optional override for max horizon (None = use model defaults)
+        strict_length_limits: If True, error on limit violation; if False, warn/clip
     """
 
     # Required
@@ -45,6 +48,13 @@ class ForecastConfig:
     # Hardware
     device: Literal["auto", "cuda", "mps", "cpu"] = "auto"
 
+    # Length limit overrides (None = use model defaults)
+    context_length: int | None = None  # Override max context for all models
+    prediction_length_limit: int | None = None  # Override max horizon
+
+    # Length handling behavior
+    strict_length_limits: bool = False  # If True, error on limit violation; if False, warn/clip
+
     def __post_init__(self) -> None:
         # Validation
         if self.h <= 0:
@@ -52,9 +62,7 @@ class ForecastConfig:
         if self.min_tsfm < 1:
             raise ValueError("min_tsfm must be at least 1")
         if self.quantile_mode not in {"best_effort", "strict"}:
-            raise ValueError(
-                "quantile_mode must be one of: 'best_effort', 'strict'"
-            )
+            raise ValueError("quantile_mode must be one of: 'best_effort', 'strict'")
 
     @staticmethod
     def quick(h: int, freq: str = "D") -> ForecastConfig:

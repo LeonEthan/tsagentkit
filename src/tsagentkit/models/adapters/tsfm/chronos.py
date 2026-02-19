@@ -6,15 +6,19 @@ Uses chronos library (pip install chronos-forecasting) with amazon/chronos-2 mod
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
 from tsagentkit.core.dataset import _normalize_freq_alias
+from tsagentkit.models.length_utils import validate_prediction_length
 
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
+
+logger = logging.getLogger(__name__)
 
 
 def load(model_name: str = "amazon/chronos-2", device: str | None = None) -> Any:
@@ -69,6 +73,7 @@ def predict(
     h: int,
     batch_size: int = 32,
     quantiles: tuple[float, ...] | list[float] | None = None,
+    spec: Any | None = None,
 ) -> pd.DataFrame:
     """Generate forecasts using Chronos.
 
@@ -78,14 +83,23 @@ def predict(
         h: Forecast horizon
         batch_size: Number of series to process in parallel
         quantiles: Optional quantile levels to include as q{level} columns
+        spec: Optional ModelSpec with length limits (uses registry if not provided)
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
     """
     import torch
 
+    from tsagentkit.models.registry import get_spec
+
+    if spec is None:
+        spec = get_spec("chronos")
+
     freq = _normalize_freq_alias(dataset.config.freq)
     requested_quantiles = [float(q) for q in quantiles] if quantiles else []
+
+    # Validate horizon against model limits
+    h = validate_prediction_length(h, spec, strict=False)
 
     # Group data by unique_id (dataset is pre-sorted by TSDataset)
     grouped = dataset.df.groupby("unique_id", sort=False)
@@ -99,7 +113,11 @@ def predict(
 
     # Get feature columns from future covariates (excluding unique_id and ds)
     feature_cols: list[str] = []
-    if has_future_covariates and dataset.covariates is not None and dataset.covariates.future is not None:
+    if (
+        has_future_covariates
+        and dataset.covariates is not None
+        and dataset.covariates.future is not None
+    ):
         cov_cols = dataset.covariates.future.columns.tolist()
         feature_cols = [c for c in cov_cols if c not in ("unique_id", "ds")]
 
@@ -129,9 +147,7 @@ def predict(
             padded_contexts.append(padded)
 
         # Stack into batch tensor: (batch_size, 1, history_length)
-        context_tensor = torch.tensor(
-            np.stack(padded_contexts), dtype=torch.float32
-        ).unsqueeze(1)
+        context_tensor = torch.tensor(np.stack(padded_contexts), dtype=torch.float32).unsqueeze(1)
 
         # Prepare covariates if available
         feat_dynamic_real = None
@@ -165,7 +181,9 @@ def predict(
                     batch_covariates.append(cov_values)
                 else:
                     # No covariates for this series, use zeros
-                    batch_covariates.append(np.zeros((len(feature_cols), max_len + h), dtype=np.float32))
+                    batch_covariates.append(
+                        np.zeros((len(feature_cols), max_len + h), dtype=np.float32)
+                    )
 
             # Stack into batch tensor: (batch_size, n_features, max_len + h)
             feat_dynamic_real = torch.tensor(np.stack(batch_covariates), dtype=torch.float32)
@@ -186,11 +204,13 @@ def predict(
 
             future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
-            forecast_df = pd.DataFrame({
-                "unique_id": unique_id,
-                "ds": future_dates,
-                "yhat": forecast_values,
-            })
+            forecast_df = pd.DataFrame(
+                {
+                    "unique_id": unique_id,
+                    "ds": future_dates,
+                    "yhat": forecast_values,
+                }
+            )
             for q in requested_quantiles:
                 q_values = torch.quantile(sample_forecasts, q=q, dim=0).detach().cpu().numpy()
                 forecast_df[f"q{q}"] = q_values
