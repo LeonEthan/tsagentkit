@@ -6,17 +6,25 @@ Uses tsagentkit-timesfm library (pip install tsagentkit-timesfm) with google/tim
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pandas as pd
 
 from tsagentkit.core.dataset import _normalize_freq_alias
+from tsagentkit.models.length_utils import adjust_context_length, validate_prediction_length
 
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
 
+logger = logging.getLogger(__name__)
 
-def load(device: str | None = None) -> Any:
+
+def load(
+    device: str | None = None,
+    spec: Any | None = None,
+) -> Any:
     """Load pretrained TimesFM 2.5 200M model.
 
     Uses tsagentkit-timesfm library with google/timesfm-2.5-200m-pytorch model.
@@ -24,6 +32,7 @@ def load(device: str | None = None) -> Any:
 
     Args:
         device: Device to load model on ('cuda', 'mps', 'cpu', or None for auto)
+        spec: Optional ModelSpec with length limits (uses registry if not provided)
 
     Returns:
         Loaded TimesFM model
@@ -31,13 +40,16 @@ def load(device: str | None = None) -> Any:
     import timesfm
 
     from tsagentkit.core.device import resolve_device
+    from tsagentkit.models.registry import get_spec
 
     resolved = resolve_device(device or "auto", allow_mps=True)
 
+    # Get spec for limits (if not provided)
+    if spec is None:
+        spec = get_spec("timesfm")
+
     # Load TimesFM 2.5 200M model using from_pretrained
-    model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
-        "google/timesfm-2.5-200m-pytorch"
-    )
+    model = timesfm.TimesFM_2p5_200M_torch.from_pretrained("google/timesfm-2.5-200m-pytorch")
 
     # Move model to device if supported
     if hasattr(model, "to") and resolved in ("cuda", "mps", "cpu"):
@@ -45,11 +57,15 @@ def load(device: str | None = None) -> Any:
 
         model = model.to(torch.device(resolved))
 
+    # Use registry limits with fallback to defaults
+    max_context = spec.max_context_length or 16384
+    max_horizon = spec.max_prediction_length or 1024
+
     # Configure the model for inference
     model.compile(
         timesfm.ForecastConfig(
-            max_context=1024,
-            max_horizon=256,
+            max_context=max_context,
+            max_horizon=max_horizon,
             normalize_inputs=True,
             use_continuous_quantile_head=True,
         )
@@ -63,18 +79,22 @@ def unload(model: Any | None = None) -> None:
     del model
 
 
-def fit(dataset: TSDataset) -> Any:
+def fit(
+    dataset: TSDataset,
+    spec: Any | None = None,
+) -> Any:
     """Fit TimesFM model (loads pretrained).
 
     TimesFM is a zero-shot model, so fit() just loads the model.
 
     Args:
         dataset: Time-series dataset (used for validation only)
+        spec: Optional ModelSpec with length limits
 
     Returns:
         Loaded model
     """
-    return load()
+    return load(spec=spec)
 
 
 def _format_qcol(q: float) -> str:
@@ -176,6 +196,7 @@ def predict(
     h: int,
     batch_size: int = 32,
     quantiles: tuple[float, ...] | list[float] | None = None,
+    spec: Any | None = None,
 ) -> pd.DataFrame:
     """Generate forecasts using TimesFM.
 
@@ -185,15 +206,22 @@ def predict(
         h: Forecast horizon
         batch_size: Number of series to process in parallel
         quantiles: Optional quantile levels to include as q{level} columns
+        spec: Optional ModelSpec with length limits (uses registry if not provided)
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
     """
-    import numpy as np
+    from tsagentkit.models.registry import get_spec
+
+    if spec is None:
+        spec = get_spec("timesfm")
 
     freq = _normalize_freq_alias(dataset.config.freq)
     requested_quantiles = [float(q) for q in quantiles] if quantiles else []
     available_model_quantiles = _model_quantiles(model)
+
+    # Validate horizon against model limits
+    h = validate_prediction_length(h, spec, strict=False)
 
     # Group data by unique_id (dataset is pre-sorted by TSDataset)
     grouped = dataset.df.groupby("unique_id", sort=False)
@@ -205,24 +233,27 @@ def predict(
         last_date = group["ds"].iloc[-1]
         series_data.append((unique_id, context, last_date))
 
-    # TimesFM 2.5 requires sequences > 992 tokens to avoid NaN output
-    # See: https://github.com/google-research/timesfm/issues/321
-    min_context_length = 993
-
     forecasts = []
     # Process in batches
     for i in range(0, len(series_data), batch_size):
         batch = series_data[i : i + batch_size]
 
-        # Prepare batched contexts with padding
+        # Prepare batched contexts with centralized length adjustment
         batch_contexts = []
         for _, context, _ in batch:
-            if len(context) < min_context_length:
-                padding_needed = min_context_length - len(context)
-                context = np.pad(
-                    context, (padding_needed, 0), mode="constant", constant_values=0
+            adjusted = adjust_context_length(
+                context,
+                spec,
+                pad_value=0.0,  # TimesFM uses 0-padding
+            )
+            batch_contexts.append(adjusted.data)
+
+            if adjusted.was_padded or adjusted.was_truncated:
+                logger.debug(
+                    f"Adjusted context: "
+                    f"{adjusted.original_length} -> {adjusted.adjusted_length} "
+                    f"(padded: {adjusted.padding_amount}, truncated: {adjusted.truncation_amount})"
                 )
-            batch_contexts.append(context)
 
         # Batch inference: TimesFM accepts list of contexts
         point_forecasts, quantile_forecasts = model.forecast(horizon=h, inputs=batch_contexts)
@@ -232,11 +263,13 @@ def predict(
             forecast_values = point_forecasts[j][:h]
             future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
-            forecast_df = pd.DataFrame({
-                "unique_id": unique_id,
-                "ds": future_dates[: len(forecast_values)],
-                "yhat": forecast_values,
-            })
+            forecast_df = pd.DataFrame(
+                {
+                    "unique_id": unique_id,
+                    "ds": future_dates[: len(forecast_values)],
+                    "yhat": forecast_values,
+                }
+            )
 
             extracted = _extract_requested_quantiles(
                 quantile_forecasts=quantile_forecasts,

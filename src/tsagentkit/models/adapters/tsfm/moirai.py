@@ -7,14 +7,19 @@ Moirai 2.0 uses a decoder-only architecture (different from Moirai 1.x).
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, cast
 
+import numpy as np
 import pandas as pd
 
 from tsagentkit.core.dataset import _normalize_freq_alias
+from tsagentkit.models.length_utils import adjust_context_length
 
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
+
+logger = logging.getLogger(__name__)
 
 
 def load(model_name: str = "Salesforce/moirai-2.0-R-small", device: str | None = None) -> Any:
@@ -75,6 +80,7 @@ def predict(
     h: int,
     batch_size: int = 32,
     quantiles: tuple[float, ...] | list[float] | None = None,
+    spec: Any | None = None,
 ) -> pd.DataFrame:
     """Generate forecasts using Moirai 2.0.
 
@@ -84,13 +90,18 @@ def predict(
         h: Forecast horizon
         batch_size: Number of series to process in parallel
         quantiles: Optional quantile levels to include as q{level} columns
+        spec: Optional ModelSpec with length limits (uses registry if not provided)
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
     """
-    import numpy as np
     from gluonts.dataset.pandas import PandasDataset
     from uni2ts.model.moirai2 import Moirai2Forecast
+
+    from tsagentkit.models.registry import get_spec
+
+    if spec is None:
+        spec = get_spec("moirai")
 
     module = model["module"]
     freq = _normalize_freq_alias(dataset.config.freq)
@@ -130,13 +141,20 @@ def predict(
         cov_cols = covariates_set.past.columns.tolist()
         past_feature_cols = [c for c in cov_cols if c not in ("unique_id", "ds")]
 
-    # Pre-extract all series data
+    # Pre-extract all series data with length adjustment
     series_data = []
     for unique_id, group in grouped:
         context = _sanitize_context(group["y"].to_numpy(dtype=np.float32))
+        # Apply centralized length adjustment for 4K limit
+        adjusted = adjust_context_length(context, spec, pad_value=None)
+        if adjusted.was_truncated:
+            logger.debug(
+                f"Moirai truncated context for {unique_id}: "
+                f"{adjusted.original_length} -> {adjusted.adjusted_length}"
+            )
         last_date = group["ds"].iloc[-1]
         start_date = group["ds"].iloc[0]
-        series_data.append((unique_id, context, last_date, start_date))
+        series_data.append((unique_id, adjusted.data, last_date, start_date))
 
     forecasts = []
     # Process in batches
@@ -183,9 +201,7 @@ def predict(
             if has_series_future_cov or has_series_past_cov:
                 # Extend index to include forecast horizon for feat_dynamic_real
                 if has_series_future_cov:
-                    future_dates = pd.date_range(
-                        start=ts_index[-1], periods=h + 1, freq=freq
-                    )[1:]
+                    future_dates = pd.date_range(start=ts_index[-1], periods=h + 1, freq=freq)[1:]
                     full_index = ts_index.union(future_dates)
                 else:
                     full_index = ts_index
@@ -207,10 +223,10 @@ def predict(
                         cov_values = np.full(len(full_index), np.nan, dtype=np.float32)
                         series_past_cov = past_cov_df[past_cov_df["ds"].isin(ts_index)]
                         if len(series_past_cov) > 0:
-                            aligned_values = series_past_cov.set_index("ds").reindex(ts_index)[
-                                col_name
-                            ].values
-                            cov_values[:len(context)] = aligned_values
+                            aligned_values = (
+                                series_past_cov.set_index("ds").reindex(ts_index)[col_name].values
+                            )
+                            cov_values[: len(context)] = aligned_values
                         cov_data[f"past_feat_dynamic_real_{col_idx}"] = cov_values
 
                 # Create target series and covariate DataFrame as separate entries
@@ -224,7 +240,7 @@ def predict(
                     if len(full_index) > len(ts_index):
                         # Need to extend target with NaN for forecast horizon
                         target_extended = np.full(len(full_index), np.nan, dtype=np.float32)
-                        target_extended[:len(context)] = context
+                        target_extended[: len(context)] = context
                         target_df = pd.DataFrame({"target": target_extended}, index=full_index)
                     # Merge covariates
                     for col in cov_df.columns:
@@ -245,11 +261,13 @@ def predict(
             forecast_values = forecast.quantile(0.5)
             future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
-            forecast_df = pd.DataFrame({
-                "unique_id": unique_id,
-                "ds": future_dates[: len(forecast_values)],
-                "yhat": forecast_values,
-            })
+            forecast_df = pd.DataFrame(
+                {
+                    "unique_id": unique_id,
+                    "ds": future_dates[: len(forecast_values)],
+                    "yhat": forecast_values,
+                }
+            )
             for q in requested_quantiles:
                 q_values = forecast.quantile(q)
                 forecast_df[f"q{q}"] = q_values[: len(forecast_values)]

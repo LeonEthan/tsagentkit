@@ -7,6 +7,7 @@ Uses `tsfm_public.PatchTSTFMForPrediction`.
 from __future__ import annotations
 
 import importlib
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
@@ -15,9 +16,12 @@ import numpy as np
 import pandas as pd
 
 from tsagentkit.core.dataset import _normalize_freq_alias
+from tsagentkit.models.length_utils import get_effective_limits
 
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
+
+logger = logging.getLogger(__name__)
 
 # Import torch for inference/device handling.
 try:
@@ -43,7 +47,11 @@ def _resolve_device_map(preference: str | None = None) -> str:
         if preference == "mps" and torch is not None:
             # Allow MPS if explicitly requested (user knows what they're doing)
             backend_mps = getattr(getattr(torch, "backends", None), "mps", None)
-            if backend_mps is not None and hasattr(backend_mps, "is_available") and backend_mps.is_available():
+            if (
+                backend_mps is not None
+                and hasattr(backend_mps, "is_available")
+                and backend_mps.is_available()
+            ):
                 return "mps"
         return "cpu"
 
@@ -121,6 +129,33 @@ def _left_pad_context(context: np.ndarray, context_length: int | None) -> np.nda
     fill_value = float(np.mean(context)) if context.size else 0.0
     pad = context_length - len(context)
     return np.pad(context, (pad, 0), mode="constant", constant_values=fill_value)
+
+
+def _validate_context_length(
+    context: np.ndarray, context_length: int | None, spec: Any
+) -> np.ndarray:
+    """Validate and adjust context length for PatchTST-FM.
+
+    PatchTST-FM requires exact context length matching the model config.
+    Uses centralized utilities for consistency.
+    """
+    if context_length is None:
+        return context
+
+    # First pad if too short
+    if len(context) < context_length:
+        padded = _left_pad_context(context, context_length)
+        if len(padded) > len(context):
+            logger.debug(f"Padded context from {len(context)} to {len(padded)} for PatchTST-FM")
+        return padded
+
+    # Then truncate if too long (left-truncate to preserve recency)
+    if len(context) > context_length:
+        truncated = context[-context_length:]
+        logger.debug(f"Truncated context from {len(context)} to {len(truncated)} for PatchTST-FM")
+        return truncated
+
+    return context
 
 
 def _model_quantile_levels(model: Any) -> list[float] | None:
@@ -460,7 +495,9 @@ def _mps_guard(model_device: Any | None) -> Iterator[None]:
         yield
         return
 
-    device_type = getattr(model_device, "type", str(model_device)) if model_device is not None else "cpu"
+    device_type = (
+        getattr(model_device, "type", str(model_device)) if model_device is not None else "cpu"
+    )
     if device_type == "mps":
         yield
         return
@@ -497,6 +534,7 @@ def predict(
     h: int,
     batch_size: int = 32,
     quantiles: tuple[float, ...] | list[float] | None = None,
+    spec: Any | None = None,
 ) -> pd.DataFrame:
     """Generate forecasts using PatchTST-FM.
 
@@ -506,12 +544,18 @@ def predict(
         h: Forecast horizon
         batch_size: Number of series to process in parallel
         quantiles: Optional quantile levels to include as q{level} columns
+        spec: Optional ModelSpec with length limits (uses registry if not provided)
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
     """
+    from tsagentkit.models.registry import get_spec
+
     if torch is None:
         raise ImportError("PyTorch is required for PatchTST-FM inference.")
+
+    if spec is None:
+        spec = get_spec("patchtst_fm")
 
     model_quantiles = _model_quantile_levels(model)
     requested_quantiles = _inference_quantiles(model_quantiles, quantiles)
@@ -522,12 +566,13 @@ def predict(
     # Group data by unique_id (dataset is pre-sorted by TSDataset)
     grouped = dataset.df.groupby("unique_id", sort=False)
 
-    # Pre-extract and sanitize all series data
+    # Pre-extract and sanitize all series data with length validation
     series_data = []
     for unique_id, group in grouped:
         context = group["y"].to_numpy(dtype=np.float32)
         context = _sanitize_context(context)
-        context = _left_pad_context(context, context_length)
+        # Use centralized validation that respects spec configuration
+        context = _validate_context_length(context, context_length, spec)
         last_date = group["ds"].iloc[-1]
         series_data.append((unique_id, context, last_date))
 
@@ -591,11 +636,13 @@ def predict(
             # Generate future timestamps
             future_dates = pd.date_range(start=last_date, periods=h + 1, freq=freq)[1:]
 
-            forecast_df = pd.DataFrame({
-                "unique_id": unique_id,
-                "ds": future_dates[:len(forecast_values)],
-                "yhat": forecast_values,
-            })
+            forecast_df = pd.DataFrame(
+                {
+                    "unique_id": unique_id,
+                    "ds": future_dates[: len(forecast_values)],
+                    "yhat": forecast_values,
+                }
+            )
 
             for q, values_per_series in batch_quantiles.items():
                 q_values = values_per_series[j]
@@ -606,7 +653,7 @@ def predict(
                     if np.isnan(fill_value):
                         fill_value = float(context[-1]) if context.size else 0.0
                     q_values = np.nan_to_num(q_values, nan=float(fill_value))
-                forecast_df[f"q{q}"] = q_values[:len(forecast_values)]
+                forecast_df[f"q{q}"] = q_values[: len(forecast_values)]
             forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)
