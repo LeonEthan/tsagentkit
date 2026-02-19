@@ -356,6 +356,129 @@ ModelCache.unload()  # Clear all
 
 ---
 
+## TSFM Length Limits (Centralized Handling)
+
+TSFMs have varying context length constraints. `tsagentkit` provides centralized utilities to handle padding, truncation, and validation automatically.
+
+### Model-Specific Limits
+
+| Model | Min Context | Max Context | Max Prediction | Padding | Truncation |
+|-------|-------------|-------------|----------------|---------|------------|
+| **Chronos** | - | 8,192 | 1,024 | Native | Auto |
+| **TimesFM** | 993¹ | 15,360² | 1,024 | Auto | Auto |
+| **Moirai** | - | 4,096 | Unlimited³ | - | Auto |
+| **PatchTST-FM** | Config-based | Config-based | Config-based | Auto | Error⁴ |
+
+¹ TimesFM min context (993) is a workaround for a NaN bug (issue #321).
+² 15,360 = 16,384 - 1,024 to fit horizon within context_limit.
+³ Moirai supports unlimited horizon via AR generation.
+⁴ PatchTST-FM requires exact context length matching; truncation disabled by default.
+
+### Centralized Utilities (`length_utils.py`)
+
+```python
+from tsagentkit.models.length_utils import (
+    adjust_context_length,      # Pad/truncate context to model limits
+    validate_prediction_length, # Validate/clip horizon
+    check_data_compatibility,   # Pre-flight compatibility check
+    LengthAdjustment,           # Result container with metadata
+)
+from tsagentkit.models.registry import get_spec
+
+# Get model spec with limits
+spec = get_spec("timesfm")
+
+# Adjust context: pads short, truncates long (left-side to preserve recency)
+adjusted = adjust_context_length(
+    context=np.array([1.0, 2.0, 3.0]),  # Too short for TimesFM
+    spec=spec,
+    pad_value=0.0,  # None = use mean
+)
+print(adjusted)
+# LengthAdjustment(
+#     data=array([0., ..., 1., 2., 3.]),  # Padded to 993
+#     was_padded=True,
+#     was_truncated=False,
+#     original_length=3,
+#     adjusted_length=993,
+#     padding_amount=990,
+#     truncation_amount=0,
+# )
+
+# Validate horizon: clips or errors based on strict mode
+h = validate_prediction_length(
+    h=2000,           # Too long for TimesFM (max 1024)
+    spec=spec,
+    strict=False,     # False = warn and clip; True = raise ValueError
+)  # Returns: 1024
+```
+
+**Key Design**: Left-padding and left-truncation preserve **recency** (most recent values at array end).
+
+### Configuration Overrides
+
+```python
+from tsagentkit import ForecastConfig
+
+# Override limits globally
+config = ForecastConfig(
+    h=7,
+    freq="D",
+    context_length=512,        # Override max context for all models
+    prediction_length_limit=64, # Override max horizon
+    strict_length_limits=False,  # False = warn/clip; True = error
+)
+```
+
+### Adapter Implementation Pattern
+
+Adapters use centralized utilities for consistent handling:
+
+```python
+# Example: TimesFM adapter
+from tsagentkit.models.length_utils import adjust_context_length, validate_prediction_length
+
+def predict(model, dataset, h, spec, ...):
+    # 1. Validate horizon
+    h = validate_prediction_length(h, spec, strict=False)
+
+    # 2. Adjust each series context
+    for context in batch:
+        adjusted = adjust_context_length(context, spec, pad_value=0.0)
+        if adjusted.was_truncated:
+            logger.debug(f"Truncated {adjusted.original_length} -> {adjusted.adjusted_length}")
+        batch_contexts.append(adjusted.data)
+
+    # 3. Predict with adjusted contexts
+    return model.forecast(horizon=h, inputs=batch_contexts)
+```
+
+### Compatibility Pre-check
+
+```python
+from tsagentkit.models.length_utils import check_data_compatibility
+
+result = check_data_compatibility(
+    spec=get_spec("timesfm"),
+    context_length=500,      # Below min 993
+    prediction_length=2000,  # Above max 1024
+)
+print(result)
+# {
+#     'compatible': False,
+#     'issues': [
+#         'Prediction length 2000 exceeds max 1024',
+#         'Context length 500 below minimum 993'
+#     ],
+#     'recommendations': [
+#         'Reduce horizon to 1024 or use AR generation',
+#         'Will pad context from 500 to 993'
+#     ]
+# }
+```
+
+---
+
 ## API Surface (Minimal)
 
 ### Public API (top-level exports)
@@ -462,6 +585,11 @@ class ETemporal(TSAgentKitError):
 
 **Installation**: `pip install chronos-forecasting pandas pyarrow`
 
+**Length Limits**:
+- **Max Context**: 8,192 (Chronos 2 official spec)
+- **Max Prediction**: 1,024 (direct prediction; AR for longer)
+- **Behavior**: Handles short contexts natively; auto-truncates long contexts
+
 **Usage**:
 ```python
 from tsagentkit.models.adapters.tsfm.chronos import load, predict
@@ -499,6 +627,12 @@ quantiles, mean = pipeline.predict_quantiles(
 ### TimesFM 2.5 (Google)
 
 **Installation**: `pip install tsagentkit-timesfm`
+
+**Length Limits**:
+- **Min Context**: 993 (workaround for NaN bug, issue #321)
+- **Max Context**: 15,360 (16,384 - 1,024 to fit horizon within limit)
+- **Max Prediction**: 1,024 (direct prediction; AR for longer)
+- **Behavior**: Auto-pads short contexts with 0.0; auto-truncates long contexts
 
 **Usage**:
 ```python
@@ -547,6 +681,11 @@ point_forecast, quantile_forecast = model.forecast(
 ### Moirai 2.0 (Salesforce)
 
 **Installation**: `pip install tsagentkit-uni2ts`
+
+**Length Limits**:
+- **Max Context**: 4,096
+- **Max Prediction**: Unlimited (via AR generation)
+- **Behavior**: Auto-truncates long contexts; no minimum requirement
 
 **Usage**:
 ```python
@@ -605,6 +744,10 @@ median_forecast = forecasts[0].quantile(0.5)
 
 **Installation**: `pip install tsagentkit-patchtst-fm>=1.0.2`
 
+**Length Limits**:
+- **Context Length**: Resolved from model config (`model.config.context_length`)
+- **Behavior**: Requires **exact** context length matching; pads short contexts; errors if too long (set `truncate_to_max_context=True` to allow truncation)
+
 **Usage**:
 ```python
 from tsagentkit.models.adapters.tsfm.patchtst_fm import load, predict
@@ -612,6 +755,9 @@ from tsagentkit import TSDataset, ForecastConfig
 
 # Load model (auto-selects device: cuda > cpu, mps guarded)
 model = load(model_name="ibm-research/patchtst-fm-r1")
+
+# Context length is resolved from loaded model
+context_length = model.config.context_length  # e.g., 512, 1024, etc.
 
 # Create dataset
 config = ForecastConfig(h=7, freq="D")
