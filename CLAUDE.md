@@ -195,28 +195,39 @@ See `docs/DESIGN.md` for code/hints and full examples.
 uv sync --all-extras
 ```
 
-### Validation
+### Testing Philosophy & Commands (Run before PR)
+
+**Quality gates** (must pass before submitting):
 
 ```bash
-uv run pytest
-uv run mypy src/tsagentkit
+# 1. Lint check & auto-fix (prevents CI ruff failures)
+uv run ruff check src/ --fix
+
+# 2. Code formatting (prevents CI format failures)
 uv run ruff format src/
+
+# 3. Type checking (prevents CI mypy failures)
+uv run mypy src/tsagentkit
+
+# 4. Run tests (prevents CI test failures)
+uv run pytest --cov=src/tsagentkit -v
 ```
 
-### Real TSFM smoke (live adapters)
+**Note**: These mirror CI exactly. If all pass locally, CI will likely pass too.
+
+**Test coverage principles**:
+- Unit tests for individual functions
+- Integration tests for full pipeline behavior
+- Adapter tests with mock mode and optional real mode (`TSFM_RUN_REAL=1`)
+- Property checks for ensemble aggregation correctness
+
+### Real TSFM Smoke (Live Adapters)
 
 Run this when you need to validate real backend loading/inference instead of mock-mode behavior:
 
 ```bash
 TSFM_RUN_REAL=1 uv run pytest tests/ci/test_real_tsfm_smoke_gate.py tests/ci/test_standard_pipeline_real_smoke.py
 ```
-
-### Testing philosophy
-
-- Unit tests for individual functions
-- Integration tests for full pipeline behavior
-- Adapter tests with mock mode and optional real mode (`TSFM_RUN_REAL=1`)
-- Property checks for ensemble aggregation correctness
 
 ---
 
