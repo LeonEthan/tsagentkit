@@ -88,7 +88,7 @@ future_cov_dates = future_cov[future_cov["ds"] > max_date]
 ```python
 # Check your column names
 print(df.columns)
-# Must be exactly: ['unique_id', 'ds', 'y']
+# Must include required columns: unique_id, ds, y
 
 # Fix: Rename columns
 df = df.rename(columns={
@@ -136,12 +136,10 @@ from tsagentkit import check_health
 
 health = check_health()
 print(health.tsfm_available)
-print(health.tsfm_missing)
+print(health.all_ok)
 
-# Install missing TSFM packages
-# pip install tsagentkit[chronos]
-# pip install tsagentkit[timesfm]
-# pip install tsagentkit[moirai]
+# If forecast still fails with ENoTSFM, reinstall package dependencies
+# pip install -U tsagentkit
 ```
 
 ---

@@ -67,7 +67,6 @@ from tsagentkit import (
     predict_all,
     ensemble,
 )
-from tsagentkit.models.registry import REGISTRY, list_models
 
 # Configure
 config = ForecastConfig(h=7, freq="D", quantiles=(0.1, 0.5, 0.9))
@@ -84,11 +83,12 @@ artifacts = fit_all(models, dataset, device=config.device)
 predictions = predict_all(models, artifacts, dataset, h=config.h, quantiles=config.quantiles)
 
 # Ensemble
-result = ensemble(
+ensemble_df = ensemble(
     predictions,
     method=config.ensemble_method,
     quantiles=config.quantiles,
 )
+print(ensemble_df.head())
 ```
 
 ## Pattern 3: Model Cache for Batch Processing
@@ -124,8 +124,8 @@ print(list_models(tsfm_only=True))
 ## Data Requirements
 - Required columns: `unique_id`, `ds`, `y`
 - `ds` must be datetime-like
+- Required columns must be non-null
 - Data is automatically sorted by (`unique_id`, `ds`)
-- No null values allowed in required columns
 
 ## Error Handling
 ```python

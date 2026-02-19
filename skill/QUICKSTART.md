@@ -40,7 +40,8 @@ dataset = build_dataset(df, config)
 models = make_plan(tsfm_only=True)
 artifacts = fit_all(models, dataset)
 predictions = predict_all(models, artifacts, dataset, h=config.h)
-result = ensemble(predictions, method=config.ensemble_method, quantiles=config.quantiles)
+ensemble_df = ensemble(predictions, method=config.ensemble_method, quantiles=config.quantiles)
+print(ensemble_df.head())
 ```
 
 ## Config Presets

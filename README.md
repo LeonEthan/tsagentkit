@@ -6,10 +6,12 @@
 Minimalist time-series forecasting toolkit for coding agents.
 
 `tsagentkit` provides:
-- a strict, fixed panel data contract
+- a fixed panel data contract
 - zero-config TSFM ensemble forecasting
 - a small set of pipeline primitives for agent customization
 - explicit TSFM model lifecycle control via `ModelCache`
+
+For architecture details and design rationale, see `docs/DESIGN.md`.
 
 ## Install
 
@@ -17,19 +19,19 @@ Minimalist time-series forecasting toolkit for coding agents.
 pip install tsagentkit
 ```
 
-## Fixed Data Contract
+## Data Contract
 
-Input data must use exactly these columns:
+Input data must include these required columns:
 - `unique_id`: series identifier
 - `ds`: timestamp
 - `y`: target value
 
-Custom column remapping is not supported.
+Custom column remapping is not supported. Required columns must be non-null.
 
 ```python
 import pandas as pd
 
-# Valid input schema
+# Valid input schema (minimal)
 raw_df = pd.DataFrame({
     "unique_id": ["A"] * 30,
     "ds": pd.date_range("2025-01-01", periods=30, freq="D"),
@@ -75,13 +77,13 @@ dataset = build_dataset(df, config)
 models = make_plan(tsfm_only=True)
 artifacts = fit_all(models, dataset)
 predictions = predict_all(models, artifacts, dataset, h=config.h)
-result = ensemble(predictions, method=config.ensemble_method, quantiles=config.quantiles)
-print(result.df.head())
+ensemble_df = ensemble(predictions, method=config.ensemble_method, quantiles=config.quantiles)
+print(ensemble_df.head())
 ```
 
 ## Model Cache Lifecycle
 
-`ModelCache` is the single source of truth for loaded TSFM instances.
+`ModelCache` manages loaded TSFM instances and avoids expensive reloads.
 
 ```python
 from tsagentkit import ModelCache, forecast
@@ -97,6 +99,9 @@ result = forecast(raw_df, h=7)
 # Explicit release
 ModelCache.unload()           # all models
 # ModelCache.unload("chronos")  # one model
+
+# Optional inspection
+print(ModelCache.list_loaded())
 ```
 
 `ModelCache.unload()` semantics:
@@ -114,6 +119,8 @@ Top-level (`from tsagentkit import ...`):
 - `validate`, `build_dataset`, `make_plan`, `fit_all`, `predict_all`, `ensemble`
 - `ModelCache`
 - `REGISTRY`, `ModelSpec`, `list_models`
+- `LengthAdjustment`, `adjust_context_length`, `validate_prediction_length`
+- `get_effective_limits`, `check_data_compatibility`
 - `resolve_device`
 - `check_health`
 - `TSAgentKitError`, `EContract`, `ENoTSFM`, `EInsufficient`, `ETemporal`
@@ -147,6 +154,9 @@ uv sync --all-extras
 uv run pytest
 uv run mypy src/tsagentkit
 uv run ruff format src/
+
+# Real TSFM smoke tests (live adapters)
+TSFM_RUN_REAL=1 uv run pytest tests/ci/test_real_tsfm_smoke_gate.py tests/ci/test_standard_pipeline_real_smoke.py
 ```
 
 ## License

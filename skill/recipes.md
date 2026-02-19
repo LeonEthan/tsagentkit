@@ -43,13 +43,13 @@ artifacts = fit_all(models, dataset, device=config.device)
 predictions = predict_all(models, artifacts, dataset, h=config.h, quantiles=config.quantiles)
 
 # Ensemble
-result = ensemble(
+ensemble_df = ensemble(
     predictions,
     method=config.ensemble_method,
     quantiles=config.quantiles,
 )
 
-print(result.df)
+print(ensemble_df.head())
 ```
 
 ## Recipe 2: Quick Forecast Wrapper
@@ -112,10 +112,8 @@ result = run_forecast(df, config, covariates)
 
 ## Recipe 5: Robust Error Handling
 ```python
-from tsagentkit import forecast, ForecastConfig
+from tsagentkit import forecast
 from tsagentkit.core.errors import EContract, ENoTSFM, EInsufficient, TSAgentKitError
-
-config = ForecastConfig(h=7, freq="D")
 
 try:
     result = forecast(df, h=7)
@@ -124,8 +122,8 @@ except EContract as e:
     print(f"Contract error: {e.message}")
     print(f"Hint: {e.fix_hint}")
 except ENoTSFM:
-    # No TSFMs available - check installation
-    print("No TSFMs available. Install: pip install tsagentkit[chronos]")
+    # No TSFMs could be loaded (runtime/import issues)
+    print("No TSFMs could be loaded. Reinstall dependencies and run check_health().")
 except EInsufficient as e:
     # Not enough models succeeded
     print(f"Insufficient models: {e.message}")
@@ -155,27 +153,25 @@ print(f"Chronos context limit: {chronos_spec.max_context_length}")
 
 ## Recipe 7: Length Limit Management
 ```python
-from tsagentkit import ForecastConfig
-from tsagentkit.models.length_utils import (
+from tsagentkit import (
     check_data_compatibility,
     get_effective_limits,
-    adjust_context_length,
 )
 from tsagentkit.models.registry import REGISTRY
 
 # Check data compatibility with models
-config = ForecastConfig(h=7, freq="D")
 chronos_spec = REGISTRY["chronos"]
 
 # Get effective limits
-limits = get_effective_limits(chronos_spec, config)
-print(f"Max context: {limits.max_context}")
-print(f"Max prediction: {limits.max_prediction}")
+limits = get_effective_limits(chronos_spec)
+print(f"Max context: {limits['max_context']}")
+print(f"Max prediction: {limits['max_prediction']}")
 
 # Check compatibility
-compatible, msg = check_data_compatibility(chronos_spec, series_length=5000, h=7)
-if not compatible:
-    print(f"Compatibility issue: {msg}")
+compat = check_data_compatibility(chronos_spec, context_length=5000, prediction_length=7)
+if not compat["compatible"]:
+    print("Compatibility issues:", compat["issues"])
+print("Recommendations:", compat["recommendations"])
 ```
 
 ## Notes
