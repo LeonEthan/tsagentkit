@@ -2,150 +2,150 @@
 
 ## What
 Agent-facing guide for building production time-series forecasting systems with `tsagentkit`.
-This skill is assembly-first and TSFM-first: coding agents should compose explicit steps,
-while `run_forecast` remains a convenience wrapper.
+This skill is TSFM-first: coding agents should compose explicit steps for control,
+while `forecast()` remains a convenience wrapper for quick results.
 
 ## When
 Use this guide when an agent needs to:
-- validate and repair panel data,
-- route to TSFM/baseline candidates deterministically,
-- assemble forecasting steps with explicit artifacts,
-- persist and replay production artifacts safely.
+- Validate panel data (unique_id, ds, y)
+- Run TSFM ensemble forecasting
+- Control model lifecycle and caching
+- Build custom forecasting pipelines
 
 ## Inputs
 - `data`: pandas DataFrame with `unique_id`, `ds`, `y`
-- `task_spec`: `TaskSpec`
-- Optional: covariates, hierarchy, monitoring config
-- Optional: custom `fit_func` and `predict_func`
+- `config`: `ForecastConfig` (h, freq, quantiles, etc.)
+- Optional: covariates via `CovariateSet`
 
 ## Workflow
-1. `validate_contract`
-2. `run_qa`
-3. `align_covariates`
-4. `build_dataset`
-5. `make_plan`
-6. `fit` and `predict`
-7. `package_run`
-8. Optional lifecycle: `save_run_artifact` -> `load_run_artifact` -> `validate_run_artifact_for_serving` -> `replay_forecast_from_artifact`
+1. `validate` - Check data format
+2. `build_dataset` - Create `TSDataset`
+3. `make_plan` - Get model list from registry
+4. `fit_all` - Fit TSFMs (cached)
+5. `predict_all` - Generate predictions
+6. `ensemble` - Aggregate results
 
 ---
 
 ## Core Principles
-- Assembly-first by default. Prefer explicit step composition over monolithic wrappers.
-- TSFM-first routing. Chronos/Moirai/TimesFM are first-class and policy-driven.
-- Deterministic provenance. Keep signatures, decisions, and fallback events auditable.
-- Guardrails always on. Never use random splits or future leakage.
+- **TSFM-first**: Chronos, TimesFM, Moirai, PatchTST-FM are the primary models
+- **Minimal API**: Simple config, clear pipeline steps
+- **Model caching**: `ModelCache` avoids expensive TSFM reloads
+- **Pure functions**: Functional composition over class hierarchies
 
 ## Guardrails
-- `E_SPLIT_RANDOM_FORBIDDEN`: never randomize temporal order.
-- `E_DS_NOT_MONOTONIC`: sort by `unique_id`, `ds` before processing.
-- `E_COVARIATE_LEAKAGE`: do not feed future-observed covariates.
-- `E_MODEL_FIT_FAIL` / `E_MODEL_PREDICT_FAIL`: model execution failure.
-- `E_FALLBACK_EXHAUSTED`: all fallback candidates failed.
-- `E_ARTIFACT_SCHEMA_INCOMPATIBLE`: artifact schema/type mismatch at load/serve boundary.
-- `E_ARTIFACT_LOAD_FAILED`: artifact payload cannot be safely reconstructed.
+- `EContract`: Input data must have [unique_id, ds, y] columns
+- `ENoTSFM`: TSFM registry invariant violation
+- `EInsufficient`: Too few TSFMs succeeded for ensemble
+- `ETemporal`: Temporal integrity violation (not sorted, future leakage)
 
 ## Module Map
-- `contracts`: task specs, payload contracts, structured errors
-- `series`: immutable `TSDataset`, sparsity profiling
-- `qa`: quality checks and optional repairs
-- `router`: deterministic candidate selection and fallback policy
-- `models`: `fit`/`predict`, TSFM adapter capability APIs
-- `backtest`: rolling temporal validation
-- `serving`: packaging + lifecycle save/load/validate/replay
+- `core/config`: `ForecastConfig` - unified configuration
+- `core/dataset`: `TSDataset`, `CovariateSet` - data containers
+- `core/errors`: Error types (`EContract`, `ENoTSFM`, etc.)
+- `models/registry`: `REGISTRY`, `ModelSpec`, `list_models`
+- `models/cache`: `ModelCache` - TSFM lifecycle management
+- `models/ensemble`: `ensemble` - prediction aggregation
+- `pipeline`: Main pipeline functions
 
-## Pattern 1: Assembly-First Pipeline (Recommended)
+## Pattern 1: Zero-Config Forecast (Quickest)
+```python
+from tsagentkit import forecast
+
+result = forecast(df, h=7, freq="D")
+print(result.df)
+```
+
+## Pattern 2: Assembly-First Pipeline (Recommended)
 ```python
 from tsagentkit import (
-    TaskSpec,
-    align_covariates,
+    ForecastConfig,
+    validate,
     build_dataset,
-    fit,
     make_plan,
-    package_run,
-    predict,
-    run_qa,
-    validate_contract,
+    fit_all,
+    predict_all,
+    ensemble,
 )
+from tsagentkit.models.registry import REGISTRY, list_models
 
-spec = TaskSpec(h=7, freq="D")
-report = validate_contract(df)
-report.raise_if_errors()
-qa_report = run_qa(df, spec, mode="standard")
-aligned = align_covariates(df, spec)
-dataset = build_dataset(aligned.panel, spec, validate=False).with_covariates(
-    aligned,
-    panel_with_covariates=df,
-)
-plan, route_decision = make_plan(dataset, spec)
-model_artifact = fit(dataset, plan, covariates=aligned)
-forecast = predict(dataset, model_artifact, spec, covariates=aligned)
-run_artifact = package_run(
-    forecast=forecast,
-    plan=plan,
-    task_spec=spec.model_dump(),
-    qa_report=qa_report,
-    model_artifact=model_artifact,
-    provenance=forecast.provenance,
-    metadata={"route_decision": route_decision.model_dump()},
+# Configure
+config = ForecastConfig(h=7, freq="D", quantiles=(0.1, 0.5, 0.9))
+
+# Validate and build dataset
+df = validate(raw_df)
+dataset = build_dataset(df, config)
+
+# Get models from registry
+models = make_plan(tsfm_only=True)
+
+# Fit and predict
+artifacts = fit_all(models, dataset, device=config.device)
+predictions = predict_all(models, artifacts, dataset, h=config.h, quantiles=config.quantiles)
+
+# Ensemble
+result = ensemble(
+    predictions,
+    method=config.ensemble_method,
+    quantiles=config.quantiles,
 )
 ```
 
-## Pattern 2: Quick Forecast Wrapper (Convenience)
+## Pattern 3: Model Cache for Batch Processing
 ```python
-from tsagentkit import TaskSpec, run_forecast
+from tsagentkit import forecast, ModelCache
+from tsagentkit.models.registry import REGISTRY, list_models
 
-spec = TaskSpec(h=7, freq="D")
-result = run_forecast(df, spec, mode="quick")
-forecast_df = result.forecast.df
+# Preload models for batch processing
+tsfm_models = [REGISTRY[name] for name in list_models(tsfm_only=True)]
+ModelCache.preload(tsfm_models, device="cuda")
+
+# Run forecasts (uses cached models)
+for batch_df in batches:
+    result = forecast(batch_df, h=7)
+
+# Cleanup
+ModelCache.unload()
 ```
 
-## Pattern 3: Agent Graph + TSFM Capability Gate
+## Pattern 4: Health Check and Inspection
 ```python
-from tsagentkit import (
-    TaskSpec,
-    attach_plan_graph,
-    build_dataset,
-    get_adapter_capability,
-    list_adapter_capabilities,
-    make_plan,
-)
+from tsagentkit import check_health, list_models
 
-spec = TaskSpec(h=14, freq="D", tsfm_policy={"mode": "required"})
-dataset = build_dataset(df, spec)
-plan, _decision = make_plan(dataset, spec)
-plan = attach_plan_graph(plan, include_backtest=True)
+# Check available TSFMs
+health = check_health()
+print(health.tsfm_available)
+print(health.tsfm_missing)
 
-capabilities = list_adapter_capabilities()
-chronos = get_adapter_capability("chronos")
-print(plan.graph.entrypoints, chronos.available)
-```
-
-## Pattern 4: Artifact Lifecycle (Phase 5)
-```python
-from tsagentkit import (
-    load_run_artifact,
-    replay_forecast_from_artifact,
-    save_run_artifact,
-    validate_run_artifact_for_serving,
-)
-
-save_run_artifact(run_artifact, "artifacts/run_artifact.json")
-loaded = load_run_artifact("artifacts/run_artifact.json")
-validate_run_artifact_for_serving(
-    loaded,
-    expected_task_signature=loaded.provenance.task_signature,
-    expected_plan_signature=loaded.provenance.plan_signature,
-)
-replayed = replay_forecast_from_artifact(loaded)
+# List all models
+print(list_models(tsfm_only=True))
 ```
 
 ## Data Requirements
 - Required columns: `unique_id`, `ds`, `y`
-- `ds` must be datetime-like and monotonic per series
-- duplicates on (`unique_id`, `ds`) are invalid
+- `ds` must be datetime-like
+- Data is automatically sorted by (`unique_id`, `ds`)
+- No null values allowed in required columns
+
+## Error Handling
+```python
+from tsagentkit import forecast
+from tsagentkit.core.errors import EContract, ENoTSFM, EInsufficient
+
+try:
+    result = forecast(df, h=7)
+except EContract as e:
+    print(f"Data format error: {e.message}")
+    print(f"Fix hint: {e.fix_hint}")
+except ENoTSFM as e:
+    print("No TSFMs available")
+except EInsufficient as e:
+    print(f"Not enough models succeeded: {e.message}")
+```
 
 ## Next Steps
-- Use `skill/recipes.md` for end-to-end templates.
-- Use `skill/tool_map.md` for task-to-API lookup.
-- Use `docs/ARCHITECTURE.md` for system design and module boundaries.
+- Use `skill/QUICKSTART.md` for getting started in 3 minutes
+- Use `skill/recipes.md` for end-to-end templates
+- Use `skill/tool_map.md` for task-to-API lookup
+- Use `skill/TROUBLESHOOTING.md` for error codes and fix hints
+- Use `docs/DESIGN.md` for detailed architecture

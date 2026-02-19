@@ -15,90 +15,78 @@ pip install tsagentkit
 ```python
 from tsagentkit import forecast
 
-result = forecast(df, 7)
+result = forecast(df, h=7)
 ```
 
-`forecast()` auto-detects column names, infers frequency, sorts data, and runs
-the full pipeline. It accepts any DataFrame with time-series panel columns
-mappable to `unique_id`, `ds`, `y` (common aliases like `date`, `value`,
-`series_id` are recognized automatically).
+`forecast()` validates data, builds dataset, fits TSFMs, and returns ensemble forecast.
+Input DataFrame must have columns: `unique_id`, `ds`, `y`.
 
-## Standard Assembly-First Example (10 lines)
+## Standard Pipeline Example (10 lines)
 
 ```python
 from tsagentkit import (
-    TaskSpec, validate_contract, run_qa,
-    build_dataset, make_plan, fit, predict, package_run,
+    ForecastConfig,
+    validate,
+    build_dataset,
+    make_plan,
+    fit_all,
+    predict_all,
+    ensemble,
 )
 
-spec = TaskSpec(h=7, freq="D")
-report = validate_contract(df)
-report.raise_if_errors()
-qa = run_qa(df, spec, mode="standard")
-dataset = build_dataset(df, spec)
-plan, decision = make_plan(dataset, spec)
-model = fit(dataset, plan)
-result = predict(dataset, model, spec)
-artifact = package_run(forecast=result, plan=plan, task_spec=spec.model_dump(),
-                       qa_report=qa, model_artifact=model, provenance=result.provenance)
+config = ForecastConfig(h=7, freq="D")
+df = validate(raw_df)
+dataset = build_dataset(df, config)
+models = make_plan(tsfm_only=True)
+artifacts = fit_all(models, dataset)
+predictions = predict_all(models, artifacts, dataset, h=config.h)
+result = ensemble(predictions, method=config.ensemble_method, quantiles=config.quantiles)
 ```
 
-## TaskSpec Presets
+## Config Presets
 
-| Preset | TSFM Policy | Backtest Windows | Use Case |
-|--------|------------|-----------------|----------|
-| `TaskSpec.starter(h, freq)` | `preferred` (fallback OK) | 2 | Experimentation, quick iteration |
-| `TaskSpec.production(h, freq)` | `required` (strict) | 5 | Production deployments |
+| Preset | Use Case |
+|--------|----------|
+| `ForecastConfig.quick(h, freq)` | Quick experimentation |
+| `ForecastConfig.strict(h, freq)` | Fail if TSFM unavailable |
 
 ```python
-from tsagentkit import TaskSpec
+from tsagentkit import ForecastConfig
 
-# Quick experimentation — falls back to baselines if no TSFM installed
-spec = TaskSpec.starter(h=7, freq="D")
+# Quick experimentation
+config = ForecastConfig.quick(h=7, freq="D")
 
-# Production — requires TSFM adapters, full 5-window backtest
-spec = TaskSpec.production(h=14, freq="D")
+# Production - requires TSFMs
+config = ForecastConfig.strict(h=14, freq="H")
 ```
 
-## Diagnose Without Fitting
+## Configuration Options
 
 ```python
-from tsagentkit import diagnose
+from tsagentkit import ForecastConfig
 
-report = diagnose(df)
-# Returns: {validation, qa_report, plan, route_decision, task_spec_used}
+config = ForecastConfig(
+    h=7,                           # Forecast horizon
+    freq="D",                      # Frequency: 'D', 'H', 'M', etc.
+    quantiles=(0.1, 0.5, 0.9),     # Probabilistic forecast quantiles
+    ensemble_method="median",      # "median" or "mean"
+    min_tsfm=1,                    # Minimum TSFMs required
+    device="auto",                 # "auto", "cuda", "mps", "cpu"
+)
 ```
 
-`diagnose()` runs validation, QA, and planning without fitting any models —
-useful for checking data quality and seeing what the router would do.
-
-## Repair Errors Programmatically
+## Health Check
 
 ```python
-from tsagentkit import repair, validate_contract
-from tsagentkit.contracts.errors import EDSNotMonotonic
+from tsagentkit import check_health
 
-try:
-    report = validate_contract(df)
-    report.raise_if_errors()
-except EDSNotMonotonic:
-    df, actions = repair(df)
-```
-
-`repair()` re-validates and applies deterministic safe fixes automatically
-(e.g., sorting, deduplicating, dropping future null rows).
-
-## Environment Check
-
-```bash
-# Check installed dependencies and adapter status
-python -m tsagentkit doctor
-
-# Print version
-python -m tsagentkit version
-
-# Machine-readable API schema
-python -m tsagentkit describe
+health = check_health()
+print(health)
+# tsagentkit Health Report
+# ========================================
+# TSFMs available: chronos, timesfm, moirai, patchtst_fm
+# Baselines available: True
+# Overall: OK
 ```
 
 ## Next Steps
@@ -106,4 +94,4 @@ python -m tsagentkit describe
 - **Recipes**: `skill/recipes.md` — end-to-end runnable templates
 - **API Reference**: `skill/tool_map.md` — task-to-API lookup table
 - **Troubleshooting**: `skill/TROUBLESHOOTING.md` — error codes and fix hints
-- **Architecture**: `docs/ARCHITECTURE.md` — system design and layering
+- **Architecture**: `docs/DESIGN.md` — system design and internals

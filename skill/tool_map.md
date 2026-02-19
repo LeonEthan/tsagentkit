@@ -8,67 +8,92 @@ Use this map to choose the minimal stable API surface for each step.
 
 ## Inputs
 - `data`: pandas DataFrame with `unique_id`, `ds`, `y`
-- `task_spec`: `TaskSpec`
-- Optional: custom model functions, covariates, monitoring config
+- `config`: `ForecastConfig`
+- Optional: covariates via `CovariateSet`
 
 ## Workflow
-1. Validate and QA
-2. Build dataset and route plan
-3. Fit, predict, backtest
-4. Package and persist lifecycle artifacts
+1. Validate and build dataset
+2. Get models from registry
+3. Fit and predict
+4. Ensemble results
 
 ---
 
-## Stable Assembly APIs
-- `validate_contract`
-- `run_qa`
-- `align_covariates`
-- `build_dataset` / `TSDataset.from_dataframe`
-- `make_plan`
-- `rolling_backtest`
-- `fit`
-- `predict`
-- `package_run`
-- `save_run_artifact`
-- `load_run_artifact`
-- `validate_run_artifact_for_serving`
-- `replay_forecast_from_artifact`
+## Stable APIs
 
-## Routing + TSFM APIs
-- `make_plan`
-- `inspect_tsfm_adapters`
-- `build_plan_graph`
-- `attach_plan_graph`
-- `get_adapter_capability`
-- `list_adapter_capabilities`
+### Main Entry Points
+- `forecast(data, h, freq, **kwargs)` - Zero-config forecast
+- `run_forecast(data, config, covariates)` - Config-based forecast
+
+### Pipeline Building Blocks
+- `validate(df, config)` - Validate input data
+- `build_dataset(df, config, covariates)` - Build TSDataset
+- `make_plan(tsfm_only=True)` - Get model list from registry
+- `fit_all(models, dataset, device)` - Fit all models
+- `predict_all(models, artifacts, dataset, h, quantiles)` - Generate predictions
+- `ensemble(predictions, method, quantiles)` - Aggregate ensemble
+
+### Core Types
+- `ForecastConfig` - Configuration (h, freq, quantiles, etc.)
+- `TSDataset` - Time-series dataset container
+- `CovariateSet` - Static/past/future covariates
+- `ForecastResult` - Forecast output with `.df`
+- `ModelSpec` - Model specification from registry
+
+### Registry
+- `REGISTRY` - Dictionary of all models
+- `list_models(tsfm_only=False)` - List available models
+
+### Model Cache
+- `ModelCache.get(spec, device)` - Get cached model
+- `ModelCache.preload(models, device)` - Preload models
+- `ModelCache.unload(model_name=None)` - Unload models
+- `ModelCache.list_loaded()` - List cached models
+
+### Inspection
+- `check_health()` - Health check report
+- `list_models(tsfm_only=True)` - List models
+
+### Length Utilities
+- `check_data_compatibility(spec, series_length, h)` - Check compatibility
+- `get_effective_limits(spec, config)` - Get context/prediction limits
+- `adjust_context_length(df, max_length)` - Adjust data length
+- `validate_prediction_length(h, spec, config)` - Validate horizon
+
+---
 
 ## Task -> API Mapping
+
 | Task | Primary API | Notes |
 |---|---|---|
-| Schema validation | `validate_contract` | Fails on missing/invalid columns |
-| Quality checks | `run_qa` | `quick/standard/strict` |
-| Covariate alignment | `align_covariates` | Leakage-safe policies |
-| Dataset construction | `build_dataset` | Immutable `TSDataset` |
-| Plan generation | `make_plan` | Deterministic candidates + reasons |
-| Plan graph for custom orchestration | `attach_plan_graph` | Explicit DAG-like nodes |
-| Adapter capability gating | `list_adapter_capabilities` | Runtime availability included |
-| Backtesting | `rolling_backtest` | Temporal-only windows |
-| Model fit/predict | `fit`, `predict` | Uses router plan fallback semantics |
-| End artifact | `package_run` | Includes provenance and metadata |
-| Persist artifact | `save_run_artifact` | JSON payload with schema metadata |
-| Load artifact | `load_run_artifact` | Safe reconstruction with checks |
-| Serving gate | `validate_run_artifact_for_serving` | Signature/schema compatibility |
-| Replay forecast | `replay_forecast_from_artifact` | Deterministic replay view |
-| Wrapper pipeline | `run_forecast` | Convenience only, not primary |
+| Quick forecast | `forecast(df, h=7)` | Zero-config, returns ForecastResult |
+| Config-based forecast | `run_forecast(df, config)` | Full config control |
+| Data validation | `validate(df)` | Checks columns, nulls |
+| Build dataset | `build_dataset(df, config)` | Creates TSDataset |
+| Get models | `make_plan(tsfm_only=True)` | Returns list of ModelSpec |
+| Fit models | `fit_all(models, dataset)` | Returns artifacts list |
+| Generate predictions | `predict_all(models, artifacts, dataset, h)` | Returns list of DataFrames |
+| Ensemble | `ensemble(predictions, method, quantiles)` | Aggregates predictions |
+| Preload models | `ModelCache.preload(models)` | For batch processing |
+| Check health | `check_health()` | Returns HealthReport |
+| List models | `list_models(tsfm_only=True)` | TSFM or all models |
 
-## Error Handling Priorities
-- Contract failures: `E_CONTRACT_*`
-- Temporal guardrails: `E_SPLIT_RANDOM_FORBIDDEN`, `E_DS_NOT_MONOTONIC`
-- Leakage guardrails: `E_COVARIATE_LEAKAGE`
-- Model execution: `E_MODEL_FIT_FAIL`, `E_MODEL_PREDICT_FAIL`, `E_FALLBACK_EXHAUSTED`
-- Lifecycle boundaries: `E_ARTIFACT_SCHEMA_INCOMPATIBLE`, `E_ARTIFACT_LOAD_FAILED`
+---
+
+## Error Handling
+
+| Error | Code | When |
+|---|---|---|
+| `EContract` | `E_CONTRACT` | Wrong columns, nulls, empty data |
+| `ENoTSFM` | `E_NO_TSFM` | No TSFMs registered |
+| `EInsufficient` | `E_INSUFFICIENT` | Too few models succeeded |
+| `ETemporal` | `E_TEMPORAL` | Sorting/covariate issues |
+
+---
 
 ## Related Docs
-- `skill/README.md`
-- `skill/recipes.md`
-- `docs/ARCHITECTURE.md`
+- `skill/README.md` - Overview and patterns
+- `skill/QUICKSTART.md` - Getting started
+- `skill/recipes.md` - End-to-end templates
+- `skill/TROUBLESHOOTING.md` - Error reference
+- `docs/DESIGN.md` - Architecture details
