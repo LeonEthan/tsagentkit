@@ -16,6 +16,10 @@ import numpy as np
 import pandas as pd
 
 from tsagentkit.core.dataset import _normalize_freq_alias
+from tsagentkit.models.output_utils import (
+    extract_batch_forecasts,
+    extract_batch_quantiles,
+)
 
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
@@ -191,251 +195,6 @@ def _inference_quantiles(
     return model_quantiles
 
 
-def _median_index(quantile_levels: list[float] | None, size: int) -> int:
-    """Pick median quantile index based on available levels."""
-    if not quantile_levels:
-        return size // 2
-    return min(range(size), key=lambda i: abs(float(quantile_levels[i]) - 0.5))
-
-
-def _to_numpy(values: Any) -> np.ndarray:
-    """Convert tensor-like outputs into numpy arrays."""
-    if hasattr(values, "detach"):
-        values = values.detach()
-    if hasattr(values, "cpu"):
-        values = values.cpu()
-    if hasattr(values, "numpy"):
-        return np.asarray(values.numpy(), dtype=np.float32)
-    return np.asarray(values, dtype=np.float32)
-
-
-def _extract_predictions_array(outputs: Any) -> np.ndarray:
-    """Normalize PatchTST outputs into a numpy prediction array."""
-    predictions = None
-
-    if isinstance(outputs, tuple) and outputs:
-        outputs = outputs[0]
-
-    if hasattr(outputs, "quantile_predictions"):
-        predictions = outputs.quantile_predictions
-    elif hasattr(outputs, "prediction_outputs"):
-        predictions = outputs.prediction_outputs
-    elif isinstance(outputs, dict):
-        if "quantile_predictions" in outputs:
-            predictions = outputs["quantile_predictions"]
-        else:
-            predictions = outputs.get("prediction_outputs")
-    else:
-        predictions = outputs
-
-    if predictions is None:
-        raise ValueError("PatchTST output did not include forecast predictions.")
-
-    return _to_numpy(predictions)
-
-
-def _extract_forecast_values(
-    outputs: Any,
-    h: int,
-    quantile_levels: list[float] | None = None,
-) -> np.ndarray:
-    """Extract point forecasts from model outputs."""
-    arr = _extract_predictions_array(outputs)
-    quantile_count = len(quantile_levels) if quantile_levels is not None else None
-
-    if arr.ndim == 1:
-        values = arr[:h]
-    elif arr.ndim == 2:
-        if quantile_count is not None and arr.shape[0] == quantile_count:
-            q_idx = _median_index(quantile_levels, arr.shape[0])
-            values = arr[q_idx, :h]
-        elif quantile_count is not None and arr.shape[1] == quantile_count:
-            q_idx = _median_index(quantile_levels, arr.shape[1])
-            values = arr[:h, q_idx]
-        else:
-            if arr.shape[0] == 1:
-                values = arr[0, :h]
-            elif arr.shape[1] == 1:
-                values = arr[:h, 0]
-            else:
-                values = arr[0, :h]
-    elif arr.ndim == 3:
-        # Expected PatchTST-FM shape is (batch, quantile, horizon), but we keep
-        # compatibility for horizon-first tensors.
-        sample = arr[0]
-        if quantile_count is not None and sample.shape[0] == quantile_count:
-            q_idx = _median_index(quantile_levels, sample.shape[0])
-            values = sample[q_idx, :h]
-        elif quantile_count is not None and sample.shape[1] == quantile_count:
-            q_idx = _median_index(quantile_levels, sample.shape[1])
-            values = sample[:h, q_idx]
-        else:
-            # Fallback heuristic if quantile metadata is unavailable.
-            if sample.shape[0] <= sample.shape[1]:
-                q_idx = sample.shape[0] // 2
-                values = sample[q_idx, :h]
-            else:
-                q_idx = sample.shape[1] // 2
-                values = sample[:h, q_idx]
-    else:
-        raise ValueError(f"Unexpected PatchTST output rank: {arr.ndim}")
-
-    values = np.asarray(values, dtype=np.float32)
-    if values.size == 0:
-        return np.zeros(h, dtype=np.float32)
-    if len(values) < h:
-        return np.pad(values, (0, h - len(values)), mode="edge")
-    return values[:h]
-
-
-def _extract_batched_forecast_values(
-    outputs: Any,
-    h: int,
-    batch_size: int,
-    quantile_levels: list[float] | None = None,
-) -> list[np.ndarray]:
-    """Extract forecast values for each series in a batch from model outputs.
-
-    Handles various output formats from PatchTST-FM batched inference.
-    """
-    arr = _extract_predictions_array(outputs)
-    quantile_count = len(quantile_levels) if quantile_levels is not None else None
-
-    # Handle edge case: model returns single output for entire batch (e.g., test mocks)
-    if arr.ndim >= 3 and arr.shape[0] == 1 and batch_size > 1:
-        # Broadcast single output to all batch items
-        arr = np.repeat(arr, batch_size, axis=0)
-
-    results = []
-    for b in range(batch_size):
-        if arr.ndim == 1:
-            # 1D array - split equally among batch
-            chunk_size = len(arr) // batch_size
-            values = arr[b * chunk_size : b * chunk_size + h]
-        elif arr.ndim == 2:
-            # Expected: (batch, horizon) or (batch, quantile)
-            if arr.shape[0] == batch_size:
-                values = arr[b, :h]
-            else:
-                # Try to interpret as batched quantiles
-                if quantile_count is not None and arr.shape[1] == quantile_count:
-                    # (batch, quantile) - single horizon point
-                    q_idx = _median_index(quantile_levels, arr.shape[1])
-                    values = np.full(h, arr[b, q_idx], dtype=np.float32)
-                else:
-                    values = arr[b, :h]
-        elif arr.ndim == 3:
-            # Expected: (batch, quantile, horizon) or (batch, horizon, quantile)
-            sample = arr[b]
-            if quantile_count is not None and sample.shape[0] == quantile_count:
-                # (quantile, horizon)
-                q_idx = _median_index(quantile_levels, sample.shape[0])
-                values = sample[q_idx, :h]
-            elif quantile_count is not None and sample.shape[1] == quantile_count:
-                # (horizon, quantile)
-                q_idx = _median_index(quantile_levels, sample.shape[1])
-                values = sample[:h, q_idx]
-            else:
-                # Fallback: assume (something, horizon) and take middle
-                if sample.shape[0] <= sample.shape[1]:
-                    q_idx = sample.shape[0] // 2
-                    values = sample[q_idx, :h]
-                else:
-                    q_idx = sample.shape[1] // 2
-                    values = sample[:h, q_idx]
-        else:
-            raise ValueError(f"Unexpected PatchTST batch output rank: {arr.ndim}")
-
-        values = np.asarray(values, dtype=np.float32)
-        if values.size == 0:
-            values = np.zeros(h, dtype=np.float32)
-        elif len(values) < h:
-            values = np.pad(values, (0, h - len(values)), mode="edge")
-        else:
-            values = values[:h]
-
-        results.append(values)
-
-    return results
-
-
-def _extract_single_quantile_values(
-    sample: np.ndarray,
-    h: int,
-    q_idx: int,
-    quantile_count: int,
-) -> np.ndarray | None:
-    """Extract one quantile trajectory from a single-sample tensor."""
-    if sample.ndim == 1:
-        if quantile_count == 1 and q_idx == 0:
-            return sample[:h]
-        return None
-
-    if sample.ndim != 2:
-        return None
-
-    # (quantile, horizon)
-    if sample.shape[0] == quantile_count and q_idx < sample.shape[0]:
-        return sample[q_idx, :h]
-    # (horizon, quantile)
-    if sample.shape[1] == quantile_count and q_idx < sample.shape[1]:
-        return sample[:h, q_idx]
-    return None
-
-
-def _extract_batched_requested_quantiles(
-    outputs: Any,
-    h: int,
-    batch_size: int,
-    quantile_levels: list[float] | None = None,
-) -> dict[float, list[np.ndarray]]:
-    """Extract requested quantile trajectories for each series in a batch."""
-    if not quantile_levels:
-        return {}
-
-    arr = _extract_predictions_array(outputs)
-    quantile_count = len(quantile_levels)
-
-    # Handle edge case: model returns single output for entire batch (e.g., test mocks)
-    if arr.ndim >= 3 and arr.shape[0] == 1 and batch_size > 1:
-        arr = np.repeat(arr, batch_size, axis=0)
-
-    results: dict[float, list[np.ndarray]] = {q: [] for q in quantile_levels}
-
-    for b in range(batch_size):
-        if arr.ndim == 1:
-            sample = arr
-        elif arr.ndim == 2 and arr.shape[0] == batch_size:
-            sample = arr[b]
-        elif arr.ndim == 2 and batch_size == 1:
-            sample = arr
-        elif arr.ndim == 3:
-            sample = arr[b]
-        else:
-            sample = arr
-
-        for q_idx, q in enumerate(quantile_levels):
-            values = _extract_single_quantile_values(
-                sample=np.asarray(sample, dtype=np.float32),
-                h=h,
-                q_idx=q_idx,
-                quantile_count=quantile_count,
-            )
-            if values is None:
-                continue
-            values = np.asarray(values, dtype=np.float32)
-            if values.size == 0:
-                values = np.zeros(h, dtype=np.float32)
-            elif len(values) < h:
-                values = np.pad(values, (0, h - len(values)), mode="edge")
-            else:
-                values = values[:h]
-            results[q].append(values)
-
-    # Keep only quantiles with full batch coverage.
-    return {q: vals for q, vals in results.items() if len(vals) == batch_size}
-
-
 def load(model_name: str = "ibm-research/patchtst-fm-r1", device: str | None = None) -> Any:
     """Load pretrained PatchTST-FM model.
 
@@ -606,13 +365,13 @@ def predict(
                 )
 
         # Handle batched outputs - may be list or batched tensor
-        batch_forecasts = _extract_batched_forecast_values(
+        batch_forecasts = extract_batch_forecasts(
             outputs=outputs,
             h=h,
             batch_size=len(batch),
             quantile_levels=requested_quantiles or model_quantiles,
         )
-        batch_quantiles = _extract_batched_requested_quantiles(
+        batch_quantiles = extract_batch_quantiles(
             outputs=outputs,
             h=h,
             batch_size=len(batch),

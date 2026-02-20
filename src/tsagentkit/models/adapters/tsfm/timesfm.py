@@ -14,6 +14,7 @@ import pandas as pd
 
 from tsagentkit.core.dataset import _normalize_freq_alias
 from tsagentkit.models.length_utils import adjust_context_length, validate_prediction_length
+from tsagentkit.models.output_utils import resolve_quantile_index
 
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
@@ -112,34 +113,37 @@ def _model_quantiles(model: Any) -> list[float] | None:
     return [float(q) for q in quantiles]
 
 
+def _timesfm_fallback_mapping(qdim: int, q: float) -> int | None:
+    """TimesFM-specific fallback mapping for common tensor sizes.
+
+    Common TimesFM outputs:
+    - qdim=10 usually corresponds to deciles with 0.5 at index 5.
+    - qdim=9 is deciles minus one endpoint.
+    """
+    import numpy as np
+
+    if qdim == 10:
+        return int(np.clip(round(q * 10), 0, 9))
+    if qdim == 9:
+        return int(np.clip(round(q * 10) - 1, 0, 8))
+    return None
+
+
 def _quantile_index(
     q: float,
     qdim: int,
     model_quantiles: list[float] | None,
 ) -> int | None:
     """Resolve quantile index in TimesFM quantile forecast tensor."""
-    import numpy as np
-
     if qdim <= 0:
         return None
 
-    # Preferred mapping: known model quantile levels.
-    if model_quantiles:
-        matches = [i for i, mq in enumerate(model_quantiles) if np.isclose(mq, q)]
-        if matches:
-            i = matches[0]
-            if qdim == len(model_quantiles):
-                return i
-            if qdim == len(model_quantiles) + 1:
-                return i + 1
-
-    # Fallback mapping for common TimesFM outputs:
-    # qdim=10 usually corresponds to deciles with 0.5 at index 5.
-    if qdim == 10:
-        return int(np.clip(round(q * 10), 0, 9))
-    if qdim == 9:
-        return int(np.clip(round(q * 10) - 1, 0, 8))
-    return None
+    # Use generic resolve_quantile_index with TimesFM-specific fallback
+    fallback = {
+        10: lambda q: int(__import__("numpy").clip(round(q * 10), 0, 9)),
+        9: lambda q: int(__import__("numpy").clip(round(q * 10) - 1, 0, 8)),
+    }
+    return resolve_quantile_index(q, model_quantiles, qdim, fallback_mapping=fallback)
 
 
 def _extract_requested_quantiles(

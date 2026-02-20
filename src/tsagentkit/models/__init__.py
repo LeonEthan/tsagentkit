@@ -12,6 +12,15 @@ from tsagentkit.models.length_utils import (
     get_effective_limits,
     validate_prediction_length,
 )
+from tsagentkit.models.output_utils import (
+    extract_batch_forecasts,
+    extract_batch_quantiles,
+    extract_point_forecast,
+    extract_predictions_array,
+    resolve_quantile_index,
+    select_median_index,
+    tensor_to_numpy,
+)
 from tsagentkit.models.protocol import fit, predict
 from tsagentkit.models.registry import (
     REGISTRY,
@@ -40,4 +49,12 @@ __all__ = [
     "validate_prediction_length",
     "get_effective_limits",
     "check_data_compatibility",
+    # Output utilities
+    "tensor_to_numpy",
+    "extract_predictions_array",
+    "resolve_quantile_index",
+    "select_median_index",
+    "extract_point_forecast",
+    "extract_batch_forecasts",
+    "extract_batch_quantiles",
 ]
