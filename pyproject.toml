@@ -1,6 +1,6 @@
 [project]
 name = "tsagentkit"
-version = "2.0.2"
+version = "2.0.3"
 description = "Minimalist time-series forecasting toolkit for coding agents"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -19,7 +19,7 @@ dependencies = [
     "transformers>=4.56.0",
     "tsagentkit-patchtst-fm>=1.0.2",
     "chronos-forecasting>=2.0.0",
-    "tsagentkit-timesfm @ git+https://github.com/LeonEthan/timesfm.git@v1.0.1",
+    "tsagentkit-timesfm>=1.0.1",
     "tsagentkit-uni2ts",
     "gluonts",
     # Hierarchy dependencies (formerly optional)

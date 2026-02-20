@@ -3661,7 +3661,7 @@ wheels = [
 
 [[package]]
 name = "tsagentkit"
-version = "2.0.2"
+version = "2.0.3"
 source = { editable = "." }
 dependencies = [
     { name = "chronos-forecasting" },
@@ -3718,7 +3718,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.65.0" },
     { name = "transformers", specifier = ">=4.56.0" },
     { name = "tsagentkit-patchtst-fm", specifier = ">=1.0.2" },
-    { name = "tsagentkit-timesfm", git = "https://github.com/LeonEthan/timesfm.git?rev=v1.0.1" },
+    { name = "tsagentkit-timesfm", specifier = ">=1.0.1" },
     { name = "tsagentkit-uni2ts" },
     { name = "tsfeatures", specifier = ">=0.4.5" },
     { name = "tsfresh", specifier = ">=0.20.0" },
@@ -3750,11 +3750,15 @@ wheels = [
 [[package]]
 name = "tsagentkit-timesfm"
 version = "1.0.1"
-source = { git = "https://github.com/LeonEthan/timesfm.git?rev=v1.0.1#c4e38f381ed4e3249c11082196885e0df28e48e1" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub", extra = ["cli"] },
     { name = "numpy" },
     { name = "safetensors" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/47/f9/40bb964d3233aed2c5d76206cf0a833571d300dd2731776032c911c7bded/tsagentkit_timesfm-1.0.1.tar.gz", hash = "sha256:6aef3a3617aa29d2e926fb1a5bb7b51f90715d60579c6a760eee443ab2eb003e", size = 33870, upload-time = "2026-02-19T09:23:38.31Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e3/4f/e4e23dfe0e130cac7815d32759813b1dde7b4cafcbfc0499a3669d1fe3de/tsagentkit_timesfm-1.0.1-py3-none-any.whl", hash = "sha256:de43165684108b58dfeb9097b5a26621f8aba2882ef885477fa41846b799f271", size = 44113, upload-time = "2026-02-19T09:23:37.202Z" },
 ]
 
 [[package]]
