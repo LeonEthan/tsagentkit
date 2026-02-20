@@ -36,8 +36,8 @@ class ForecastConfig:
             "all": Use all available models (default)
             "fast": Prioritize faster inference models
             "accurate": Prioritize models with higher accuracy potential
-        parallel_fit: Whether to fit models concurrently (default: False)
-        parallel_predict: Whether to run predictions concurrently (default: False)
+        parallel_fit: Whether to fit models concurrently (default: True)
+        parallel_predict: Whether to run predictions concurrently (default: True)
         max_workers: Maximum number of parallel workers for fit/predict (None = auto)
     """
 
@@ -67,8 +67,8 @@ class ForecastConfig:
     # Performance optimizations (Phase 1 & 2)
     max_models: int | None = None  # Limit concurrent models
     model_selection: Literal["all", "fast", "accurate"] = "all"
-    parallel_fit: bool = False  # Enable concurrent model fitting
-    parallel_predict: bool = False  # Enable concurrent prediction
+    parallel_fit: bool = True  # Enable concurrent model fitting
+    parallel_predict: bool = True  # Enable concurrent prediction
     max_workers: int | None = None  # Max parallel workers (None = auto)
 
     def __post_init__(self) -> None:

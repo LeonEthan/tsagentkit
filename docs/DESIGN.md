@@ -174,8 +174,8 @@ class ForecastConfig:
     # Performance optimizations
     max_models: int | None = None        # Limit concurrent models
     model_selection: Literal["all", "fast", "accurate"] = "all"
-    parallel_fit: bool = False           # Enable concurrent fitting
-    parallel_predict: bool = False       # Enable concurrent prediction
+    parallel_fit: bool = True            # Enable concurrent fitting (default)
+    parallel_predict: bool = True        # Enable concurrent prediction (default)
     max_workers: int | None = None       # Max parallel workers
 
     @staticmethod
@@ -369,18 +369,24 @@ ModelCache.unload()  # Clear all
 
 ### 1. Parallel Model Execution
 
-Execute model fitting and prediction concurrently using `ThreadPoolExecutor`:
+Parallel model fitting and prediction are enabled by default using `ThreadPoolExecutor`:
 
 ```python
 from tsagentkit import ForecastConfig, run_forecast
 
-# Enable parallel execution
+# Parallel execution is default (no config needed)
+config = ForecastConfig(h=7, freq="D")
+result = run_forecast(df, config)
+```
+
+**Opt-out for memory-constrained environments**:
+
+```python
 config = ForecastConfig(
     h=7,
     freq="D",
-    parallel_fit=True,      # Fit models concurrently
-    parallel_predict=True,  # Run predictions concurrently
-    max_workers=4,          # Control parallelism (None = auto)
+    parallel_fit=False,      # Sequential fitting
+    parallel_predict=False,  # Sequential prediction
 )
 
 result = run_forecast(df, config)
@@ -446,7 +452,7 @@ series_dict = dataset.get_series_dict()
 
 ### 4. Streaming Ensemble
 
-Memory-efficient ensemble for large panels (100k+ series):
+Memory-efficient ensemble for large panels (100k+ series). The standard pipeline auto-selects streaming for panels >50k rows:
 
 ```python
 from tsagentkit import ensemble_streaming
@@ -462,6 +468,8 @@ result = ensemble_streaming(
     chunk_size=5000,  # Process 5k rows at a time
 )
 ```
+
+**Auto-selection**: `run_forecast()` automatically uses `ensemble_streaming()` for panels >50k rows.
 
 **Expected Gain**: 50-70% memory reduction for large forecasts.
 

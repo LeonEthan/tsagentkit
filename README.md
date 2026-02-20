@@ -81,6 +81,15 @@ ensemble_df = ensemble(predictions, method=config.ensemble_method, quantiles=con
 print(ensemble_df.head())
 ```
 
+## Performance
+
+`tsagentkit` runs parallel model fitting and prediction by default. Large panels (>50k rows) automatically use streaming ensemble to reduce memory usage.
+
+```python
+# Opt-out if needed (e.g., memory-constrained environments)
+result = forecast(raw_df, h=7, parallel_fit=False, parallel_predict=False)
+```
+
 ## Model Cache Lifecycle
 
 `ModelCache` manages loaded TSFM instances and avoids expensive reloads.

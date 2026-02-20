@@ -15,7 +15,7 @@ from tsagentkit.core.config import ForecastConfig
 from tsagentkit.core.dataset import CovariateSet, TSDataset
 from tsagentkit.core.errors import EContract, EInsufficient, ENoTSFM
 from tsagentkit.core.results import ForecastResult
-from tsagentkit.models.ensemble import ensemble_with_quantiles
+from tsagentkit.models.ensemble import ensemble_streaming, ensemble_with_quantiles
 from tsagentkit.models.protocol import fit
 from tsagentkit.models.protocol import predict as protocol_predict
 from tsagentkit.models.registry import REGISTRY, ModelSpec, list_models
@@ -415,12 +415,21 @@ def run_forecast(
         )
 
     # Phase 5: Ensemble
-    ensemble_df = ensemble_with_quantiles(
-        predictions,
-        method=config.ensemble_method,
-        quantiles=config.quantiles,
-        quantile_mode=config.quantile_mode,
-    )
+    # Auto-select streaming for large panels (>50k rows) to reduce memory usage
+    if predictions and len(predictions[0]) > 50000:
+        ensemble_df = ensemble_streaming(
+            predictions,
+            method=config.ensemble_method,
+            quantiles=config.quantiles,
+            chunk_size=5000,
+        )
+    else:
+        ensemble_df = ensemble_with_quantiles(
+            predictions,
+            method=config.ensemble_method,
+            quantiles=config.quantiles,
+            quantile_mode=config.quantile_mode,
+        )
 
     # Build result
     result = ForecastResult(
