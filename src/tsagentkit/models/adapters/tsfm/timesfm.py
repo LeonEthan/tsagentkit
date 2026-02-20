@@ -14,6 +14,7 @@ import pandas as pd
 
 from tsagentkit.core.dataset import _normalize_freq_alias
 from tsagentkit.models.length_utils import adjust_context_length, validate_prediction_length
+from tsagentkit.models.output_utils import resolve_quantile_index
 
 if TYPE_CHECKING:
     from tsagentkit.core.dataset import TSDataset
@@ -112,34 +113,37 @@ def _model_quantiles(model: Any) -> list[float] | None:
     return [float(q) for q in quantiles]
 
 
+def _timesfm_fallback_mapping(qdim: int, q: float) -> int | None:
+    """TimesFM-specific fallback mapping for common tensor sizes.
+
+    Common TimesFM outputs:
+    - qdim=10 usually corresponds to deciles with 0.5 at index 5.
+    - qdim=9 is deciles minus one endpoint.
+    """
+    import numpy as np
+
+    if qdim == 10:
+        return int(np.clip(round(q * 10), 0, 9))
+    if qdim == 9:
+        return int(np.clip(round(q * 10) - 1, 0, 8))
+    return None
+
+
 def _quantile_index(
     q: float,
     qdim: int,
     model_quantiles: list[float] | None,
 ) -> int | None:
     """Resolve quantile index in TimesFM quantile forecast tensor."""
-    import numpy as np
-
     if qdim <= 0:
         return None
 
-    # Preferred mapping: known model quantile levels.
-    if model_quantiles:
-        matches = [i for i, mq in enumerate(model_quantiles) if np.isclose(mq, q)]
-        if matches:
-            i = matches[0]
-            if qdim == len(model_quantiles):
-                return i
-            if qdim == len(model_quantiles) + 1:
-                return i + 1
-
-    # Fallback mapping for common TimesFM outputs:
-    # qdim=10 usually corresponds to deciles with 0.5 at index 5.
-    if qdim == 10:
-        return int(np.clip(round(q * 10), 0, 9))
-    if qdim == 9:
-        return int(np.clip(round(q * 10) - 1, 0, 8))
-    return None
+    # Use generic resolve_quantile_index with TimesFM-specific fallback
+    fallback = {
+        10: lambda q: int(__import__("numpy").clip(round(q * 10), 0, 9)),
+        9: lambda q: int(__import__("numpy").clip(round(q * 10) - 1, 0, 8)),
+    }
+    return resolve_quantile_index(q, model_quantiles, qdim, fallback_mapping=fallback)
 
 
 def _extract_requested_quantiles(
@@ -238,22 +242,32 @@ def predict(
     for i in range(0, len(series_data), batch_size):
         batch = series_data[i : i + batch_size]
 
-        # Prepare batched contexts with centralized length adjustment
-        batch_contexts = []
+        # Phase 5c: Context pre-allocation - determine max length first
+        # to potentially use pre-allocated arrays (fallback to list for variable lengths)
+        adjusted_contexts = []
+        max_len = 0
+        total_padding = 0
+        total_truncation = 0
+
         for _, context, _ in batch:
             adjusted = adjust_context_length(
                 context,
                 spec,
                 pad_value=0.0,  # TimesFM uses 0-padding
             )
-            batch_contexts.append(adjusted.data)
+            adjusted_contexts.append(adjusted)
+            max_len = max(max_len, adjusted.adjusted_length)
+            total_padding += adjusted.padding_amount
+            total_truncation += adjusted.truncation_amount
 
-            if adjusted.was_padded or adjusted.was_truncated:
-                logger.debug(
-                    f"Adjusted context: "
-                    f"{adjusted.original_length} -> {adjusted.adjusted_length} "
-                    f"(padded: {adjusted.padding_amount}, truncated: {adjusted.truncation_amount})"
-                )
+        # Log batch-level adjustments
+        if total_padding > 0 or total_truncation > 0:
+            logger.debug(
+                f"Batch adjustment summary: padded={total_padding}, truncated={total_truncation}"
+            )
+
+        # Extract data for inference
+        batch_contexts = [adj.data for adj in adjusted_contexts]
 
         # Batch inference: TimesFM accepts list of contexts
         point_forecasts, quantile_forecasts = model.forecast(horizon=h, inputs=batch_contexts)

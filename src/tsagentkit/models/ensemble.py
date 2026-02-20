@@ -85,8 +85,7 @@ def ensemble_with_quantiles(
     if quantiles:
         if quantile_mode not in {"best_effort", "strict"}:
             raise ValueError(
-                "Unknown quantile_mode: "
-                f"{quantile_mode}. Expected 'best_effort' or 'strict'."
+                f"Unknown quantile_mode: {quantile_mode}. Expected 'best_effort' or 'strict'."
             )
 
         # Convert tuple to list for iteration
@@ -111,4 +110,83 @@ def ensemble_with_quantiles(
     return result
 
 
-__all__ = ["ensemble", "ensemble_with_quantiles"]
+def ensemble_streaming(
+    predictions: list[pd.DataFrame],
+    method: Literal["median", "mean"] = "median",
+    quantiles: tuple[float, ...] | list[float] | None = None,
+    chunk_size: int = 1000,
+) -> pd.DataFrame:
+    """Memory-efficient ensemble using chunked processing.
+
+    Processes predictions in chunks to reduce memory usage for large panels.
+    Particularly useful when forecasting many series (100k+) where np.stack()
+    would create prohibitively large intermediate arrays.
+
+    Args:
+        predictions: List of DataFrames with columns [unique_id, ds, yhat, q0.1, ...]
+        method: Aggregation method ("median" or "mean")
+        quantiles: Quantile levels to ensemble
+        chunk_size: Number of rows to process per chunk
+
+    Returns:
+        DataFrame with ensemble predictions
+
+    Raises:
+        EInsufficient: If no predictions provided
+
+    Examples:
+        >>> # For large panels, use streaming to reduce memory
+        >>> result = ensemble_streaming(predictions, chunk_size=5000)
+    """
+    if not predictions:
+        raise EInsufficient("No predictions to ensemble")
+
+    if len(predictions) == 1:
+        return predictions[0].copy()
+
+    # Use first prediction as base structure
+    base = predictions[0].copy()
+    n_rows = len(base)
+
+    # Get quantile columns from first prediction that has them
+    quantiles_list: list[float] = []
+    if quantiles:
+        quantiles_list = list(quantiles) if isinstance(quantiles, tuple) else quantiles
+
+    # Get yhat column index for efficient assignment
+    yhat_idx = base.columns.get_loc("yhat")
+
+    # Process in chunks
+    for start in range(0, n_rows, chunk_size):
+        end = min(start + chunk_size, n_rows)
+
+        # Stack yhat values for this chunk only
+        chunk_stack = np.stack([p["yhat"].values[start:end] for p in predictions])
+
+        # Compute ensemble for chunk
+        if method == "median":
+            base.iloc[start:end, yhat_idx] = np.median(chunk_stack, axis=0)
+        else:
+            base.iloc[start:end, yhat_idx] = np.mean(chunk_stack, axis=0)
+
+        # Process quantiles for this chunk
+        for q in quantiles_list:
+            q_col = f"q{q}"
+            q_idx = base.columns.get_loc(q_col) if q_col in base.columns else None
+            if q_idx is None:
+                continue
+
+            q_chunk = [p[q_col].values[start:end] for p in predictions if q_col in p.columns]
+            if not q_chunk:
+                continue
+
+            q_stack = np.stack(q_chunk)
+            if method == "median":
+                base.iloc[start:end, q_idx] = np.median(q_stack, axis=0)
+            else:
+                base.iloc[start:end, q_idx] = np.mean(q_stack, axis=0)
+
+    return base
+
+
+__all__ = ["ensemble", "ensemble_with_quantiles", "ensemble_streaming"]

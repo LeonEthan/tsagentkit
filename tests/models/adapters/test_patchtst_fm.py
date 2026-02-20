@@ -189,8 +189,12 @@ class TestPatchTSTFMAdapterFunctions:
         assert forecast["yhat"].tolist() == pytest.approx([expected] * 7, rel=1e-6, abs=1e-6)
 
     def test_extract_forecast_values_horizon_first(self):
-        """Test extraction supports horizon-first quantile outputs."""
-        from tsagentkit.models.adapters.tsfm import patchtst_fm
+        """Test extraction supports horizon-first quantile outputs.
+
+        This tests the generic extract_point_forecast function from output_utils
+        which is now used by the PatchTST-FM adapter.
+        """
+        from tsagentkit.models.output_utils import extract_point_forecast
 
         outputs = type(
             "Output",
@@ -212,7 +216,7 @@ class TestPatchTSTFMAdapterFunctions:
             },
         )()
 
-        values = patchtst_fm._extract_forecast_values(
+        values = extract_point_forecast(
             outputs,
             h=7,
             quantile_levels=[0.1, 0.5, 0.9],

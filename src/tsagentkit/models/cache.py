@@ -149,13 +149,20 @@ class ModelCache:
             return
 
         cuda = getattr(torch, "cuda", None)
-        if cuda is not None and hasattr(cuda, "is_available") and cuda.is_available() and hasattr(cuda, "empty_cache"):
+        if (
+            cuda is not None
+            and hasattr(cuda, "is_available")
+            and cuda.is_available()
+            and hasattr(cuda, "empty_cache")
+        ):
             cuda.empty_cache()
             if hasattr(cuda, "ipc_collect"):
                 cuda.ipc_collect()
 
         backend_mps = getattr(getattr(torch, "backends", None), "mps", None)
-        mps_available = bool(backend_mps and hasattr(backend_mps, "is_available") and backend_mps.is_available())
+        mps_available = bool(
+            backend_mps and hasattr(backend_mps, "is_available") and backend_mps.is_available()
+        )
         torch_mps = getattr(torch, "mps", None)
         if mps_available and torch_mps is not None and hasattr(torch_mps, "empty_cache"):
             torch_mps.empty_cache()

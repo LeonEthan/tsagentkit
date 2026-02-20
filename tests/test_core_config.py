@@ -63,6 +63,22 @@ class TestForecastConfigDefaults:
         config = ForecastConfig(h=7, freq="D")
         assert config.quantile_mode == "best_effort"
 
+    def test_default_parallel_fit(self):
+        """Default parallel_fit is True (performance optimization default)."""
+        config = ForecastConfig(h=7, freq="D")
+        assert config.parallel_fit is True
+
+    def test_default_parallel_predict(self):
+        """Default parallel_predict is True (performance optimization default)."""
+        config = ForecastConfig(h=7, freq="D")
+        assert config.parallel_predict is True
+
+    def test_parallel_can_be_disabled(self):
+        """Can explicitly disable parallel execution."""
+        config = ForecastConfig(h=7, freq="D", parallel_fit=False, parallel_predict=False)
+        assert config.parallel_fit is False
+        assert config.parallel_predict is False
+
     def test_custom_quantile_mode(self):
         """Can set strict quantile mode."""
         config = ForecastConfig(h=7, freq="D", quantile_mode="strict")

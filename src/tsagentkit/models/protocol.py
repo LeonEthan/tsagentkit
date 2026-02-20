@@ -52,6 +52,7 @@ def predict(
     dataset: TSDataset,
     h: int,
     quantiles: tuple[float, ...] | list[float] | None = None,
+    batch_size: int = 32,
 ) -> pd.DataFrame:
     """Generate predictions from a fitted model.
 
@@ -61,6 +62,7 @@ def predict(
         dataset: Time-series dataset
         h: Forecast horizon
         quantiles: Optional quantile levels requested by the pipeline
+        batch_size: Number of series to process in parallel
 
     Returns:
         Forecast DataFrame with columns [unique_id, ds, yhat]
@@ -70,24 +72,24 @@ def predict(
     module = importlib.import_module(spec.adapter_path)
     predict_fn = module.predict
 
-    # Adapter compatibility:
-    # - legacy adapters: predict(model, dataset, h)
-    # - quantile-aware adapters: predict(model, dataset, h, quantiles=...)
     try:
         signature = inspect.signature(predict_fn)
     except (TypeError, ValueError):
         signature = None
 
-    supports_quantiles = signature is not None and (
-        "quantiles" in signature.parameters or any(
-            param.kind == inspect.Parameter.VAR_KEYWORD
-            for param in signature.parameters.values()
-        )
-    )
+    params = signature.parameters if signature else {}
+    has_var_kw = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values())
 
+    supports_quantiles = "quantiles" in params or has_var_kw
+    supports_batch_size = "batch_size" in params or has_var_kw
+
+    kwargs: dict = {}
     if supports_quantiles:
-        return predict_fn(artifact, dataset, h, quantiles=quantiles)
-    return predict_fn(artifact, dataset, h)
+        kwargs["quantiles"] = quantiles
+    if supports_batch_size:
+        kwargs["batch_size"] = batch_size
+
+    return predict_fn(artifact, dataset, h, **kwargs)
 
 
 def predict_all(
@@ -96,6 +98,7 @@ def predict_all(
     dataset: TSDataset,
     h: int,
     quantiles: tuple[float, ...] | list[float] | None = None,
+    batch_size: int = 32,
 ) -> list[pd.DataFrame]:
     """Generate predictions from multiple models.
 
@@ -105,12 +108,13 @@ def predict_all(
         dataset: Time-series dataset
         h: Forecast horizon
         quantiles: Optional quantile levels requested by the pipeline
+        batch_size: Number of series to process in parallel
 
     Returns:
         List of forecast DataFrames
     """
     return [
-        predict(spec, artifact, dataset, h, quantiles=quantiles)
+        predict(spec, artifact, dataset, h, quantiles=quantiles, batch_size=batch_size)
         for spec, artifact in zip(specs, artifacts, strict=False)
     ]
 

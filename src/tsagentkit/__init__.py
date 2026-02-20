@@ -2,7 +2,7 @@
 
 Ultra-lightweight execution engine for time-series forecasting with TSFM ensemble.
 
-Version 2.0.0 - Nanobot-Inspired Architecture
+Version 2.0.1 - Nanobot-Inspired Architecture
 
 Input contract:
     DataFrame columns must be exactly: unique_id, ds, y.
@@ -35,7 +35,7 @@ ModelCache unload semantics:
     If user code still holds model references, Python cannot reclaim that memory.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 # Core API
 from tsagentkit.core.config import ForecastConfig
@@ -55,6 +55,7 @@ from tsagentkit.inspect import check_health
 
 # Model Cache (for explicit lifecycle management)
 from tsagentkit.models.cache import ModelCache
+from tsagentkit.models.ensemble import ensemble_streaming
 from tsagentkit.models.ensemble import ensemble_with_quantiles as ensemble
 from tsagentkit.models.length_utils import (
     LengthAdjustment,
@@ -72,9 +73,11 @@ from tsagentkit.models.registry import REGISTRY, ModelSpec, list_models
 from tsagentkit.pipeline import (
     build_dataset,
     fit_all,
+    fit_all_parallel,
     forecast,
     make_plan,
     predict_all,
+    predict_all_parallel,
     run_forecast,
     validate,
 )
@@ -95,7 +98,10 @@ __all__ = [
     "make_plan",
     "fit_all",
     "predict_all",
+    "fit_all_parallel",
+    "predict_all_parallel",
     "ensemble",
+    "ensemble_streaming",
     # Model Cache
     "ModelCache",
     # Registry

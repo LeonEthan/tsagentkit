@@ -53,11 +53,13 @@ def predict(artifact: None, dataset: TSDataset, h: int) -> pd.DataFrame:
         )[1:]
 
         # Create forecast
-        forecast_df = pd.DataFrame({
-            "unique_id": unique_id,
-            "ds": future_dates,
-            "yhat": [last_value] * h,
-        })
+        forecast_df = pd.DataFrame(
+            {
+                "unique_id": unique_id,
+                "ds": future_dates,
+                "yhat": [last_value] * h,
+            }
+        )
         forecasts.append(forecast_df)
 
     return pd.concat(forecasts, ignore_index=True)
