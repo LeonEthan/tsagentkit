@@ -175,7 +175,8 @@ except ETemporal as e:
 
 ## Related Resources
 
-- **Quickstart**: `skill/QUICKSTART.md` — get running in 3 minutes
-- **Recipes**: `skill/recipes.md` — end-to-end templates
-- **API Reference**: `skill/tool_map.md` — task-to-API lookup
+- **SKILL.md**: Main skill entry point
+- **Quickstart**: `references/quickstart.md` — get running in 3 minutes
+- **Recipes**: `references/recipes.md` — end-to-end templates
+- **API Reference**: `references/tool_map.md` — task-to-API lookup
 - **Design**: `docs/DESIGN.md` — system architecture

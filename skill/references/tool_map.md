@@ -92,8 +92,8 @@ Use this map to choose the minimal stable API surface for each step.
 ---
 
 ## Related Docs
-- `skill/README.md` - Overview and patterns
-- `skill/QUICKSTART.md` - Getting started
-- `skill/recipes.md` - End-to-end templates
-- `skill/TROUBLESHOOTING.md` - Error reference
+- `SKILL.md` - Main skill entry point
+- `references/quickstart.md` - Getting started
+- `references/recipes.md` - End-to-end templates
+- `references/troubleshooting.md` - Error reference
 - `docs/DESIGN.md` - Architecture details
