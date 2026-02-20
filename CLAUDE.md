@@ -19,7 +19,7 @@ If you need implementation detail, open `docs/DESIGN.md`. If you need to get wor
 
 `tsagentkit` is an ultra-lightweight execution engine for time-series forecasting. It provides **zero-config TSFM ensemble** for production use, while exposing **granular pipeline functions** for agent customization.
 
-**Version**: 2.0.0  
+**Version**: 2.0.1  
 **Core Lines**: ~2,000 (excluding adapters)  
 **Design Goal**: Research-ready code that's easy to understand, modify, and extend.
 
