@@ -146,6 +146,7 @@ def predict_all(
     dataset: TSDataset,
     h: int,
     quantiles: tuple[float, ...] | list[float] | None = None,
+    batch_size: int = 32,
 ) -> list[pd.DataFrame]:
     """Generate predictions from all fitted models.
 
@@ -155,6 +156,7 @@ def predict_all(
         dataset: Time-series dataset
         h: Forecast horizon
         quantiles: Optional quantile levels requested by the pipeline
+        batch_size: Number of series to process in parallel
 
     Returns:
         List of forecast DataFrames
@@ -164,10 +166,11 @@ def predict_all(
         if artifact is None:
             continue
         try:
-            pred = protocol_predict(spec, artifact, dataset, h, quantiles=quantiles)
+            pred = protocol_predict(
+                spec, artifact, dataset, h, quantiles=quantiles, batch_size=batch_size
+            )
             predictions.append(pred)
         except Exception:
-            # Skip failed predictions
             pass
     return predictions
 
@@ -213,7 +216,14 @@ def run_forecast(
         )
 
     # Phase 4: Predict all
-    predictions = predict_all(models, artifacts, dataset, config.h, quantiles=config.quantiles)
+    predictions = predict_all(
+        models,
+        artifacts,
+        dataset,
+        config.h,
+        quantiles=config.quantiles,
+        batch_size=config.batch_size,
+    )
 
     # Check minimum models
     successful = len(predictions)

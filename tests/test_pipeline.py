@@ -25,11 +25,13 @@ from tsagentkit.pipeline import (
 @pytest.fixture
 def sample_df():
     """Create valid sample DataFrame."""
-    return pd.DataFrame({
-        "unique_id": ["A"] * 30,
-        "ds": pd.date_range("2024-01-01", periods=30),
-        "y": range(30),
-    })
+    return pd.DataFrame(
+        {
+            "unique_id": ["A"] * 30,
+            "ds": pd.date_range("2024-01-01", periods=30),
+            "y": range(30),
+        }
+    )
 
 
 @pytest.fixture
@@ -70,11 +72,13 @@ class TestValidate:
 
     def test_custom_columns_rejected(self, config):
         """Custom column names are rejected by fixed contract."""
-        df = pd.DataFrame({
-            "series_id": ["A"] * 10,
-            "timestamp": pd.date_range("2024-01-01", periods=10),
-            "value": range(10),
-        })
+        df = pd.DataFrame(
+            {
+                "series_id": ["A"] * 10,
+                "timestamp": pd.date_range("2024-01-01", periods=10),
+                "value": range(10),
+            }
+        )
         with pytest.raises(EContract, match="Missing required columns"):
             validate(df, config)
 
@@ -118,6 +122,7 @@ class TestMakePlan:
 
         # Mock empty registry by patching list_models
         import tsagentkit.pipeline as pipeline_module
+
         original_list_models = pipeline_module.list_models
 
         def mock_list_models(tsfm_only=True):
@@ -157,47 +162,59 @@ class TestEnsemble:
 
     def test_single_prediction(self):
         """Single prediction returns as-is."""
-        pred = pd.DataFrame({
-            "unique_id": ["A"] * 3,
-            "ds": pd.date_range("2024-01-01", periods=3),
-            "yhat": [10.0, 20.0, 30.0],
-        })
+        pred = pd.DataFrame(
+            {
+                "unique_id": ["A"] * 3,
+                "ds": pd.date_range("2024-01-01", periods=3),
+                "yhat": [10.0, 20.0, 30.0],
+            }
+        )
         result = ensemble([pred], "median")
         assert len(result) == 3
         assert list(result["yhat"]) == [10.0, 20.0, 30.0]
 
     def test_median_ensemble(self):
         """Median ensemble computes correctly."""
-        pred1 = pd.DataFrame({
-            "unique_id": ["A"] * 3,
-            "ds": pd.date_range("2024-01-01", periods=3),
-            "yhat": [10.0, 20.0, 30.0],
-        })
-        pred2 = pd.DataFrame({
-            "unique_id": ["A"] * 3,
-            "ds": pd.date_range("2024-01-01", periods=3),
-            "yhat": [30.0, 20.0, 10.0],
-        })
-        pred3 = pd.DataFrame({
-            "unique_id": ["A"] * 3,
-            "ds": pd.date_range("2024-01-01", periods=3),
-            "yhat": [20.0, 20.0, 20.0],
-        })
+        pred1 = pd.DataFrame(
+            {
+                "unique_id": ["A"] * 3,
+                "ds": pd.date_range("2024-01-01", periods=3),
+                "yhat": [10.0, 20.0, 30.0],
+            }
+        )
+        pred2 = pd.DataFrame(
+            {
+                "unique_id": ["A"] * 3,
+                "ds": pd.date_range("2024-01-01", periods=3),
+                "yhat": [30.0, 20.0, 10.0],
+            }
+        )
+        pred3 = pd.DataFrame(
+            {
+                "unique_id": ["A"] * 3,
+                "ds": pd.date_range("2024-01-01", periods=3),
+                "yhat": [20.0, 20.0, 20.0],
+            }
+        )
         result = ensemble([pred1, pred2, pred3], "median")
         assert list(result["yhat"]) == [20.0, 20.0, 20.0]
 
     def test_mean_ensemble(self):
         """Mean ensemble computes correctly."""
-        pred1 = pd.DataFrame({
-            "unique_id": ["A"] * 3,
-            "ds": pd.date_range("2024-01-01", periods=3),
-            "yhat": [10.0, 20.0, 30.0],
-        })
-        pred2 = pd.DataFrame({
-            "unique_id": ["A"] * 3,
-            "ds": pd.date_range("2024-01-01", periods=3),
-            "yhat": [30.0, 20.0, 10.0],
-        })
+        pred1 = pd.DataFrame(
+            {
+                "unique_id": ["A"] * 3,
+                "ds": pd.date_range("2024-01-01", periods=3),
+                "yhat": [10.0, 20.0, 30.0],
+            }
+        )
+        pred2 = pd.DataFrame(
+            {
+                "unique_id": ["A"] * 3,
+                "ds": pd.date_range("2024-01-01", periods=3),
+                "yhat": [30.0, 20.0, 10.0],
+            }
+        )
         result = ensemble([pred1, pred2], "mean")
         assert list(result["yhat"]) == [20.0, 20.0, 20.0]
 
@@ -208,16 +225,20 @@ class TestEnsemble:
 
     def test_unknown_method_raises(self):
         """Unknown ensemble method raises ValueError."""
-        pred1 = pd.DataFrame({
-            "unique_id": ["A"] * 3,
-            "ds": pd.date_range("2024-01-01", periods=3),
-            "yhat": [10.0, 20.0, 30.0],
-        })
-        pred2 = pd.DataFrame({
-            "unique_id": ["A"] * 3,
-            "ds": pd.date_range("2024-01-01", periods=3),
-            "yhat": [20.0, 30.0, 40.0],
-        })
+        pred1 = pd.DataFrame(
+            {
+                "unique_id": ["A"] * 3,
+                "ds": pd.date_range("2024-01-01", periods=3),
+                "yhat": [10.0, 20.0, 30.0],
+            }
+        )
+        pred2 = pd.DataFrame(
+            {
+                "unique_id": ["A"] * 3,
+                "ds": pd.date_range("2024-01-01", periods=3),
+                "yhat": [20.0, 30.0, 40.0],
+            }
+        )
         # Need multiple predictions to reach the method validation
         with pytest.raises(ValueError, match="Unknown ensemble method"):
             ensemble([pred1, pred2], "unknown")
@@ -236,14 +257,16 @@ class TestPredictAllQuantilePlumbing:
         artifact = object()
         captured: dict[str, object] = {}
 
-        def mock_protocol_predict(spec, artifact, dataset, h, quantiles=None):
-            del spec, artifact, dataset, h
+        def mock_protocol_predict(spec, artifact, dataset, h, quantiles=None, batch_size=32):
+            del spec, artifact, dataset, h, batch_size
             captured["quantiles"] = quantiles
-            return pd.DataFrame({
-                "unique_id": ["A"] * 7,
-                "ds": pd.date_range("2024-02-01", periods=7),
-                "yhat": [1.0] * 7,
-            })
+            return pd.DataFrame(
+                {
+                    "unique_id": ["A"] * 7,
+                    "ds": pd.date_range("2024-02-01", periods=7),
+                    "yhat": [1.0] * 7,
+                }
+            )
 
         original_protocol_predict = pipeline_module.protocol_predict
         pipeline_module.protocol_predict = mock_protocol_predict
@@ -264,28 +287,36 @@ class TestPredictAllQuantilePlumbing:
 class TestForecast:
     """Test forecast function (integration test)."""
 
-    @pytest.mark.skip(reason="TSFM models require external dependencies not available in test environment")
+    @pytest.mark.skip(
+        reason="TSFM models require external dependencies not available in test environment"
+    )
     def test_forecast_basic(self, sample_df):
         """Basic forecast works."""
         # Use a simple dataset with enough data
-        df = pd.DataFrame({
-            "unique_id": ["A"] * 50,
-            "ds": pd.date_range("2024-01-01", periods=50),
-            "y": range(50),
-        })
+        df = pd.DataFrame(
+            {
+                "unique_id": ["A"] * 50,
+                "ds": pd.date_range("2024-01-01", periods=50),
+                "y": range(50),
+            }
+        )
         result = forecast(df, h=7)
         assert result is not None
         assert hasattr(result, "df")
         assert len(result.df) == 7  # One series, 7 periods
 
-    @pytest.mark.skip(reason="TSFM models require external dependencies not available in test environment")
+    @pytest.mark.skip(
+        reason="TSFM models require external dependencies not available in test environment"
+    )
     def test_run_forecast_with_config(self, sample_df, config):
         """run_forecast with config works."""
-        df = pd.DataFrame({
-            "unique_id": ["A"] * 50,
-            "ds": pd.date_range("2024-01-01", periods=50),
-            "y": range(50),
-        })
+        df = pd.DataFrame(
+            {
+                "unique_id": ["A"] * 50,
+                "ds": pd.date_range("2024-01-01", periods=50),
+                "y": range(50),
+            }
+        )
         result = run_forecast(df, config)
         assert result is not None
         assert hasattr(result, "df")

@@ -47,6 +47,7 @@ class ForecastConfig:
 
     # Hardware
     device: Literal["auto", "cuda", "mps", "cpu"] = "auto"
+    batch_size: int = 32
 
     # Length limit overrides (None = use model defaults)
     context_length: int | None = None  # Override max context for all models
