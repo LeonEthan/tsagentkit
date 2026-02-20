@@ -2,7 +2,7 @@
 
 Ultra-lightweight execution engine for time-series forecasting with TSFM ensemble.
 
-Version 2.0.1 - Nanobot-Inspired Architecture
+Version 2.0.2 - Nanobot-Inspired Architecture
 
 Input contract:
     DataFrame columns must be exactly: unique_id, ds, y.
@@ -35,7 +35,7 @@ ModelCache unload semantics:
     If user code still holds model references, Python cannot reclaim that memory.
 """
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 
 # Core API
 from tsagentkit.core.config import ForecastConfig
