@@ -36,7 +36,7 @@ def main():
     print(f"All Models: {all_models}")
 
     # Exit code based on health
-    if health.tsfm_available:
+    if health.all_ok:
         print("\nStatus: OK - Ready for forecasting")
         return 0
     else:

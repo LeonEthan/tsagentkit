@@ -23,7 +23,7 @@ def main():
     args = parser.parse_args()
 
     try:
-        from tsagentkit import forecast, ForecastConfig
+        from tsagentkit import run_forecast, ForecastConfig
     except ImportError:
         print("Error: tsagentkit not installed. Run: pip install tsagentkit")
         sys.exit(1)
@@ -44,7 +44,7 @@ def main():
 
     # Run forecast
     print(f"Running forecast (h={args.h}, freq={args.freq})...")
-    result = forecast(df, config=config)
+    result = run_forecast(df, config=config)
 
     # Save output
     result.df.to_csv(args.output, index=False)
