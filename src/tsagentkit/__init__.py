@@ -55,6 +55,7 @@ from tsagentkit.inspect import check_health
 
 # Model Cache (for explicit lifecycle management)
 from tsagentkit.models.cache import ModelCache
+from tsagentkit.models.ensemble import ensemble_streaming
 from tsagentkit.models.ensemble import ensemble_with_quantiles as ensemble
 from tsagentkit.models.length_utils import (
     LengthAdjustment,
@@ -72,9 +73,11 @@ from tsagentkit.models.registry import REGISTRY, ModelSpec, list_models
 from tsagentkit.pipeline import (
     build_dataset,
     fit_all,
+    fit_all_parallel,
     forecast,
     make_plan,
     predict_all,
+    predict_all_parallel,
     run_forecast,
     validate,
 )
@@ -95,7 +98,10 @@ __all__ = [
     "make_plan",
     "fit_all",
     "predict_all",
+    "fit_all_parallel",
+    "predict_all_parallel",
     "ensemble",
+    "ensemble_streaming",
     # Model Cache
     "ModelCache",
     # Registry

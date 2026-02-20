@@ -238,22 +238,32 @@ def predict(
     for i in range(0, len(series_data), batch_size):
         batch = series_data[i : i + batch_size]
 
-        # Prepare batched contexts with centralized length adjustment
-        batch_contexts = []
+        # Phase 5c: Context pre-allocation - determine max length first
+        # to potentially use pre-allocated arrays (fallback to list for variable lengths)
+        adjusted_contexts = []
+        max_len = 0
+        total_padding = 0
+        total_truncation = 0
+
         for _, context, _ in batch:
             adjusted = adjust_context_length(
                 context,
                 spec,
                 pad_value=0.0,  # TimesFM uses 0-padding
             )
-            batch_contexts.append(adjusted.data)
+            adjusted_contexts.append(adjusted)
+            max_len = max(max_len, adjusted.adjusted_length)
+            total_padding += adjusted.padding_amount
+            total_truncation += adjusted.truncation_amount
 
-            if adjusted.was_padded or adjusted.was_truncated:
-                logger.debug(
-                    f"Adjusted context: "
-                    f"{adjusted.original_length} -> {adjusted.adjusted_length} "
-                    f"(padded: {adjusted.padding_amount}, truncated: {adjusted.truncation_amount})"
-                )
+        # Log batch-level adjustments
+        if total_padding > 0 or total_truncation > 0:
+            logger.debug(
+                f"Batch adjustment summary: padded={total_padding}, truncated={total_truncation}"
+            )
+
+        # Extract data for inference
+        batch_contexts = [adj.data for adj in adjusted_contexts]
 
         # Batch inference: TimesFM accepts list of contexts
         point_forecasts, quantile_forecasts = model.forecast(horizon=h, inputs=batch_contexts)

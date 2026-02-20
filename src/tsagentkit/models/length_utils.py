@@ -224,9 +224,7 @@ def check_data_compatibility(
                 f"Will truncate context from {context_length} to {spec.max_context_length}"
             )
         else:
-            issues.append(
-                f"Context length {context_length} exceeds max {spec.max_context_length}"
-            )
+            issues.append(f"Context length {context_length} exceeds max {spec.max_context_length}")
             compatible = False
 
     return {

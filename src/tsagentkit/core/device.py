@@ -76,7 +76,9 @@ def _mps_available() -> bool:
 
     backend_mps = getattr(getattr(torch, "backends", None), "mps", None)
     return bool(
-        backend_mps is not None and hasattr(backend_mps, "is_available") and backend_mps.is_available()
+        backend_mps is not None
+        and hasattr(backend_mps, "is_available")
+        and backend_mps.is_available()
     )
 
 

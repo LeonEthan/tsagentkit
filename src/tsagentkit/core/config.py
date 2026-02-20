@@ -31,6 +31,14 @@ class ForecastConfig:
         context_length: Optional override for max context length (None = use model defaults)
         prediction_length_limit: Optional override for max horizon (None = use model defaults)
         strict_length_limits: If True, error on limit violation; if False, warn/clip
+        max_models: Maximum number of models to include in ensemble (None = all)
+        model_selection: Strategy for selecting models when max_models is set
+            "all": Use all available models (default)
+            "fast": Prioritize faster inference models
+            "accurate": Prioritize models with higher accuracy potential
+        parallel_fit: Whether to fit models concurrently (default: False)
+        parallel_predict: Whether to run predictions concurrently (default: False)
+        max_workers: Maximum number of parallel workers for fit/predict (None = auto)
     """
 
     # Required
@@ -56,6 +64,13 @@ class ForecastConfig:
     # Length handling behavior
     strict_length_limits: bool = False  # If True, error on limit violation; if False, warn/clip
 
+    # Performance optimizations (Phase 1 & 2)
+    max_models: int | None = None  # Limit concurrent models
+    model_selection: Literal["all", "fast", "accurate"] = "all"
+    parallel_fit: bool = False  # Enable concurrent model fitting
+    parallel_predict: bool = False  # Enable concurrent prediction
+    max_workers: int | None = None  # Max parallel workers (None = auto)
+
     def __post_init__(self) -> None:
         # Validation
         if self.h <= 0:
@@ -64,6 +79,10 @@ class ForecastConfig:
             raise ValueError("min_tsfm must be at least 1")
         if self.quantile_mode not in {"best_effort", "strict"}:
             raise ValueError("quantile_mode must be one of: 'best_effort', 'strict'")
+        if self.model_selection not in {"all", "fast", "accurate"}:
+            raise ValueError("model_selection must be one of: 'all', 'fast', 'accurate'")
+        if self.max_models is not None and self.max_models < 1:
+            raise ValueError("max_models must be at least 1 or None")
 
     @staticmethod
     def quick(h: int, freq: str = "D") -> ForecastConfig:

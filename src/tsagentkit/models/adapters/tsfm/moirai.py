@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Phase 5a: Predictor cache keyed by (model_id, pred_len, ctx_len, target_dim, feat_dim, past_feat_dim, batch_size)
+_predictor_cache: dict[tuple[int, int, int, int, int, int, int], Any] = {}
+
 
 def load(model_name: str = "Salesforce/moirai-2.0-R-small", device: str | None = None) -> Any:
     """Load pretrained Moirai 2.0 model.
@@ -56,8 +59,22 @@ def load(model_name: str = "Salesforce/moirai-2.0-R-small", device: str | None =
 
 
 def unload(model: Any | None = None) -> None:
-    """Unload model resources (best-effort)."""
+    """Unload model resources (best-effort).
+
+    Also clears the predictor cache to free memory.
+    """
+    global _predictor_cache
+    _predictor_cache.clear()
     del model
+
+
+def clear_predictor_cache() -> None:
+    """Clear the predictor cache to free memory.
+
+    Call this when memory is constrained or after large batch operations.
+    """
+    global _predictor_cache
+    _predictor_cache.clear()
 
 
 def fit(dataset: TSDataset) -> Any:
@@ -168,18 +185,38 @@ def predict(
         feat_dynamic_real_dim = len(future_feature_cols)
         past_feat_dynamic_real_dim = len(past_feature_cols)
 
-        # Create forecast model with batch-aware context length
-        forecast_model = Moirai2Forecast(
-            module=module,
-            prediction_length=h,
-            context_length=max_ctx_len,
-            target_dim=1,
-            feat_dynamic_real_dim=feat_dynamic_real_dim,
-            past_feat_dynamic_real_dim=past_feat_dynamic_real_dim,
+        # Phase 5a: Predictor reuse - check cache first
+        batch_size = len(batch)
+        model_id = id(module)
+        cache_key = (
+            model_id,
+            h,
+            max_ctx_len,
+            1,
+            feat_dynamic_real_dim,
+            past_feat_dynamic_real_dim,
+            batch_size,
         )
 
-        # Use batch_size > 1 for efficient inference
-        predictor = forecast_model.create_predictor(batch_size=len(batch))
+        global _predictor_cache
+        predictor = _predictor_cache.get(cache_key)
+
+        if predictor is None:
+            # Create forecast model with batch-aware context length
+            forecast_model = Moirai2Forecast(
+                module=module,
+                prediction_length=h,
+                context_length=max_ctx_len,
+                target_dim=1,
+                feat_dynamic_real_dim=feat_dynamic_real_dim,
+                past_feat_dynamic_real_dim=past_feat_dynamic_real_dim,
+            )
+
+            # Use batch_size > 1 for efficient inference
+            predictor = forecast_model.create_predictor(batch_size=batch_size)
+
+            # Cache predictor for reuse
+            _predictor_cache[cache_key] = predictor
 
         # Build multi-series PandasDataset with covariates
         ts_dict = {}

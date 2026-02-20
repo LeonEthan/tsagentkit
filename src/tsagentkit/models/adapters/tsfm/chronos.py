@@ -53,6 +53,64 @@ def unload(model: Any | None = None) -> None:
     del model
 
 
+def _group_by_similar_lengths(
+    series_data: list[tuple[str, np.ndarray, Any]],
+    batch_size: int,
+    num_bins: int = 4,
+) -> list[list[tuple[str, np.ndarray, Any]]]:
+    """Group series by similar lengths to minimize padding overhead.
+
+    Phase 5b: Length-balanced batching reduces wasted computation from padding
+    short series to match the longest series in a batch.
+
+    Args:
+        series_data: List of (unique_id, context, last_date) tuples
+        batch_size: Target batch size
+        num_bins: Number of length buckets to create
+
+    Returns:
+        List of batches, where each batch contains series with similar lengths
+    """
+    if len(series_data) <= batch_size:
+        return [series_data]
+
+    # Sort by length
+    sorted_series = sorted(series_data, key=lambda x: len(x[1]))
+
+    # Create length bins
+    min_len = len(sorted_series[0][1])
+    max_len = len(sorted_series[-1][1])
+
+    if max_len == min_len or num_bins <= 1:
+        # All same length or single bin - just use regular batching
+        return [sorted_series[i : i + batch_size] for i in range(0, len(sorted_series), batch_size)]
+
+    # Assign to bins based on length
+    bins: list[list[tuple[str, np.ndarray, Any]]] = [[] for _ in range(num_bins)]
+
+    for series in sorted_series:
+        length = len(series[1])
+        # Find appropriate bin
+        bin_idx = min(int((length - min_len) / (max_len - min_len) * num_bins), num_bins - 1)
+        bins[bin_idx].append(series)
+
+    # Flatten bins into batches of target batch_size
+    batches: list[list[tuple[str, np.ndarray, Any]]] = []
+    current_batch: list[tuple[str, np.ndarray, Any]] = []
+
+    for bin_series in bins:
+        for series in bin_series:
+            current_batch.append(series)
+            if len(current_batch) >= batch_size:
+                batches.append(current_batch)
+                current_batch = []
+
+    if current_batch:
+        batches.append(current_batch)
+
+    return batches
+
+
 def fit(dataset: TSDataset) -> Any:
     """Fit Chronos model (loads pretrained).
 
@@ -129,10 +187,15 @@ def predict(
         series_data.append((unique_id, context, last_date))
 
     forecasts = []
-    # Process in batches
-    for i in range(0, len(series_data), batch_size):
-        batch = series_data[i : i + batch_size]
 
+    # Phase 5b: Use length-balanced batching to minimize padding
+    if len(series_data) > batch_size:
+        batches = _group_by_similar_lengths(series_data, batch_size)
+    else:
+        batches = [series_data]
+
+    # Process batches
+    for batch in batches:
         # Pad contexts to same length for batching
         max_len = max(len(ctx) for _, ctx, _ in batch)
         padded_contexts = []

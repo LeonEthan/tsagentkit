@@ -7,13 +7,20 @@ complexity into minimal, immutable data containers.
 from __future__ import annotations
 
 import re
+import weakref
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
     from tsagentkit.core.config import ForecastConfig
+
+# Phase 3: Module-level cache for grouped series data
+# Maps TSDataset id -> {unique_id: y_values_array}
+# Uses regular dict with weakref finalizers for cleanup
+_series_cache: dict[int, dict[str, np.ndarray]] = {}
 
 
 def _normalize_freq_alias(freq: str) -> str:
@@ -73,6 +80,39 @@ class TSDataset:
         """Extract single series by ID."""
         mask = self.df["unique_id"] == unique_id
         return self.df[mask].copy()
+
+    def get_series_dict(self) -> dict[str, np.ndarray]:
+        """Get all series as a dictionary mapping unique_id to y values.
+
+        Phase 3 optimization: Pre-computes and caches grouped series data
+        to avoid repeated groupby operations across adapters.
+
+        Returns:
+            Dictionary mapping unique_id to numpy array of y values
+        """
+        global _series_cache
+
+        dataset_id = id(self)
+
+        # Check cache first
+        if dataset_id in _series_cache:
+            return _series_cache[dataset_id]
+
+        # Build cache
+        grouped = {
+            uid: group["y"].values.copy() for uid, group in self.df.groupby("unique_id", sort=False)
+        }
+
+        # Store in cache
+        _series_cache[dataset_id] = grouped
+
+        # Set up finalizer to clean cache when dataset is garbage collected
+        def cleanup_cache(did: int) -> None:
+            _series_cache.pop(did, None)
+
+        weakref.finalize(self, cleanup_cache, dataset_id)
+
+        return grouped
 
     def get_covariates_for_series(
         self,
